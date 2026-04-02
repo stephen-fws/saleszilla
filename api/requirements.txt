@@ -1,0 +1,27 @@
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# Database (SQL Server)
+sqlalchemy>=2.0.0
+pyodbc>=5.1.0
+
+# Auth
+PyJWT>=2.8.0
+python-multipart>=0.0.9
+
+# Microsoft Graph API
+httpx>=0.27.0
+
+# Session middleware
+itsdangerous>=2.2.0
+
+# Validation & settings
+pydantic[email]>=2.7.0
+python-dotenv>=1.0.0
+
+# Email body rendering (markdown -> HTML)
+markdown>=3.5.0
+
+# SendGrid (OTP emails)
+sendgrid>=6.11.0

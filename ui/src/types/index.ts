@@ -1,0 +1,209 @@
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string | null;
+  is_active: boolean;
+  is_ms_connected: boolean;
+  ms_email: string | null;
+}
+
+export interface ApiResponse<T> {
+  status: string;
+  message_code: string | null;
+  message: string | null;
+  data: T;
+}
+
+export interface LoginTokens {
+  access_token: string;
+  refresh_token: string;
+}
+
+// ── Dashboard types ──────────────────────────────────────────────────────────
+
+export type ViewMode = "queue" | "potentials" | "accounts";
+
+export interface Folder {
+  id: string;
+  label: string;
+  count: number;
+  icon: string;
+}
+
+export interface QueueItem {
+  id: string;
+  folderType: string;
+  title: string;
+  subtitle: string;
+  preview: string;
+  timeLabel: string;
+  priority: string | null;
+  status: string;
+  sentBy: string | null;
+  companyId: string;
+  contactId: string;
+  dealId: string | null;
+  createdAt: string;
+}
+
+export interface PotentialDeal {
+  id: string;
+  title: string;
+  value: number;
+  stage: string;
+  probability: number;
+  service: string | null;
+  ownerName: string | null;
+  closingDate: string | null;
+  company: { id: string; name: string; industry: string };
+  contact: { id: string; name: string; title: string; email: string };
+}
+
+export interface PotentialFilters {
+  stages: string[];
+  services: string[];
+  owners: string[];
+  search: string;
+  sortBy: string;
+}
+
+export interface AccountSummary {
+  id: string;
+  name: string;
+  industry: string;
+  location: string | null;
+  website: string | null;
+  dealCount: number;
+  contactCount: number;
+  totalValue: number;
+  topStage: string | null;
+}
+
+export interface AccountFilters {
+  search: string;
+  industries: string[];
+  sortBy: string;
+}
+
+export interface AccountDetailContact {
+  id: string;
+  name: string | null;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  department: string | null;
+}
+
+export interface AccountDetailPotential {
+  id: string;
+  title: string | null;
+  value: number | null;
+  stage: string | null;
+  probability: number | null;
+  service: string | null;
+  ownerName: string | null;
+  contact: { id: string; name: string | null; title: string | null } | null;
+}
+
+export interface AccountActivityItem {
+  id: number;
+  activityType: string;
+  description: string | null;
+  createdTime: string | null;
+}
+
+export interface AccountDetail {
+  id: string;
+  name: string | null;
+  industry: string | null;
+  website: string | null;
+  location: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingCountry: string | null;
+  employees: number | null;
+  revenue: number | null;
+  description: string | null;
+  contacts: AccountDetailContact[];
+  potentials: AccountDetailPotential[];
+  activities: AccountActivityItem[];
+}
+
+export const DEAL_STAGES = [
+  "prospect",
+  "qualification",
+  "proposal",
+  "negotiation",
+  "closed-won",
+  "closed-lost",
+] as const;
+
+export const SORT_OPTIONS = [
+  { value: "value-desc", label: "Value (High \u2192 Low)" },
+  { value: "value-asc", label: "Value (Low \u2192 High)" },
+  { value: "closing-date", label: "Closing Date (Soonest)" },
+  { value: "stage", label: "Stage (Pipeline Order)" },
+  { value: "company-az", label: "Company (A \u2192 Z)" },
+] as const;
+
+export const ACCOUNT_SORT_OPTIONS = [
+  { value: "name-az", label: "Name (A \u2192 Z)" },
+  { value: "name-za", label: "Name (Z \u2192 A)" },
+  { value: "value-desc", label: "Value (High \u2192 Low)" },
+  { value: "deals-desc", label: "Most Deals" },
+] as const;
+
+// ── Detail panel types ────────────────────────────────────────────────────────
+
+export type DetailTab = "action" | "details" | "research" | "emails" | "solution" | "notes" | "todos" | "files";
+
+export interface NoteItem {
+  id: number;
+  content: string;
+  createdTime: string | null;
+}
+
+export type TodoStatus = "pending" | "in_progress" | "on_hold" | "done";
+
+export interface TodoItem {
+  id: number;
+  text: string;
+  status: TodoStatus;
+  isCompleted: boolean;
+  createdTime: string | null;
+}
+
+export interface PotentialDetail {
+  id: string;
+  title: string | null;
+  value: number | null;
+  stage: string | null;
+  probability: number | null;
+  service: string | null;
+  subService: string | null;
+  ownerName: string | null;
+  closingDate: string | null;
+  leadSource: string | null;
+  nextStep: string | null;
+  description: string | null;
+  contact: {
+    id: string;
+    name: string | null;
+    title: string | null;
+    email: string | null;
+    phone: string | null;
+    mobile: string | null;
+  } | null;
+  company: {
+    id: string;
+    name: string | null;
+    industry: string | null;
+    website: string | null;
+    location: string | null;
+    employees: number | null;
+    revenue: number | null;
+    description: string | null;
+  } | null;
+}
