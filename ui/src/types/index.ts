@@ -140,6 +140,34 @@ export const DEAL_STAGES = [
   "closed-lost",
 ] as const;
 
+// ── Filter sidebar predefined lists ───────────────────────────────────────────
+// TODO: Replace with a lookup table from the DB when ready.
+
+export const FILTER_STAGES = [
+  "Prospects",
+  "Pre Qualified",
+  "Requirements Capture",
+  "Proposal",
+  "Contracting",
+  "Closed",
+  "Contact Later",
+  "Sleeping",
+  "Low Value",
+  "Disqualified",
+  "Lost",
+] as const;
+
+export const FILTER_SERVICES = [
+  "Data Entry",
+  "Finance & Accounting",
+  "Healthcare BPO",
+  "Customer Support",
+  "IT Services",
+  "Digital Marketing",
+  "Legal Process Outsourcing",
+  "Research & Analytics",
+] as const;
+
 export const SORT_OPTIONS = [
   { value: "value-desc", label: "Value (High \u2192 Low)" },
   { value: "value-asc", label: "Value (Low \u2192 High)" },
@@ -157,7 +185,23 @@ export const ACCOUNT_SORT_OPTIONS = [
 
 // ── Detail panel types ────────────────────────────────────────────────────────
 
-export type DetailTab = "action" | "details" | "research" | "emails" | "solution" | "notes" | "todos" | "files";
+export interface AgentResult {
+  id: number;
+  potentialId: string;
+  agentId: string;
+  agentName: string;
+  tabType: string;
+  contentType: string;
+  content: string | null;
+  status: string; // "pending" | "completed" | "error"
+  sortOrder: number;
+  triggeredBy: string | null;
+  triggeredAt: string | null;
+  completedAt: string | null;
+  errorMessage: string | null;
+}
+
+export type DetailTab = "action" | "details" | "research" | "emails" | "solution" | "notes" | "todos" | "files" | "timeline";
 
 export interface NoteItem {
   id: number;
@@ -188,6 +232,9 @@ export interface PotentialDetail {
   leadSource: string | null;
   nextStep: string | null;
   description: string | null;
+  dealType: string | null;
+  dealSize: string | null;
+  createdAt: string | null;
   contact: {
     id: string;
     name: string | null;

@@ -22,7 +22,7 @@ import type {
   PotentialFilters,
   AccountFilters,
 } from "@/types";
-import { DEAL_STAGES, SORT_OPTIONS, ACCOUNT_SORT_OPTIONS } from "@/types";
+import { SORT_OPTIONS, ACCOUNT_SORT_OPTIONS, FILTER_STAGES, FILTER_SERVICES } from "@/types";
 
 interface FolderPanelProps {
   folders: Folder[];
@@ -34,7 +34,7 @@ interface FolderPanelProps {
   potentialCount?: number;
   filters?: PotentialFilters;
   onFiltersChange?: (filters: PotentialFilters) => void;
-  filterOptions?: { owners: string[]; services: string[] };
+  filterOptions?: { owners: string[]; services: string[]; stages: string[] };
   accountCount?: number;
   accountFilters?: AccountFilters;
   onAccountFiltersChange?: (filters: AccountFilters) => void;
@@ -52,12 +52,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   send: Send,
 };
 
-function formatStageLabel(stage: string): string {
-  return stage
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 export default function FolderPanel({
   folders,
@@ -361,7 +355,7 @@ export default function FolderPanel({
                 Stage
               </label>
               <div className="space-y-0.5">
-                {DEAL_STAGES.map((stage) => {
+                {FILTER_STAGES.map((stage) => {
                   const isChecked = filters?.stages.includes(stage) || false;
                   return (
                     <label
@@ -376,7 +370,7 @@ export default function FolderPanel({
                         onChange={() => toggleFilter("stages", stage)}
                         className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
                       />
-                      <span className="flex-1">{formatStageLabel(stage)}</span>
+                      <span className="flex-1">{stage}</span>
                     </label>
                   );
                 })}
@@ -384,34 +378,32 @@ export default function FolderPanel({
             </div>
 
             {/* Service filter */}
-            {filterOptions && filterOptions.services.length > 0 && (
-              <div>
-                <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
-                  Service
-                </label>
-                <div className="space-y-0.5">
-                  {filterOptions.services.map((service) => {
-                    const isChecked = filters?.services.includes(service) || false;
-                    return (
-                      <label
-                        key={service}
-                        className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer transition-colors ${
-                          isChecked ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleFilter("services", service)}
-                          className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
-                        />
-                        <span className="flex-1 truncate">{service}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+            <div>
+              <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
+                Service
+              </label>
+              <div className="space-y-0.5">
+                {FILTER_SERVICES.map((service) => {
+                  const isChecked = filters?.services.includes(service) || false;
+                  return (
+                    <label
+                      key={service}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer transition-colors ${
+                        isChecked ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleFilter("services", service)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+                      />
+                      <span className="flex-1 truncate">{service}</span>
+                    </label>
+                  );
+                })}
               </div>
-            )}
+            </div>
 
             {/* Owner filter */}
             {filterOptions && filterOptions.owners.length > 0 && (

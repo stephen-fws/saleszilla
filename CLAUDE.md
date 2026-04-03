@@ -222,6 +222,46 @@ Three-panel responsive layout:
 
 ---
 
+## Potential Detail Panel (`DetailsTab.tsx`)
+
+3-section panel (Deal / Contact / Company) in the right column when a potential is selected.
+
+### Editable fields (inline, hover to reveal pencil)
+- **Stage** — clickable color badge → `<select>` dropdown with real DB stage names
+- **Value** (`amount`) — number input
+- **Probability** — number input, validated `0–100` (shows inline red error if exceeded, field stays open)
+- **Closing Date** — date picker (`<input type="date">`)
+- **Next Step** — text input (full width)
+- **Description** — textarea with `resize-y` (user drags to expand); Shift+Enter to save, Escape to cancel; URLs in read-only view rendered as clickable `<a>` links via `LinkifiedText`
+
+### Read-only fields
+Title, Owner, Service, Sub-service, Type, Deal Size, Lead Source, Created date
+
+→ `PATCH /potentials/{id}` → `update_potential()` service → returns full `PotentialDetailResponse`
+
+### `UpdatePotentialRequest` schema fields
+`stage`, `amount`, `probability`, `closing_date` (ISO date string `YYYY-MM-DD`), `next_step`, `description`
+
+### Extra fields surfaced (were in DB but not previously shown)
+- `deal_type` — maps from `Potential.type` column
+- `deal_size` — maps from `Potential.deal_size` column
+- `created_time` — deal creation date (shown as "Created" label)
+
+### Stage color map
+`DetailsTab` and `AccountDetailPanel` both have `STAGE_COLORS` covering real Zoho-style DB names (Prospects, Pre Qualified, Requirements Capture, Proposal, Contracting, Closed, Contact Later, Sleeping, Low Value, Disqualified, Lost) plus normalized mock names as fallback.
+
+---
+
+## Potentials Filter Sidebar (Panel 1)
+
+Stage and Service filters are **dynamically populated from the DB** via `filter_options` returned by `GET /potentials`. Never hardcoded.
+
+- `getPotentials()` returns `filterOptions: { owners, services, stages }` — all three come from `PotentialFilterOptions` on the backend
+- `FolderPanel` receives `filterOptions` prop with `stages` included; renders stage checkboxes only when `filterOptions.stages.length > 0`
+- Stage names displayed as-is from DB (no normalisation)
+
+---
+
 ## Queue Folders
 
 7 active folders (defined in `queue_service.py`):

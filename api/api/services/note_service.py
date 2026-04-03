@@ -36,28 +36,35 @@ def create_note(potential_id: str, content: str, user_id: str | None = None) -> 
                         created_by_user_id=note.created_by_user_id, created_time=note.created_time)
 
 
-def update_note(note_id: int, content: str) -> NoteItem | None:
+def update_note(note_id: int, content: str) -> tuple[NoteItem, str] | None:
+    """Update note content. Returns (updated_item, old_content) or None if not found."""
     now = datetime.now(timezone.utc)
     with get_session() as session:
         note = session.get(CXNote, note_id)
         if not note or not note.is_active:
             return None
+        old_content = note.content
         note.content = content
         note.updated_time = now
         session.add(note)
         session.flush()
         session.refresh(note)
-        return NoteItem(id=note.id, potential_id=note.potential_id, content=note.content,
-                        created_by_user_id=note.created_by_user_id, created_time=note.created_time)
+        return (
+            NoteItem(id=note.id, potential_id=note.potential_id, content=note.content,
+                     created_by_user_id=note.created_by_user_id, created_time=note.created_time),
+            old_content,
+        )
 
 
-def delete_note(note_id: int) -> bool:
+def delete_note(note_id: int) -> str | None:
+    """Soft-delete a note. Returns a preview of the content on success, None if not found."""
     now = datetime.now(timezone.utc)
     with get_session() as session:
         note = session.get(CXNote, note_id)
         if not note or not note.is_active:
-            return False
+            return None
+        preview = (note.content[:80] + "…") if len(note.content) > 83 else note.content
         note.is_active = False
         note.updated_time = now
         session.add(note)
-    return True
+    return preview

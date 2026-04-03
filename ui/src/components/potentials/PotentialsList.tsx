@@ -1,7 +1,21 @@
-import { Building2, X, Plus } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Building2, X, Plus, ChevronDown, Loader2 } from "lucide-react";
 import type { PotentialDeal } from "@/types";
 
 const STAGE_COLORS: Record<string, string> = {
+  // Real DB stage names
+  Prospects: "bg-slate-100 text-slate-600",
+  "Pre Qualified": "bg-blue-100 text-blue-700",
+  "Requirements Capture": "bg-indigo-100 text-indigo-700",
+  Proposal: "bg-amber-100 text-amber-700",
+  Contracting: "bg-orange-100 text-orange-700",
+  Closed: "bg-emerald-100 text-emerald-700",
+  "Contact Later": "bg-slate-100 text-slate-500",
+  Sleeping: "bg-slate-100 text-slate-500",
+  "Low Value": "bg-slate-100 text-slate-500",
+  Disqualified: "bg-red-100 text-red-600",
+  Lost: "bg-red-100 text-red-700",
+  // Normalized fallbacks
   prospect: "bg-slate-100 text-slate-600",
   qualification: "bg-blue-100 text-blue-700",
   proposal: "bg-amber-100 text-amber-700",
@@ -10,16 +24,107 @@ const STAGE_COLORS: Record<string, string> = {
   "closed-lost": "bg-red-100 text-red-700",
 };
 
-function StageBadge({ stage }: { stage: string }) {
-  const colorClass = STAGE_COLORS[stage] || "bg-slate-100 text-slate-600";
-  const label = stage
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+function StageSelector({
+  stage,
+  availableStages,
+  onStageChange,
+}: {
+  stage: string;
+  availableStages: string[];
+  onStageChange: (stage: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setPending(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  function handleSelect(newStage: string) {
+    if (newStage === stage) { setOpen(false); return; }
+    setPending(newStage);
+  }
+
+  async function confirm() {
+    if (!pending) return;
+    setSaving(true);
+    setOpen(false);
+    try { await onStageChange(pending); } finally { setSaving(false); setPending(null); }
+  }
+
+  function cancel() {
+    setPending(null);
+  }
+
+  const colorClass = STAGE_COLORS[stage] ?? "bg-slate-100 text-slate-600";
+
   return (
-    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${colorClass}`}>
-      {label}
-    </span>
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => { setOpen((v) => !v); setPending(null); }}
+        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-75 ${colorClass}`}
+      >
+        {saving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : stage}
+        {!saving && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
+      </button>
+
+      {open && availableStages.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 z-30 min-w-[170px] rounded-lg border border-slate-200 bg-white shadow-lg py-1">
+          {pending ? (
+            <div className="px-3 py-2 space-y-2">
+              <p className="text-[11px] text-slate-600">
+                Change stage to{" "}
+                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
+                  {pending}
+                </span>
+                ?
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={confirm}
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={cancel}
+                  className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            availableStages.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleSelect(s)}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                  s === stage ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span className={`inline-block w-2 h-2 rounded-full ${STAGE_COLORS[s]?.split(" ")[0] ?? "bg-slate-300"}`} />
+                {s}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -37,6 +142,8 @@ interface PotentialsListProps {
   activeFilterCount?: number;
   onClearFilters?: () => void;
   onNewDeal?: () => void;
+  availableStages?: string[];
+  onStageChange?: (dealId: string, stage: string) => Promise<void>;
 }
 
 export default function PotentialsList({
@@ -47,6 +154,8 @@ export default function PotentialsList({
   activeFilterCount = 0,
   onClearFilters,
   onNewDeal,
+  availableStages = [],
+  onStageChange,
 }: PotentialsListProps) {
   return (
     <div className="flex h-full flex-col bg-white">
@@ -141,7 +250,17 @@ export default function PotentialsList({
                         {deal.contact.name} - {deal.contact.title}
                       </span>
                       <div className="flex items-center gap-1.5 mt-1.5">
-                        <StageBadge stage={deal.stage} />
+                        {onStageChange ? (
+                          <StageSelector
+                            stage={deal.stage}
+                            availableStages={availableStages}
+                            onStageChange={(s) => onStageChange(deal.id, s)}
+                          />
+                        ) : (
+                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[deal.stage] ?? "bg-slate-100 text-slate-600"}`}>
+                            {deal.stage}
+                          </span>
+                        )}
                         {deal.service && (
                           <span className="text-[10px] text-slate-400 truncate">{deal.service}</span>
                         )}

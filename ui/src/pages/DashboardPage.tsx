@@ -8,7 +8,9 @@ import {
   getAccounts,
   completeQueueItem,
   getCalendarEvents,
+  updatePotential,
 } from "@/lib/api";
+import NewPotentialModal from "@/components/potentials/NewPotentialModal";
 import type { CalendarEvent } from "@/lib/api";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import type {
@@ -115,11 +117,18 @@ export default function DashboardPage() {
     search: "",
     sortBy: "value-desc",
   });
-  const [filterOptions, setFilterOptions] = useState<{ owners: string[]; services: string[] }>({
+  const [filterOptions, setFilterOptions] = useState<{ owners: string[]; services: string[]; stages: string[] }>({
     owners: [],
     services: [],
+    stages: [],
   });
   const [loadingPotentials, setLoadingPotentials] = useState(false);
+
+  // Limit owner filter to the logged-in user only
+  const myFilterOptions = {
+    ...filterOptions,
+    owners: user?.name ? filterOptions.owners.filter((o) => o === user.name) : filterOptions.owners,
+  };
 
   // Accounts state
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
@@ -135,6 +144,7 @@ export default function DashboardPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [newPotentialOpen, setNewPotentialOpen] = useState(false);
 
   // Fetch folders on mount
   useEffect(() => {
@@ -181,7 +191,7 @@ export default function DashboardPage() {
         setLoadingPotentials(true);
         const data = await getPotentials(potentialFilters);
         setPotentialDeals(data.deals ?? []);
-        setFilterOptions(data.filterOptions ?? { owners: [], services: [] });
+        setFilterOptions(data.filterOptions ?? { owners: [], services: [], stages: [] });
       } catch {
         setError("Failed to load potentials");
         setPotentialDeals([]);
@@ -293,6 +303,28 @@ export default function DashboardPage() {
       sortBy: prev.sortBy,
     }));
   }, []);
+
+  const handlePotentialCreated = useCallback((dealId: string) => {
+    // Switch to potentials view, select the new deal, and refresh the list
+    setViewMode("potentials");
+    setSelectedDealId(dealId);
+    if (isMobile) setMobileShowDetail(true);
+    // Trigger a re-fetch by bumping filters (no-op change forces useEffect to re-run)
+    setPotentialFilters((prev) => ({ ...prev }));
+  }, [isMobile]);
+
+  const handleStageChange = useCallback(async (dealId: string, stage: string) => {
+    // Optimistically update the list
+    setPotentialDeals((prev) =>
+      prev.map((d) => (d.id === dealId ? { ...d, stage } : d))
+    );
+    try {
+      await updatePotential(dealId, { stage });
+    } catch {
+      // Revert on failure by re-fetching
+      getPotentials(potentialFilters).then((data) => setPotentialDeals(data.deals ?? [])).catch(() => {});
+    }
+  }, [potentialFilters]);
 
   const sortedDeals = useMemo(() => {
     const sorted = [...potentialDeals];
@@ -435,7 +467,7 @@ export default function DashboardPage() {
               potentialCount={sortedDeals.length}
               filters={potentialFilters}
               onFiltersChange={setPotentialFilters}
-              filterOptions={filterOptions}
+              filterOptions={myFilterOptions}
             />
           </div>
         </>
@@ -460,7 +492,7 @@ export default function DashboardPage() {
               potentialCount={sortedDeals.length}
               filters={potentialFilters}
               onFiltersChange={setPotentialFilters}
-              filterOptions={filterOptions}
+              filterOptions={myFilterOptions}
               accountCount={sortedAccounts.length}
               accountFilters={accountFilters}
               onAccountFiltersChange={setAccountFilters}
@@ -517,6 +549,9 @@ export default function DashboardPage() {
               loading={loadingPotentials}
               activeFilterCount={activeFilterCount}
               onClearFilters={handleClearFilters}
+              onNewDeal={() => setNewPotentialOpen(true)}
+              availableStages={filterOptions.stages}
+              onStageChange={handleStageChange}
             />
           )}
         </div>
@@ -555,9 +590,18 @@ export default function DashboardPage() {
               setViewMode("potentials");
               setSelectedDealId(dealId);
             }}
+            availableStages={filterOptions.stages}
           />
         </div>
       </div>
+
+      <NewPotentialModal
+        isOpen={newPotentialOpen}
+        onClose={() => setNewPotentialOpen(false)}
+        onCreated={handlePotentialCreated}
+        availableStages={filterOptions.stages}
+        availableServices={filterOptions.services}
+      />
 
       {calendarOpen && (
         <CalendarPanel onClose={() => {

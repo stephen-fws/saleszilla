@@ -174,13 +174,37 @@ class CXAgentInsight(Base):
     id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
     potential_id: Mapped[str] = mapped_column("PotentialId", String(32), nullable=False)
     agent_type: Mapped[str] = mapped_column("AgentType", String(64), nullable=False)
+    agent_id: Mapped[str | None] = mapped_column("AgentId", String(64), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column("AgentName", Unicode(128), nullable=True)
     content: Mapped[str | None] = mapped_column("Content", UnicodeText, nullable=True)
+    content_type: Mapped[str | None] = mapped_column("ContentType", String(16), nullable=True)
     status: Mapped[str] = mapped_column("Status", String(16), nullable=False, default="pending")
+    execution_id: Mapped[str | None] = mapped_column("ExecutionId", String(64), nullable=True)
+    run_id: Mapped[str | None] = mapped_column("RunId", String(64), nullable=True)
+    triggered_by: Mapped[str | None] = mapped_column("TriggeredBy", String(32), nullable=True)
+    triggered_at: Mapped[datetime | None] = mapped_column("TriggeredAt", DateTime, nullable=True)
+    error_message: Mapped[str | None] = mapped_column("ErrorMessage", UnicodeText, nullable=True)
     requested_time: Mapped[datetime | None] = mapped_column("RequestedTime", DateTime, nullable=True)
     completed_time: Mapped[datetime | None] = mapped_column("CompletedTime", DateTime, nullable=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
+class CXAgentTypeConfig(Base):
+    """Agent type registry — maps agent system IDs to Salezilla tabs."""
+
+    __tablename__ = "CX_AgentTypeConfig"
+
+    agent_id: Mapped[str] = mapped_column("AgentId", String(64), primary_key=True)
+    agent_name: Mapped[str] = mapped_column("AgentName", Unicode(128), nullable=False)
+    tab_type: Mapped[str] = mapped_column("TabType", String(32), nullable=False)
+    content_type: Mapped[str] = mapped_column("ContentType", String(16), nullable=False, default="markdown")
+    trigger_category: Mapped[str | None] = mapped_column("TriggerCategory", String(32), nullable=True)
+    sort_order: Mapped[int] = mapped_column("SortOrder", Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
 
 
 class CXEmailDraft(Base):

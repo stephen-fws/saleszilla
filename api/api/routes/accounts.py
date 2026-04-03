@@ -26,6 +26,7 @@ def get_accounts(
         industries=industries_list,
         page=page,
         page_size=page_size,
+        owner_user_id=user.user_id,
     )
     return ResponseModel(data=result)
 

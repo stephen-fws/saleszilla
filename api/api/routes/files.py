@@ -8,6 +8,7 @@ from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import FileItem, ResponseModel
 from api.services.file_service import delete_file, get_download_url, get_file_content, list_files, save_file, MAX_FILE_SIZE
+from api.services.activity_service import log_activity
 
 router = APIRouter(prefix="/potentials/{potential_id}/files", tags=["files"])
 
@@ -37,6 +38,7 @@ async def upload_file(
         mime_type=file.content_type,
         user_id=user.user_id,
     )
+    log_activity(potential_id, "file_uploaded", f"File uploaded: \"{file.filename}\"", user.user_id)
     return ResponseModel(data=result)
 
 
@@ -62,7 +64,13 @@ def stream_file_content(file_id: int, user: User = Depends(get_current_active_us
 
 
 @router.delete("/{file_id}")
-def remove_file(file_id: int, user: User = Depends(get_current_active_user)) -> ResponseModel[dict]:
-    if not delete_file(file_id):
+def remove_file(
+    potential_id: str,
+    file_id: int,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    file_name = delete_file(file_id)
+    if file_name is None:
         raise BotApiException(404, "ERR_NOT_FOUND", "File not found.")
+    log_activity(potential_id, "file_deleted", f"File deleted: \"{file_name}\"", user.user_id)
     return ResponseModel(data={"ok": True})

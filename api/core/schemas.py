@@ -71,8 +71,46 @@ class PotentialItem(BaseModel):
     closing_date: Optional[datetime] = None
     lead_source: Optional[str] = None
     deal_size: Optional[str] = None
+    deal_type: Optional[str] = None
+    created_time: Optional[datetime] = None
     company: Optional[CompanySummary] = None
     contact: Optional[ContactSummary] = None
+
+
+class UpdatePotentialRequest(BaseModel):
+    stage: Optional[str] = None
+    amount: Optional[float] = None
+    probability: Optional[float] = None
+    closing_date: Optional[str] = None   # ISO date string YYYY-MM-DD
+    next_step: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CreatePotentialCompany(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    website: Optional[str] = None
+
+
+class CreatePotentialContact(BaseModel):
+    name: str
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class CreatePotentialRequest(BaseModel):
+    company: CreatePotentialCompany
+    contact: CreatePotentialContact
+    potential_name: str
+    amount: float
+    stage: str = "Prospects"
+    probability: Optional[float] = None
+    service: Optional[str] = None
+    sub_service: Optional[str] = None
+    lead_source: Optional[str] = None
+    closing_date: Optional[str] = None   # YYYY-MM-DD
+    next_step: Optional[str] = None
 
 
 class PotentialFilterOptions(BaseModel):
@@ -297,6 +335,7 @@ class ActivityItem(BaseModel):
     activity_type: str
     description: Optional[str] = None
     performed_by_user_id: Optional[str] = None
+    performed_by_name: Optional[str] = None
     created_time: Optional[datetime] = None
 
 
@@ -305,19 +344,40 @@ class ActivityItem(BaseModel):
 # ═════════════════════════════════════════════════════════════════════════════
 
 
-class AgentInsightItem(BaseModel):
+class AgentResultItem(BaseModel):
     id: int
     potential_id: str
-    agent_type: str
+    agent_id: str
+    agent_name: str
+    tab_type: str
+    content_type: str
     content: Optional[str] = None
     status: str = "pending"
-    requested_time: Optional[datetime] = None
-    completed_time: Optional[datetime] = None
+    sort_order: int = 0
+    triggered_by: Optional[str] = None
+    triggered_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
 
 
-class AgentWebhookRequest(BaseModel):
-    agent_type: str
-    status: str = "ready"
+# Keep old name as alias for any existing references
+AgentInsightItem = AgentResultItem
+
+
+class AgentWebhookPayload(BaseModel):
+    event: str
+    agent_id: str
+    agent_name: str
+    execution_id: str
+    entity_id: str
+    external_id: str  # Salezilla potential_id
+    run_id: str
+    execution_time_ms: Optional[int] = None
+    status: str  # "completed" | "failed"
+
+
+# Keep old name as alias
+AgentWebhookRequest = AgentWebhookPayload
 
 
 # ═════════════════════════════════════════════════════════════════════════════

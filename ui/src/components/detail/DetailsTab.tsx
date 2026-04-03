@@ -1,38 +1,23 @@
-import { Building2, User, Briefcase, Mail, Globe } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil, X } from "lucide-react";
 import type { PotentialDetail } from "@/types";
+import type { UpdatePotentialPayload } from "@/lib/api";
 
-interface DetailsTabProps {
-  detail: PotentialDetail;
-}
-
-function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
-  const display = (() => {
-    if (value === null || value === undefined || value === "") return "—";
-    return String(value);
-  })();
-  return (
-    <div className="py-1.5">
-      <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
-      <p className="text-sm text-slate-700">{display}</p>
-    </div>
-  );
-}
-
-function formatCurrency(value: number | null | undefined) {
-  if (value == null) return null;
-  return `$${Number(value).toLocaleString()}`;
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return null;
-  try {
-    return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return value;
-  }
-}
 
 const STAGE_COLORS: Record<string, string> = {
+  // Real DB stage names
+  Prospects: "bg-slate-100 text-slate-700",
+  "Pre Qualified": "bg-blue-100 text-blue-700",
+  "Requirements Capture": "bg-indigo-100 text-indigo-700",
+  Proposal: "bg-amber-100 text-amber-700",
+  Contracting: "bg-orange-100 text-orange-700",
+  Closed: "bg-emerald-100 text-emerald-700",
+  "Contact Later": "bg-slate-100 text-slate-600",
+  Sleeping: "bg-slate-100 text-slate-500",
+  "Low Value": "bg-slate-100 text-slate-500",
+  Disqualified: "bg-red-100 text-red-600",
+  Lost: "bg-red-100 text-red-700",
+  // Normalized names (mock/fallback)
   prospect: "bg-slate-100 text-slate-700",
   qualification: "bg-blue-100 text-blue-700",
   proposal: "bg-amber-100 text-amber-700",
@@ -41,7 +26,359 @@ const STAGE_COLORS: Record<string, string> = {
   "closed-lost": "bg-red-100 text-red-700",
 };
 
-export default function DetailsTab({ detail }: DetailsTabProps) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatCurrency(value: number | null | undefined): string | null {
+  if (value == null) return null;
+  return `$${Number(value).toLocaleString()}`;
+}
+
+function formatDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return value;
+  }
+}
+
+function toISODate(value: string | null | undefined): string {
+  if (!value) return "";
+  try {
+    return new Date(value).toISOString().split("T")[0];
+  } catch {
+    return "";
+  }
+}
+
+// ── Read-only field ───────────────────────────────────────────────────────────
+
+function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
+  const display = value === null || value === undefined || value === "" ? "—" : String(value);
+  return (
+    <div className="py-1">
+      <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
+      <p className="text-sm text-slate-700">{display}</p>
+    </div>
+  );
+}
+
+// ── Editable text/number field ────────────────────────────────────────────────
+
+function EditableField({
+  label,
+  value,
+  type = "text",
+  min,
+  max,
+  displayFormatter,
+  onSave,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+  type?: "text" | "number" | "date";
+  min?: number;
+  max?: number;
+  displayFormatter?: (val: string | number | null | undefined) => string | null;
+  onSave: (val: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(
+    type === "date" ? toISODate(value as string) : String(value ?? "")
+  );
+  const [saving, setSaving] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function commit() {
+    if (type === "number" && draft !== "") {
+      const n = parseFloat(draft);
+      if (min !== undefined && n < min) { setValidationError(`Min ${min}`); return; }
+      if (max !== undefined && n > max) { setValidationError(`Max ${max}`); return; }
+    }
+    setValidationError(null);
+    const original = type === "date" ? toISODate(value as string) : String(value ?? "");
+    if (draft === original) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(draft); } finally { setSaving(false); setEditing(false); }
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") {
+      setDraft(type === "date" ? toISODate(value as string) : String(value ?? ""));
+      setValidationError(null);
+      setEditing(false);
+    }
+  }
+
+  function startEdit() {
+    setDraft(type === "date" ? toISODate(value as string) : String(value ?? ""));
+    setValidationError(null);
+    setEditing(true);
+  }
+
+  const displayValue = displayFormatter
+    ? displayFormatter(value)
+    : type === "date"
+      ? formatDate(value as string)
+      : (value != null && value !== "" ? String(value) : null);
+
+  if (editing) {
+    return (
+      <div className="py-1">
+        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
+        <div className="flex items-center gap-1">
+          <div className="flex-1">
+            <input
+              autoFocus
+              type={type}
+              value={draft}
+              min={min}
+              max={max}
+              onChange={(e) => { setDraft(e.target.value); setValidationError(null); }}
+              onKeyDown={handleKey}
+              onBlur={commit}
+              className={`w-full rounded border px-2 py-1 text-xs text-slate-900 focus:outline-none focus:ring-1 ${validationError ? "border-red-400 focus:ring-red-400" : "border-blue-300 focus:ring-blue-400"}`}
+            />
+            {validationError && (
+              <p className="text-[10px] text-red-500 mt-0.5">{validationError}</p>
+            )}
+          </div>
+          {saving
+            ? <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
+            : <button type="button" onMouseDown={(e) => { e.preventDefault(); setDraft(String(value ?? "")); setValidationError(null); setEditing(false); }}><X className="h-3 w-3 text-slate-400 hover:text-slate-600" /></button>
+          }
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-1 group">
+      <div className="flex items-center gap-1 mb-0.5">
+        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">{label}</p>
+        <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+      <div
+        onClick={startEdit}
+        className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
+      >
+        {displayValue ?? "—"}
+      </div>
+    </div>
+  );
+}
+
+// ── Linkified text ────────────────────────────────────────────────────────────
+
+const URL_REGEX = /https?:\/\/[^\s,）\]>'"]+/g;
+
+function LinkifiedText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  URL_REGEX.lastIndex = 0;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const url = match[0];
+    parts.push(
+      <a
+        key={match.index}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:underline break-all"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {url}
+      </a>
+    );
+    last = match.index + url.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <span className="whitespace-pre-wrap">{parts}</span>;
+}
+
+// ── Editable textarea ─────────────────────────────────────────────────────────
+
+function EditableTextarea({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onSave: (val: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function commit() {
+    if (draft === (value ?? "")) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(draft); } finally { setSaving(false); setEditing(false); }
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { setDraft(value ?? ""); setEditing(false); }
+    // Shift+Enter submits, plain Enter is newline
+    if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); commit(); }
+  }
+
+  if (editing) {
+    return (
+      <div className="py-1">
+        <div className="flex items-center justify-between mb-0.5">
+          <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">{label}</p>
+          <p className="text-[10px] text-slate-400">Shift+Enter to save · Esc to cancel</p>
+        </div>
+        <div className="relative">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleKey}
+            onBlur={commit}
+            rows={3}
+            className="w-full rounded border border-blue-300 px-2 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y min-h-[72px]"
+          />
+          {saving && (
+            <Loader2 className="absolute bottom-2 right-2 h-3 w-3 animate-spin text-blue-500" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-1 group">
+      <div className="flex items-center gap-1 mb-0.5">
+        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">{label}</p>
+        <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+      <div
+        onClick={() => { setDraft(value ?? ""); setEditing(true); }}
+        className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
+      >
+        {value ? <LinkifiedText text={value} /> : <span className="text-slate-400">—</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Editable stage select ─────────────────────────────────────────────────────
+
+function EditableStage({
+  value,
+  availableStages,
+  onSave,
+}: {
+  value: string | null | undefined;
+  availableStages: string[];
+  onSave: (val: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setPending(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  function handleSelect(newStage: string) {
+    if (newStage === (value ?? "")) { setOpen(false); return; }
+    setPending(newStage);
+  }
+
+  async function confirm() {
+    if (!pending) return;
+    setSaving(true);
+    setOpen(false);
+    try { await onSave(pending); } finally { setSaving(false); setPending(null); }
+  }
+
+  const colorClass = STAGE_COLORS[value ?? ""] ?? "bg-slate-100 text-slate-600";
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => { setOpen((v) => !v); setPending(null); }}
+        className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-medium group hover:opacity-80 transition-opacity ${colorClass}`}
+        title="Click to change stage"
+      >
+        {saving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : (value ?? "—")}
+        {!saving && <Pencil className="h-2 w-2 opacity-0 group-hover:opacity-60 transition-opacity" />}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-30 min-w-[170px] rounded-lg border border-slate-200 bg-white shadow-lg py-1">
+          {pending ? (
+            <div className="px-3 py-2 space-y-2">
+              <p className="text-[11px] text-slate-600">
+                Change stage to{" "}
+                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
+                  {pending}
+                </span>
+                ?
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={confirm}
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPending(null)}
+                  className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            availableStages.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleSelect(s)}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                  s === (value ?? "") ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span className={`inline-block w-2 h-2 rounded-full ${STAGE_COLORS[s]?.split(" ")[0] ?? "bg-slate-300"}`} />
+                {s}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+interface DetailsTabProps {
+  detail: PotentialDetail;
+  availableStages: string[];
+  onFieldSave: (field: keyof UpdatePotentialPayload, raw: string) => Promise<void>;
+}
+
+export default function DetailsTab({ detail, availableStages, onFieldSave }: DetailsTabProps) {
   const { contact, company } = detail;
 
   return (
@@ -53,35 +390,59 @@ export default function DetailsTab({ detail }: DetailsTabProps) {
           <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
             <Briefcase className="h-4 w-4 text-slate-500" />
             <h3 className="text-sm font-semibold text-slate-800">Deal / Opportunity</h3>
-            {detail.stage && (
-              <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ${STAGE_COLORS[detail.stage] ?? "bg-slate-100 text-slate-700"}`}>
-                {detail.stage}
-              </span>
-            )}
+            <div className="ml-auto">
+              <EditableStage value={detail.stage} availableStages={availableStages} onSave={(v) => onFieldSave("stage", v)} />
+            </div>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
               <div className="col-span-2">
                 <Field label="Title" value={detail.title} />
               </div>
-              <Field label="Value" value={formatCurrency(detail.value)} />
-              <Field label="Probability" value={detail.probability != null ? `${detail.probability}%` : null} />
+              <EditableField
+                label="Value"
+                value={detail.value ?? ""}
+                type="number"
+                displayFormatter={(v) => (v != null && v !== "") ? formatCurrency(Number(v)) : null}
+                onSave={(v) => onFieldSave("amount", v)}
+              />
+              <EditableField
+                label="Probability (%)"
+                value={detail.probability ?? ""}
+                type="number"
+                min={0}
+                max={100}
+                onSave={(v) => onFieldSave("probability", v)}
+              />
+              <EditableField
+                label="Closing Date"
+                value={detail.closingDate}
+                type="date"
+                onSave={(v) => onFieldSave("closing_date", v)}
+              />
+              <Field label="Owner" value={detail.ownerName} />
               <Field label="Service" value={detail.service} />
               <Field label="Sub-service" value={detail.subService} />
+              {detail.dealType && <Field label="Type" value={detail.dealType} />}
+              {detail.dealSize && <Field label="Deal Size" value={detail.dealSize} />}
               <Field label="Lead Source" value={detail.leadSource} />
-              <Field label="Owner" value={detail.ownerName} />
-              <Field label="Closing Date" value={formatDate(detail.closingDate)} />
-              <Field label="Stage" value={detail.stage} />
-              {detail.nextStep && (
-                <div className="col-span-2">
-                  <Field label="Next Step" value={detail.nextStep} />
-                </div>
+              {detail.createdAt && (
+                <Field label="Created" value={formatDate(detail.createdAt)} />
               )}
-              {detail.description && (
-                <div className="col-span-2">
-                  <Field label="Description" value={detail.description} />
-                </div>
-              )}
+              <div className="col-span-2 mt-1">
+                <EditableField
+                  label="Next Step"
+                  value={detail.nextStep}
+                  onSave={(v) => onFieldSave("next_step", v)}
+                />
+              </div>
+              <div className="col-span-2">
+                <EditableTextarea
+                  label="Description"
+                  value={detail.description}
+                  onSave={(v) => onFieldSave("description", v)}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -97,31 +458,20 @@ export default function DetailsTab({ detail }: DetailsTabProps) {
               <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
                 <Field label="Name" value={contact.name} />
                 <Field label="Title" value={contact.title} />
-                <div className="col-span-2 flex items-center gap-2">
-                  {contact.email && (
+                {contact.email && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">Email</p>
                     <a
                       href={`mailto:${contact.email}`}
-                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 mt-1"
+                      className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                     >
                       <Mail className="h-3 w-3" />
                       {contact.email}
                     </a>
-                  )}
-                </div>
-                {contact.phone && (
-                  <div className="flex items-center gap-1">
-                    <div className="flex-1">
-                      <Field label="Phone" value={contact.phone} />
-                    </div>
                   </div>
                 )}
-                {contact.mobile && (
-                  <div className="flex items-center gap-1">
-                    <div className="flex-1">
-                      <Field label="Mobile" value={contact.mobile} />
-                    </div>
-                  </div>
-                )}
+                {contact.phone && <Field label="Phone" value={contact.phone} />}
+                {contact.mobile && <Field label="Mobile" value={contact.mobile} />}
               </div>
             </div>
           </div>

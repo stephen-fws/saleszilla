@@ -9,6 +9,7 @@ from core.ms_graph import get_valid_ms_token, send_mail_via_graph
 from core.schemas import EmailDraftResponse, ResponseModel, SendEmailRequest, SentEmailResponse
 from api.services.email_service import get_email_draft, record_sent_email
 from api.services.user_service import load_user_tokens
+from api.services.activity_service import log_activity
 
 router = APIRouter(prefix="/potentials/{potential_id}", tags=["emails"])
 
@@ -63,4 +64,10 @@ async def send_email(
         user_id=user.user_id,
     )
 
+    log_activity(
+        potential_id=potential_id,
+        activity_type="email_sent",
+        description=f"Email sent to {data.to_email}: \"{data.subject}\"",
+        user_id=user.user_id,
+    )
     return ResponseModel(message_code="MSG_EMAIL_SENT", data=result)

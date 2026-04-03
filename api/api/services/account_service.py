@@ -36,11 +36,18 @@ def list_accounts(
     industries: list[str] | None = None,
     page: int = 1,
     page_size: int = 100,
+    owner_user_id: str | None = None,
 ) -> AccountListResponse:
     """List accounts with deal aggregates."""
     with get_session() as session:
         stmt = select(Account)
 
+        if owner_user_id:
+            owned_account_ids = select(Potential.account_id).where(
+                Potential.potential_owner_id == owner_user_id,
+                Potential.account_id.isnot(None),
+            ).distinct()
+            stmt = stmt.where(Account.account_id.in_(owned_account_ids))
         if search:
             stmt = stmt.where(Account.account_name.ilike(f"%{search}%"))
         if industries:
@@ -106,8 +113,10 @@ def list_accounts(
                 top_stage=top_stages.get(a.account_id),
             ))
 
-        # Total count (unfiltered or filtered)
+        # Total count (same filters applied)
         count_base = select(func.count(Account.account_id))
+        if owner_user_id:
+            count_base = count_base.where(Account.account_id.in_(owned_account_ids))
         if search:
             count_base = count_base.where(Account.account_name.ilike(f"%{search}%"))
         if industries:

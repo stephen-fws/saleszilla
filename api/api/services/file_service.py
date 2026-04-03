@@ -153,14 +153,17 @@ def get_file_content(file_id: int) -> tuple[bytes, str, str] | None:
     return content, file_name, mime_type
 
 
-def delete_file(file_id: int) -> bool:
+def delete_file(file_id: int) -> str | None:
+    """Soft-delete a file record and remove from GCS. Returns file_name on success, None if not found."""
     now = datetime.now(timezone.utc)
     gcs_path = None
+    file_name = None
     with get_session() as session:
         f = session.get(CXFile, file_id)
         if not f or not f.is_active:
-            return False
+            return None
         gcs_path = f.storage_path
+        file_name = f.file_name
         f.is_active = False
         f.updated_time = now
         session.add(f)
@@ -172,4 +175,4 @@ def delete_file(file_id: int) -> bool:
             logger.info("Deleted GCS object: %s", gcs_path)
         except Exception:
             logger.warning("Could not delete GCS object: %s", gcs_path)
-    return True
+    return file_name

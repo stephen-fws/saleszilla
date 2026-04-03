@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, Query
 from core.auth import get_current_active_user
 from core.exceptions import BotApiException
 from core.models import User
-from core.schemas import PotentialDetailResponse, PotentialListResponse, ResponseModel
-from api.services.potential_service import get_potential_detail, list_potentials
+from core.schemas import CreatePotentialRequest, PotentialDetailResponse, PotentialListResponse, ResponseModel, UpdatePotentialRequest
+from api.services.potential_service import create_potential, get_potential_detail, list_potentials, update_potential
 
 router = APIRouter(prefix="/potentials", tags=["potentials"])
 
@@ -32,7 +32,17 @@ def get_potentials(
         search=search,
         page=page,
         page_size=page_size,
+        owner_user_id=user.user_id,
     )
+    return ResponseModel(data=result)
+
+
+@router.post("")
+def post_potential(
+    data: CreatePotentialRequest,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[PotentialDetailResponse]:
+    result = create_potential(data, user)
     return ResponseModel(data=result)
 
 
@@ -42,6 +52,18 @@ def get_potential(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[PotentialDetailResponse]:
     result = get_potential_detail(potential_id)
+    if not result:
+        raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")
+    return ResponseModel(data=result)
+
+
+@router.patch("/{potential_id}")
+def patch_potential(
+    potential_id: str,
+    data: UpdatePotentialRequest,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[PotentialDetailResponse]:
+    result = update_potential(potential_id, data.model_dump(exclude_none=True), user_id=user.user_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")
     return ResponseModel(data=result)

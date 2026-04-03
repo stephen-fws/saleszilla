@@ -4,19 +4,18 @@ import {
   Building2,
   User,
   CheckCircle2,
-  Sparkles,
-  Paperclip,
-  FileText,
-  Mail,
-  Zap,
+  FolderOpen,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
-import { getPotentialDetail } from "@/lib/api";
+import { getPotentialDetail, updatePotential } from "@/lib/api";
+import type { UpdatePotentialPayload } from "@/lib/api";
 import TabBar from "./TabBar";
 import NotesTab from "./NotesTab";
 import TodosTab from "./TodosTab";
 import FilesTab from "./FilesTab";
 import DetailsTab from "./DetailsTab";
+import TimelineTab from "./TimelineTab";
+import AgentResultTab from "./AgentResultTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 
 interface DetailPanelProps {
@@ -26,6 +25,7 @@ interface DetailPanelProps {
   folderType: string;
   onComplete?: () => void;
   onPotentialNavigate?: (dealId: string) => void;
+  availableStages?: string[];
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -55,11 +55,25 @@ export default function DetailPanel({
   accountId,
   onComplete,
   onPotentialNavigate,
+  availableStages = [],
 }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>("details");
   const [detail, setDetail] = useState<PotentialDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handlePotentialFieldSave(field: keyof UpdatePotentialPayload, raw: string) {
+    if (!dealId) return;
+    const payload: UpdatePotentialPayload = {};
+    if (field === "amount" || field === "probability") {
+      const n = parseFloat(raw);
+      if (!isNaN(n)) (payload as Record<string, unknown>)[field] = n;
+    } else {
+      (payload as Record<string, unknown>)[field] = raw;
+    }
+    const updated = await updatePotential(dealId, payload);
+    setDetail(updated);
+  }
 
   useEffect(() => {
     if (!dealId) {
@@ -179,7 +193,7 @@ export default function DetailPanel({
               <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
             </div>
           ) : detail ? (
-            <DetailsTab detail={detail} />
+            <DetailsTab detail={detail} availableStages={availableStages} onFieldSave={handlePotentialFieldSave} />
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm text-slate-400">No details available</p>
@@ -190,12 +204,13 @@ export default function DetailPanel({
         {activeTab === "notes" && dealId && <NotesTab dealId={dealId} />}
         {activeTab === "todos" && dealId && <TodosTab dealId={dealId} />}
 
-        {activeTab === "action" && <StubTab label="Next Action" icon={Zap} />}
-        {activeTab === "research" && <StubTab label="AI Research" icon={Sparkles} />}
-        {activeTab === "emails" && <StubTab label="Email Thread" icon={Mail} />}
-        {activeTab === "solution" && <StubTab label="Solution Brief" icon={FileText} />}
+        {activeTab === "action" && dealId && <AgentResultTab dealId={dealId} tabType="next_action" emptyLabel="No next action draft yet" emptyDescription="The agent will generate a suggested next action email once triggered" />}
+        {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" />}
+        {activeTab === "emails" && dealId && <AgentResultTab dealId={dealId} tabType="email_draft" emptyLabel="No email drafts yet" emptyDescription="Email draft agents will appear here" />}
+        {activeTab === "solution" && dealId && <AgentResultTab dealId={dealId} tabType="solution_brief" emptyLabel="No solution brief yet" emptyDescription="The solution brief agent will generate content based on the potential details" />}
         {activeTab === "files" && dealId && <FilesTab dealId={dealId} />}
-        {activeTab === "files" && !dealId && <StubTab label="Files" icon={Paperclip} />}
+        {activeTab === "files" && !dealId && <StubTab label="Files" icon={FolderOpen} />}
+        {activeTab === "timeline" && dealId && <TimelineTab dealId={dealId} />}
       </div>
     </div>
   );

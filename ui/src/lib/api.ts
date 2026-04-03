@@ -22,6 +22,7 @@ import type {
   NoteItem,
   TodoItem,
   TodoStatus,
+  AgentResult,
 } from "@/types";
 
 // ── Auth ────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ export async function completeQueueItem(itemId: string): Promise<void> {
 
 export async function getPotentials(filters: Partial<PotentialFilters>): Promise<{
   deals: PotentialDeal[];
-  filterOptions: { owners: string[]; services: string[] };
+  filterOptions: { owners: string[]; services: string[]; stages: string[] };
 }> {
   const params = new URLSearchParams();
   if (filters.stages?.length) params.set("stages", filters.stages.join(","));
@@ -125,6 +126,7 @@ export async function getPotentials(filters: Partial<PotentialFilters>): Promise
     filterOptions: {
       owners: fo.owners ?? [],
       services: fo.services ?? [],
+      stages: fo.stages ?? [],
     },
   };
 }
@@ -149,6 +151,9 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
     leadSource: p.lead_source ?? null,
     nextStep: d.next_step ?? null,
     description: d.description ?? null,
+    dealType: p.deal_type ?? null,
+    dealSize: p.deal_size ?? null,
+    createdAt: p.created_time ?? null,
     contact: p.contact
       ? {
           id: p.contact.id ?? "",
@@ -171,6 +176,117 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
           description: d.company_description ?? null,
         }
       : null,
+  };
+}
+
+// ── Update potential ─────────────────────────────────────────────────────────
+
+export interface UpdatePotentialPayload {
+  stage?: string;
+  amount?: number;
+  probability?: number;
+  closing_date?: string;   // YYYY-MM-DD
+  next_step?: string;
+  description?: string;
+}
+
+export async function updatePotential(id: string, payload: UpdatePotentialPayload): Promise<PotentialDetail> {
+  const res = await protectedApi.patch(`/potentials/${id}`, payload);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d: any = res.data.data ?? {};
+  const p = d.potential ?? {};
+  return {
+    id: p.id ?? id,
+    title: p.title ?? null,
+    value: p.value ?? null,
+    stage: p.stage ?? null,
+    probability: p.probability ?? null,
+    service: p.service ?? null,
+    subService: p.sub_service ?? null,
+    ownerName: p.owner_name ?? null,
+    closingDate: p.closing_date ?? null,
+    leadSource: p.lead_source ?? null,
+    nextStep: d.next_step ?? null,
+    description: d.description ?? null,
+    dealType: p.deal_type ?? null,
+    dealSize: p.deal_size ?? null,
+    createdAt: p.created_time ?? null,
+    contact: p.contact ? {
+      id: p.contact.id ?? "",
+      name: p.contact.name ?? null,
+      title: p.contact.title ?? null,
+      email: p.contact.email ?? null,
+      phone: d.contact_phone ?? null,
+      mobile: d.contact_mobile ?? null,
+    } : null,
+    company: p.company ? {
+      id: p.company.id ?? "",
+      name: p.company.name ?? null,
+      industry: p.company.industry ?? null,
+      website: d.company_website ?? null,
+      location: d.company_location ?? null,
+      employees: d.company_employees ?? null,
+      revenue: d.company_revenue ?? null,
+      description: d.company_description ?? null,
+    } : null,
+  };
+}
+
+// ── Create potential ─────────────────────────────────────────────────────────
+
+export interface CreatePotentialPayload {
+  company: { name: string; industry?: string; website?: string };
+  contact: { name: string; title?: string; email?: string; phone?: string };
+  potential_name: string;
+  amount: number;
+  stage?: string;
+  probability?: number;
+  service?: string;
+  sub_service?: string;
+  lead_source?: string;
+  closing_date?: string;  // YYYY-MM-DD
+  next_step?: string;
+}
+
+export async function createPotential(payload: CreatePotentialPayload): Promise<PotentialDetail> {
+  const res = await protectedApi.post("/potentials", payload);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d: any = res.data.data ?? {};
+  const p = d.potential ?? {};
+  return {
+    id: p.id ?? "",
+    title: p.title ?? null,
+    value: p.value ?? null,
+    stage: p.stage ?? null,
+    probability: p.probability ?? null,
+    service: p.service ?? null,
+    subService: p.sub_service ?? null,
+    ownerName: p.owner_name ?? null,
+    closingDate: p.closing_date ?? null,
+    leadSource: p.lead_source ?? null,
+    nextStep: d.next_step ?? null,
+    description: d.description ?? null,
+    dealType: p.deal_type ?? null,
+    dealSize: p.deal_size ?? null,
+    createdAt: p.created_time ?? null,
+    contact: p.contact ? {
+      id: p.contact.id ?? "",
+      name: p.contact.name ?? null,
+      title: p.contact.title ?? null,
+      email: p.contact.email ?? null,
+      phone: d.contact_phone ?? null,
+      mobile: d.contact_mobile ?? null,
+    } : null,
+    company: p.company ? {
+      id: p.company.id ?? "",
+      name: p.company.name ?? null,
+      industry: p.company.industry ?? null,
+      website: d.company_website ?? null,
+      location: d.company_location ?? null,
+      employees: d.company_employees ?? null,
+      revenue: d.company_revenue ?? null,
+      description: d.company_description ?? null,
+    } : null,
   };
 }
 
@@ -430,6 +546,30 @@ export async function updateAccount(id: string, payload: UpdateAccountPayload): 
   };
 }
 
+// ── Activities ────────────────────────────────────────────────────────────────
+
+export interface ActivityEntry {
+  id: number;
+  activityType: string;
+  description: string | null;
+  performedByUserId: string | null;
+  performedByName: string | null;
+  createdTime: string | null;
+}
+
+export async function getActivities(dealId: string): Promise<ActivityEntry[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/activities?limit=200`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((a: any): ActivityEntry => ({
+    id: a.id,
+    activityType: a.activity_type ?? "",
+    description: a.description ?? null,
+    performedByUserId: a.performed_by_user_id ?? null,
+    performedByName: a.performed_by_name ?? null,
+    createdTime: a.created_time ?? null,
+  }));
+}
+
 // ── Calendar ──────────────────────────────────────────────────────────────────
 
 export interface CalendarAttendee {
@@ -553,4 +693,46 @@ export async function updateCalendarEvent(eventId: string, payload: Partial<Cale
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await protectedApi.delete(`/calendar/events/${eventId}`);
+}
+
+// ── Agents ──────────────────────────────────────────────────────────────────
+
+export async function getAgentResults(dealId: string, tabType: string): Promise<AgentResult[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/agent-results`, { params: { tab_type: tabType } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((r: any): AgentResult => ({
+    id: r.id,
+    potentialId: r.potential_id,
+    agentId: r.agent_id,
+    agentName: r.agent_name,
+    tabType: r.tab_type,
+    contentType: r.content_type ?? "markdown",
+    content: r.content ?? null,
+    status: r.status,
+    sortOrder: r.sort_order ?? 0,
+    triggeredBy: r.triggered_by ?? null,
+    triggeredAt: r.triggered_at ?? null,
+    completedAt: r.completed_at ?? null,
+    errorMessage: r.error_message ?? null,
+  }));
+}
+
+export async function triggerAgent(dealId: string, agentId: string): Promise<AgentResult> {
+  const res = await protectedApi.post(`/potentials/${dealId}/agents/${agentId}/trigger`);
+  const r = res.data.data;
+  return {
+    id: r.id,
+    potentialId: r.potential_id,
+    agentId: r.agent_id,
+    agentName: r.agent_name,
+    tabType: r.tab_type,
+    contentType: r.content_type ?? "markdown",
+    content: r.content ?? null,
+    status: r.status,
+    sortOrder: r.sort_order ?? 0,
+    triggeredBy: r.triggered_by ?? null,
+    triggeredAt: r.triggered_at ?? null,
+    completedAt: r.completed_at ?? null,
+    errorMessage: r.error_message ?? null,
+  };
 }

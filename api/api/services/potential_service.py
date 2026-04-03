@@ -3,16 +3,18 @@
 from sqlalchemy import func, select, or_
 
 from core.database import get_session
-from core.models import Account, Contact, Potential
+from core.models import Account, Contact, Potential, User
 from core.schemas import (
     AccountDetailPotential,
     CompanySummary,
     ContactSummary,
+    CreatePotentialRequest,
     PotentialDetailResponse,
     PotentialFilterOptions,
     PotentialItem,
     PotentialListResponse,
 )
+from api.services.activity_service import log_activity
 
 
 def list_potentials(
@@ -22,6 +24,7 @@ def list_potentials(
     search: str | None = None,
     page: int = 1,
     page_size: int = 100,
+    owner_user_id: str | None = None,
 ) -> PotentialListResponse:
     """List potentials with optional filters, joined with Account + Contact."""
     with get_session() as session:
@@ -31,6 +34,8 @@ def list_potentials(
             Contact, Potential.contact_id == Contact.contact_id
         )
 
+        if owner_user_id:
+            stmt = stmt.where(Potential.potential_owner_id == owner_user_id)
         if stages:
             stmt = stmt.where(Potential.stage.in_(stages))
         if services:
@@ -72,6 +77,8 @@ def list_potentials(
                 closing_date=p.closing_date,
                 lead_source=p.lead_source,
                 deal_size=p.deal_size,
+                deal_type=p.type,
+                created_time=p.created_time,
                 company=CompanySummary(
                     id=a.account_id, name=a.account_name, industry=a.industry
                 ) if a else None,
@@ -120,6 +127,8 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
             closing_date=p.closing_date,
             lead_source=p.lead_source,
             deal_size=p.deal_size,
+            deal_type=p.type,
+            created_time=p.created_time,
             company=CompanySummary(
                 id=a.account_id, name=a.account_name, industry=a.industry
             ) if a else None,
@@ -168,6 +177,154 @@ def _get_filter_options(session) -> PotentialFilterOptions:
     ).all()]
 
     return PotentialFilterOptions(owners=owners, services=services, stages=stages)
+
+
+def update_potential(potential_id: str, data: dict, user_id: str | None = None) -> PotentialDetailResponse | None:
+    """Patch editable fields on a potential and return updated detail."""
+    from datetime import datetime as dt
+
+    _FIELD_MAP = {
+        "stage": "stage",
+        "amount": "amount",
+        "probability": "probability",
+        "next_step": "next_step",
+        "description": "description",
+    }
+    _LABELS = {
+        "stage": "Stage",
+        "amount": "Value",
+        "probability": "Probability (%)",
+        "next_step": "Next Step",
+        "description": "Description",
+        "closing_date": "Closing Date",
+    }
+
+    changes: list[tuple[str, str, str]] = []  # (label, old, new)
+
+    with get_session() as session:
+        potential = session.get(Potential, potential_id)
+        if not potential:
+            return None
+        for key, col in _FIELD_MAP.items():
+            if key in data and data[key] is not None:
+                old_val = getattr(potential, col)
+                new_val = data[key]
+                old_str = str(old_val) if old_val is not None else "—"
+                new_str = str(new_val)
+                if old_str != new_str:
+                    changes.append((_LABELS[key], old_str, new_str))
+                setattr(potential, col, new_val)
+        if "closing_date" in data and data["closing_date"]:
+            try:
+                new_date = dt.fromisoformat(data["closing_date"])
+                old_date = potential.closing_date
+                old_str = old_date.strftime("%Y-%m-%d") if old_date else "—"
+                new_str = new_date.strftime("%Y-%m-%d")
+                if old_str != new_str:
+                    changes.append((_LABELS["closing_date"], old_str, new_str))
+                potential.closing_date = new_date
+            except ValueError:
+                pass
+        potential.modified_time = dt.utcnow()
+        session.commit()
+
+    for label, old, new in changes:
+        activity_type = "stage_changed" if label == "Stage" else "field_updated"
+        # Truncate long values (e.g. description)
+        old_display = (old[:60] + "…") if len(old) > 63 else old
+        new_display = (new[:60] + "…") if len(new) > 63 else new
+        log_activity(
+            potential_id=potential_id,
+            activity_type=activity_type,
+            description=f"{label}: '{old_display}' → '{new_display}'",
+            user_id=user_id,
+        )
+
+    return get_potential_detail(potential_id)
+
+
+def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetailResponse:
+    """Create account (find-or-create by name), contact, and potential."""
+    from uuid import uuid4
+    from datetime import datetime as dt
+
+    with get_session() as session:
+        # Find or create account by name (case-insensitive)
+        account = session.execute(
+            select(Account).where(Account.account_name.ilike(data.company.name))
+        ).scalar_one_or_none()
+
+        if not account:
+            account = Account(
+                account_id=uuid4().hex,
+                account_name=data.company.name,
+                industry=data.company.industry,
+                website=data.company.website,
+                created_time=dt.utcnow(),
+                modified_time=dt.utcnow(),
+            )
+            session.add(account)
+            session.flush()
+
+        # Create contact
+        contact = Contact(
+            contact_id=uuid4().hex,
+            full_name=data.contact.name,
+            title=data.contact.title,
+            email=data.contact.email,
+            phone=data.contact.phone,
+            account_id=account.account_id,
+            created_time=dt.utcnow(),
+            modified_time=dt.utcnow(),
+        )
+        session.add(contact)
+        session.flush()
+
+        closing_date = None
+        if data.closing_date:
+            try:
+                closing_date = dt.fromisoformat(data.closing_date)
+            except ValueError:
+                pass
+
+        potential = Potential(
+            potential_id=uuid4().hex,
+            potential_name=data.potential_name,
+            amount=data.amount,
+            stage=data.stage,
+            probability=data.probability,
+            service=data.service,
+            sub_service=data.sub_service,
+            lead_source=data.lead_source,
+            next_step=data.next_step,
+            closing_date=closing_date,
+            account_id=account.account_id,
+            contact_id=contact.contact_id,
+            potential_owner_id=user.user_id,
+            potential_owner_name=user.name,
+            created_time=dt.utcnow(),
+            modified_time=dt.utcnow(),
+        )
+        session.add(potential)
+        session.commit()
+        potential_id = potential.potential_id
+        account_id = account.account_id
+        contact_id = contact.contact_id
+
+    log_activity(
+        potential_id=potential_id,
+        activity_type="potential_created",
+        description=f"Potential created: \"{data.potential_name}\"",
+        user_id=user.user_id,
+        account_id=account_id,
+        contact_id=contact_id,
+    )
+    try:
+        from api.services.agent_service import init_agents_for_potential
+        init_agents_for_potential(potential_id, triggered_by="new_potential")
+    except Exception:
+        pass
+    return get_potential_detail(potential_id)
 
 
 def _build_location(a: Account) -> str | None:
