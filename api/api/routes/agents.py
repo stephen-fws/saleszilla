@@ -54,6 +54,18 @@ async def init_agents(
     return ResponseModel(message_code="MSG_AGENTS_TRIGGERED", data={"ok": True})
 
 
+# ── User-triggered run-all (authenticated) ───────────────────────────────────
+
+@router.post("/potentials/{potential_id}/agents/run")
+def run_agents(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Trigger all agents for a potential. Called by the UI for old potentials."""
+    init_agents_for_potential(potential_id, triggered_by="user")
+    return ResponseModel(message_code="MSG_AGENTS_TRIGGERED", data={"ok": True})
+
+
 # ── Results (authenticated) ───────────────────────────────────────────────────
 
 @router.get("/potentials/{potential_id}/agent-results")

@@ -23,6 +23,10 @@ import type {
   TodoItem,
   TodoStatus,
   AgentResult,
+  EmailDraft,
+  EmailAttachment,
+  ContactSearchResult,
+  AccountSearchResult,
 } from "@/types";
 
 // ── Auth ────────────────────────────────────────────────────────────────────
@@ -232,11 +236,44 @@ export async function updatePotential(id: string, payload: UpdatePotentialPayloa
   };
 }
 
+// ── Search accounts / contacts for new potential modal ───────────────────────
+
+export async function searchAccounts(q: string): Promise<AccountSearchResult[]> {
+  const res = await protectedApi.get("/accounts", { params: { search: q, page_size: 15 } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items: any[] = res.data.data?.accounts ?? [];
+  return items.map((a) => ({
+    id: a.id ?? "",
+    name: a.name ?? "",
+    industry: a.industry ?? null,
+    website: a.website ?? null,
+  }));
+}
+
+export async function searchContacts(q: string, accountId?: string): Promise<ContactSearchResult[]> {
+  const res = await protectedApi.get("/contacts", { params: { q, account_id: accountId, page_size: 15 } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items: any[] = res.data.data ?? [];
+  return items.map((c) => ({
+    id: c.id ?? "",
+    name: c.name ?? "",
+    title: c.title ?? null,
+    email: c.email ?? null,
+    phone: c.phone ?? null,
+    accountId: c.account_id ?? null,
+    accountName: c.account_name ?? null,
+  }));
+}
+
 // ── Create potential ─────────────────────────────────────────────────────────
 
 export interface CreatePotentialPayload {
-  company: { name: string; industry?: string; website?: string };
-  contact: { name: string; title?: string; email?: string; phone?: string };
+  // Account: existing ID or new object
+  account_id?: string;
+  company?: { name: string; industry?: string; website?: string; country?: string };
+  // Contact: existing ID or new object
+  contact_id?: string;
+  contact?: { name: string; title?: string; email?: string; phone?: string };
   potential_name: string;
   amount: number;
   stage?: string;
@@ -246,6 +283,9 @@ export interface CreatePotentialPayload {
   lead_source?: string;
   closing_date?: string;  // YYYY-MM-DD
   next_step?: string;
+  description?: string;
+  deal_type?: string;
+  deal_size?: string;
 }
 
 export async function createPotential(payload: CreatePotentialPayload): Promise<PotentialDetail> {
@@ -456,6 +496,7 @@ export async function getAccountDetail(id: string): Promise<AccountDetail> {
       title: c.title ?? null,
       email: c.email ?? null,
       phone: c.phone ?? null,
+      mobile: c.mobile ?? null,
       department: c.department ?? null,
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -695,6 +736,111 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await protectedApi.delete(`/calendar/events/${eventId}`);
 }
 
+// ── Email drafts & send ──────────────────────────────────────────────────────
+
+export async function getEmailDrafts(dealId: string): Promise<EmailDraft[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/drafts`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((r: any): EmailDraft => ({
+    id: r.id,
+    potentialId: r.potential_id,
+    toEmail: r.to_email ?? null,
+    toName: r.to_name ?? null,
+    ccEmails: r.cc_emails ?? null,
+    bccEmails: r.bcc_emails ?? null,
+    subject: r.subject ?? null,
+    body: r.body ?? null,
+    replyToThreadId: r.reply_to_thread_id ?? null,
+    replyToMessageId: r.reply_to_message_id ?? null,
+    status: r.status,
+    createdTime: r.created_time ?? null,
+    updatedTime: r.updated_time ?? null,
+  }));
+}
+
+export async function createEmailDraft(dealId: string, data: Partial<EmailDraft>): Promise<EmailDraft> {
+  const res = await protectedApi.post(`/potentials/${dealId}/drafts`, {
+    to_email: data.toEmail,
+    to_name: data.toName,
+    cc_emails: data.ccEmails,
+    bcc_emails: data.bccEmails,
+    subject: data.subject,
+    body: data.body,
+    reply_to_thread_id: data.replyToThreadId,
+    reply_to_message_id: data.replyToMessageId,
+  });
+  const r = res.data.data;
+  return {
+    id: r.id, potentialId: r.potential_id, toEmail: r.to_email ?? null,
+    toName: r.to_name ?? null, ccEmails: r.cc_emails ?? null, bccEmails: r.bcc_emails ?? null,
+    subject: r.subject ?? null, body: r.body ?? null,
+    replyToThreadId: r.reply_to_thread_id ?? null, replyToMessageId: r.reply_to_message_id ?? null,
+    status: r.status, createdTime: r.created_time ?? null, updatedTime: r.updated_time ?? null,
+  };
+}
+
+export async function updateEmailDraft(dealId: string, draftId: number, data: Partial<EmailDraft>): Promise<EmailDraft> {
+  const res = await protectedApi.patch(`/potentials/${dealId}/drafts/${draftId}`, {
+    to_email: data.toEmail,
+    to_name: data.toName,
+    cc_emails: data.ccEmails,
+    bcc_emails: data.bccEmails,
+    subject: data.subject,
+    body: data.body,
+  });
+  const r = res.data.data;
+  return {
+    id: r.id, potentialId: r.potential_id, toEmail: r.to_email ?? null,
+    toName: r.to_name ?? null, ccEmails: r.cc_emails ?? null, bccEmails: r.bcc_emails ?? null,
+    subject: r.subject ?? null, body: r.body ?? null,
+    replyToThreadId: r.reply_to_thread_id ?? null, replyToMessageId: r.reply_to_message_id ?? null,
+    status: r.status, createdTime: r.created_time ?? null, updatedTime: r.updated_time ?? null,
+  };
+}
+
+export async function deleteEmailDraft(dealId: string, draftId: number): Promise<void> {
+  await protectedApi.delete(`/potentials/${dealId}/drafts/${draftId}`);
+}
+
+export async function sendEmail(dealId: string, data: {
+  toEmail: string;
+  toName?: string;
+  subject: string;
+  body: string;
+  cc?: string[];
+  bcc?: string[];
+  threadId?: string;
+  replyToMessageId?: string;
+  draftId?: number;
+  attachments?: EmailAttachment[];
+}): Promise<void> {
+  await protectedApi.post(`/potentials/${dealId}/send-email`, {
+    to_email: data.toEmail,
+    to_name: data.toName,
+    subject: data.subject,
+    body: data.body,
+    cc: data.cc,
+    bcc: data.bcc,
+    thread_id: data.threadId,
+    reply_to_message_id: data.replyToMessageId,
+    draft_id: data.draftId,
+    attachments: data.attachments?.map(a => ({
+      name: a.name,
+      content_type: a.contentType,
+      content_bytes: a.contentBytes,
+    })),
+  });
+}
+
+export async function getEmailSignature(): Promise<string | null> {
+  const res = await protectedApi.get("/me/email-signature");
+  return res.data.data?.signature ?? null;
+}
+
+export async function saveEmailSignature(signature: string | null): Promise<void> {
+  await protectedApi.patch("/me/email-signature", { signature });
+}
+
 // ── Agents ──────────────────────────────────────────────────────────────────
 
 export async function getAgentResults(dealId: string, tabType: string): Promise<AgentResult[]> {
@@ -715,6 +861,10 @@ export async function getAgentResults(dealId: string, tabType: string): Promise<
     completedAt: r.completed_at ?? null,
     errorMessage: r.error_message ?? null,
   }));
+}
+
+export async function runAllAgents(dealId: string): Promise<void> {
+  await protectedApi.post(`/potentials/${dealId}/agents/run`);
 }
 
 export async function triggerAgent(dealId: string, agentId: string): Promise<AgentResult> {

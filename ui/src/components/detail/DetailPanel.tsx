@@ -5,6 +5,7 @@ import {
   User,
   CheckCircle2,
   FolderOpen,
+  Inbox,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential } from "@/lib/api";
@@ -16,6 +17,7 @@ import FilesTab from "./FilesTab";
 import DetailsTab from "./DetailsTab";
 import TimelineTab from "./TimelineTab";
 import AgentResultTab from "./AgentResultTab";
+import EmailsTab from "./EmailsTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 
 interface DetailPanelProps {
@@ -206,7 +208,14 @@ export default function DetailPanel({
 
         {activeTab === "action" && dealId && <AgentResultTab dealId={dealId} tabType="next_action" emptyLabel="No next action draft yet" emptyDescription="The agent will generate a suggested next action email once triggered" />}
         {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" />}
-        {activeTab === "emails" && dealId && <AgentResultTab dealId={dealId} tabType="email_draft" emptyLabel="No email drafts yet" emptyDescription="Email draft agents will appear here" />}
+        {activeTab === "emails" && dealId && (
+          <EmailsTab
+            dealId={dealId}
+            contactEmail={detail?.contact?.email ?? null}
+            contactName={detail?.contact?.name ?? null}
+          />
+        )}
+        {activeTab === "emails" && !dealId && <StubTab label="Email Thread" icon={Inbox} />}
         {activeTab === "solution" && dealId && <AgentResultTab dealId={dealId} tabType="solution_brief" emptyLabel="No solution brief yet" emptyDescription="The solution brief agent will generate content based on the potential details" />}
         {activeTab === "files" && dealId && <FilesTab dealId={dealId} />}
         {activeTab === "files" && !dealId && <StubTab label="Files" icon={FolderOpen} />}

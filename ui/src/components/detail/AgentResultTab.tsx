@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, RefreshCw, AlertCircle, Bot } from "lucide-react";
-import { getAgentResults, triggerAgent } from "@/lib/api";
+import { Loader2, RefreshCw, AlertCircle, Bot, Play } from "lucide-react";
+import { getAgentResults, runAllAgents } from "@/lib/api";
 import type { AgentResult } from "@/types";
 
 // ── Simple markdown renderer ──────────────────────────────────────────────────
@@ -76,14 +76,7 @@ function MarkdownBlock({ content }: { content: string }) {
 
 // ── Agent result card ─────────────────────────────────────────────────────────
 
-function AgentCard({ result, onRetrigger }: { result: AgentResult; onRetrigger: (agentId: string) => void }) {
-  const [retriggering, setRetriggering] = useState(false);
-
-  async function handleRetrigger() {
-    setRetriggering(true);
-    try { await onRetrigger(result.agentId); } finally { setRetriggering(false); }
-  }
-
+function AgentCard({ result }: { result: AgentResult }) {
   return (
     <div className="rounded-lg border border-slate-200 overflow-hidden">
       {/* Card header */}
@@ -92,26 +85,12 @@ function AgentCard({ result, onRetrigger }: { result: AgentResult; onRetrigger: 
           <Bot className="h-3.5 w-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-medium text-slate-600 truncate">{result.agentName}</span>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {result.completedAt && (
-            <span className="text-[10px] text-slate-400">
-              {new Date(result.completedAt.endsWith("Z") ? result.completedAt : result.completedAt + "Z")
-                .toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-            </span>
-          )}
-          {(result.status === "completed" || result.status === "error") && (
-            <button
-              onClick={handleRetrigger}
-              disabled={retriggering}
-              title="Re-run agent"
-              className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
-            >
-              {retriggering
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCw className="h-3 w-3" />}
-            </button>
-          )}
-        </div>
+        {result.completedAt && (
+          <span className="text-[10px] text-slate-400 shrink-0">
+            {new Date(result.completedAt.endsWith("Z") ? result.completedAt : result.completedAt + "Z")
+              .toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          </span>
+        )}
       </div>
 
       {/* Card body */}
@@ -156,6 +135,7 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
@@ -186,9 +166,16 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [hasPending, load]);
 
-  async function handleRetrigger(agentId: string) {
-    const updated = await triggerAgent(dealId, agentId);
-    setResults((prev) => prev.map((r) => r.agentId === agentId ? updated : r));
+  async function handleRunAll() {
+    setRunning(true);
+    try {
+      await runAllAgents(dealId);
+      await load();
+    } catch {
+      // ignore
+    } finally {
+      setRunning(false);
+    }
   }
 
   if (loading) {
@@ -214,15 +201,37 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
           <Bot className="h-5 w-5 text-slate-400" />
         </div>
         <p className="text-sm font-medium text-slate-500">{emptyLabel ?? "No agent results yet"}</p>
-        <p className="text-xs text-slate-400 mt-1">{emptyDescription ?? "Results will appear here once agents complete"}</p>
+        <p className="text-xs text-slate-400 mt-1 mb-4">{emptyDescription ?? "Agents haven't run for this potential yet."}</p>
+        <button
+          onClick={handleRunAll}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-60"
+        >
+          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+          {running ? "Triggering…" : "Run Agents"}
+        </button>
       </div>
     );
   }
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
+          {results.length} agent{results.length !== 1 ? "s" : ""}
+        </span>
+        <button
+          onClick={handleRunAll}
+          disabled={running || hasPending}
+          title="Re-run all agents"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 transition-colors"
+        >
+          {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Re-run all
+        </button>
+      </div>
       {results.map((result) => (
-        <AgentCard key={result.agentId} result={result} onRetrigger={handleRetrigger} />
+        <AgentCard key={result.agentId} result={result} />
       ))}
     </div>
   );

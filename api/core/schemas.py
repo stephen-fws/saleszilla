@@ -90,6 +90,7 @@ class CreatePotentialCompany(BaseModel):
     name: str
     industry: Optional[str] = None
     website: Optional[str] = None
+    country: Optional[str] = None
 
 
 class CreatePotentialContact(BaseModel):
@@ -99,9 +100,25 @@ class CreatePotentialContact(BaseModel):
     phone: Optional[str] = None
 
 
+class ContactSearchItem(BaseModel):
+    id: str
+    name: str
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+
+
 class CreatePotentialRequest(BaseModel):
-    company: CreatePotentialCompany
-    contact: CreatePotentialContact
+    # Account — provide either existing account_id OR new company object
+    account_id: Optional[str] = None
+    company: Optional[CreatePotentialCompany] = None
+
+    # Contact — provide either existing contact_id OR new contact object
+    contact_id: Optional[str] = None
+    contact: Optional[CreatePotentialContact] = None
+
     potential_name: str
     amount: float
     stage: str = "Prospects"
@@ -111,6 +128,9 @@ class CreatePotentialRequest(BaseModel):
     lead_source: Optional[str] = None
     closing_date: Optional[str] = None   # YYYY-MM-DD
     next_step: Optional[str] = None
+    description: Optional[str] = None
+    deal_type: Optional[str] = None
+    deal_size: Optional[str] = None
 
 
 class PotentialFilterOptions(BaseModel):
@@ -394,6 +414,12 @@ class EmailDraftResponse(BaseModel):
     status: str = "draft"
 
 
+class AttachmentItem(BaseModel):
+    name: str
+    content_type: str
+    content_bytes: str  # base64-encoded
+
+
 class SendEmailRequest(BaseModel):
     to_email: str
     to_name: Optional[str] = None
@@ -404,6 +430,7 @@ class SendEmailRequest(BaseModel):
     thread_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
     draft_id: Optional[int] = None
+    attachments: Optional[list[AttachmentItem]] = None
 
 
 class SentEmailResponse(BaseModel):
@@ -412,6 +439,46 @@ class SentEmailResponse(BaseModel):
     subject: str
     sent_time: Optional[datetime] = None
     thread_id: Optional[str] = None
+
+
+class UserEmailDraftItem(BaseModel):
+    id: int
+    potential_id: str
+    to_email: Optional[str] = None
+    to_name: Optional[str] = None
+    cc_emails: Optional[list[str]] = None
+    bcc_emails: Optional[list[str]] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    reply_to_thread_id: Optional[str] = None
+    reply_to_message_id: Optional[str] = None
+    status: str = "draft"
+    created_time: Optional[datetime] = None
+    updated_time: Optional[datetime] = None
+
+
+class CreateDraftRequest(BaseModel):
+    to_email: Optional[str] = None
+    to_name: Optional[str] = None
+    cc_emails: Optional[list[str]] = None
+    bcc_emails: Optional[list[str]] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    reply_to_thread_id: Optional[str] = None
+    reply_to_message_id: Optional[str] = None
+
+
+class UpdateDraftRequest(BaseModel):
+    to_email: Optional[str] = None
+    to_name: Optional[str] = None
+    cc_emails: Optional[list[str]] = None
+    bcc_emails: Optional[list[str]] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+class SignatureRequest(BaseModel):
+    signature: Optional[str] = None
 
 
 # ═════════════════════════════════════════════════════════════════════════════

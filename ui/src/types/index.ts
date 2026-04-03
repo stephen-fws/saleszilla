@@ -183,7 +183,47 @@ export const ACCOUNT_SORT_OPTIONS = [
   { value: "deals-desc", label: "Most Deals" },
 ] as const;
 
+export interface ContactSearchResult {
+  id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  accountId: string | null;
+  accountName: string | null;
+}
+
+export interface AccountSearchResult {
+  id: string;
+  name: string;
+  industry: string | null;
+  website: string | null;
+}
+
 // ── Detail panel types ────────────────────────────────────────────────────────
+
+export interface EmailDraft {
+  id: number;
+  potentialId: string;
+  toEmail: string | null;
+  toName: string | null;
+  ccEmails: string[] | null;
+  bccEmails: string[] | null;
+  subject: string | null;
+  body: string | null;
+  replyToThreadId: string | null;
+  replyToMessageId: string | null;
+  status: string;
+  createdTime: string | null;
+  updatedTime: string | null;
+}
+
+export interface EmailAttachment {
+  name: string;
+  contentType: string;
+  contentBytes: string; // base64
+  sizeBytes: number;    // for display only
+}
 
 export interface AgentResult {
   id: number;

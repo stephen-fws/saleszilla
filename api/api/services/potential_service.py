@@ -244,41 +244,57 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
 
 
 def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetailResponse:
-    """Create account (find-or-create by name), contact, and potential."""
+    """Create potential, resolving account/contact by ID or creating new ones."""
     from uuid import uuid4
     from datetime import datetime as dt
 
-    with get_session() as session:
-        # Find or create account by name (case-insensitive)
-        account = session.execute(
-            select(Account).where(Account.account_name.ilike(data.company.name))
-        ).scalar_one_or_none()
+    if not data.account_id and not data.company:
+        raise ValueError("Either account_id or company must be provided")
+    if not data.contact_id and not data.contact:
+        raise ValueError("Either contact_id or contact must be provided")
 
-        if not account:
-            account = Account(
-                account_id=uuid4().hex,
-                account_name=data.company.name,
-                industry=data.company.industry,
-                website=data.company.website,
+    with get_session() as session:
+        # ── Resolve account ──────────────────────────────────────────────────
+        if data.account_id:
+            account = session.get(Account, data.account_id)
+            if not account:
+                raise ValueError(f"Account {data.account_id} not found")
+        else:
+            # Find-or-create by name (case-insensitive)
+            account = session.execute(
+                select(Account).where(Account.account_name.ilike(data.company.name))
+            ).scalar_one_or_none()
+            if not account:
+                account = Account(
+                    account_id=uuid4().hex,
+                    account_name=data.company.name,
+                    industry=data.company.industry,
+                    website=data.company.website,
+                    billing_country=data.company.country,
+                    created_time=dt.utcnow(),
+                    modified_time=dt.utcnow(),
+                )
+                session.add(account)
+                session.flush()
+
+        # ── Resolve contact ──────────────────────────────────────────────────
+        if data.contact_id:
+            contact = session.get(Contact, data.contact_id)
+            if not contact:
+                raise ValueError(f"Contact {data.contact_id} not found")
+        else:
+            contact = Contact(
+                contact_id=uuid4().hex,
+                full_name=data.contact.name,
+                title=data.contact.title,
+                email=data.contact.email,
+                phone=data.contact.phone,
+                account_id=account.account_id,
                 created_time=dt.utcnow(),
                 modified_time=dt.utcnow(),
             )
-            session.add(account)
+            session.add(contact)
             session.flush()
-
-        # Create contact
-        contact = Contact(
-            contact_id=uuid4().hex,
-            full_name=data.contact.name,
-            title=data.contact.title,
-            email=data.contact.email,
-            phone=data.contact.phone,
-            account_id=account.account_id,
-            created_time=dt.utcnow(),
-            modified_time=dt.utcnow(),
-        )
-        session.add(contact)
-        session.flush()
 
         closing_date = None
         if data.closing_date:
@@ -297,6 +313,9 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             sub_service=data.sub_service,
             lead_source=data.lead_source,
             next_step=data.next_step,
+            description=data.description,
+            type=data.deal_type,
+            deal_size=data.deal_size,
             closing_date=closing_date,
             account_id=account.account_id,
             contact_id=contact.contact_id,

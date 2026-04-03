@@ -167,7 +167,7 @@ def _trigger_agentflow(potential_id: str, category: str, potential_data: dict) -
     """POST to agentflow webhook to kick off agent execution. Fire-and-forget."""
     try:
         payload = {
-            "entityId": potential_id,
+            "entityId": potential_data.get("potential_number") or potential_id,
             "entityOwnerEmail": potential_data.get("owner_email", ""),
             "category": category,
             "source": "crm",
@@ -215,6 +215,7 @@ def _load_potential_data(potential_id: str) -> dict:
             "customer_country": (a.billing_country or a.country_fws) if a else "",
             "company_website": a.website if a else "",
             "description": p.description or "",
+            "potential_number": p.potential_number or "",
         }
 
 

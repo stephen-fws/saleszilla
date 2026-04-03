@@ -2,15 +2,55 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import or_, select
 
 from core.auth import get_current_active_user
 from core.database import get_session
 from core.exceptions import BotApiException
-from core.models import Contact, User
-from core.schemas import AccountDetailContact, ResponseModel, UpdateContactRequest
+from core.models import Account, Contact, User
+from core.schemas import AccountDetailContact, ContactSearchItem, ResponseModel, UpdateContactRequest
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
+
+
+@router.get("")
+def search_contacts(
+    q: str | None = Query(default=None),
+    account_id: str | None = Query(default=None),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[list[ContactSearchItem]]:
+    with get_session() as session:
+        stmt = (
+            select(Contact, Account)
+            .outerjoin(Account, Contact.account_id == Account.account_id)
+        )
+        if account_id:
+            stmt = stmt.where(Contact.account_id == account_id)
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    Contact.full_name.ilike(like),
+                    Contact.email.ilike(like),
+                )
+            )
+        stmt = stmt.order_by(Contact.full_name).limit(page_size)
+        rows = session.execute(stmt).all()
+        items = [
+            ContactSearchItem(
+                id=c.contact_id,
+                name=c.full_name or f"{c.first_name or ''} {c.last_name or ''}".strip() or "Unknown",
+                title=c.title,
+                email=c.email,
+                phone=c.phone,
+                account_id=c.account_id,
+                account_name=a.account_name if a else None,
+            )
+            for c, a in rows
+        ]
+    return ResponseModel(data=items)
 
 
 @router.patch("/{contact_id}")

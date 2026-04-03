@@ -86,6 +86,7 @@ class Potential(Base):
     __tablename__ = "Potentials"
 
     potential_id: Mapped[str] = mapped_column("Potential Id", String(32), primary_key=True)
+    potential_number: Mapped[str | None] = mapped_column("Potential Number", String(32), nullable=True)
     potential_owner_id: Mapped[str | None] = mapped_column("Potential Owner Id", String(32), nullable=True)
     potential_owner_name: Mapped[str | None] = mapped_column("Potential Owner Name", Unicode(128), nullable=True)
     potential_name: Mapped[str | None] = mapped_column("Potential Name", String(256), nullable=True)
@@ -124,6 +125,7 @@ class CXUserToken(Base):
     ms_email: Mapped[str | None] = mapped_column("MSEmail", Unicode(256), nullable=True)
     token_expiry: Mapped[datetime | None] = mapped_column("TokenExpiry", DateTime, nullable=True)
     calendar_sync_cursor: Mapped[str | None] = mapped_column("CalendarSyncCursor", String(256), nullable=True)
+    email_signature: Mapped[str | None] = mapped_column("EmailSignature", UnicodeText, nullable=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
@@ -225,6 +227,28 @@ class CXEmailDraft(Base):
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
 
 
+class CXUserEmailDraft(Base):
+    """User-composed email drafts (Email tab composer)."""
+
+    __tablename__ = "CX_UserEmailDrafts"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    potential_id: Mapped[str] = mapped_column("PotentialId", String(32), nullable=False)
+    to_email: Mapped[str | None] = mapped_column("ToEmail", Unicode(512), nullable=True)
+    to_name: Mapped[str | None] = mapped_column("ToName", Unicode(256), nullable=True)
+    cc_emails: Mapped[str | None] = mapped_column("CcEmails", UnicodeText, nullable=True)
+    bcc_emails: Mapped[str | None] = mapped_column("BccEmails", UnicodeText, nullable=True)
+    subject: Mapped[str | None] = mapped_column("Subject", Unicode(512), nullable=True)
+    body: Mapped[str | None] = mapped_column("Body", UnicodeText, nullable=True)
+    reply_to_thread_id: Mapped[str | None] = mapped_column("ReplyToThreadId", Unicode(512), nullable=True)
+    reply_to_message_id: Mapped[str | None] = mapped_column("ReplyToMessageId", Unicode(512), nullable=True)
+    status: Mapped[str] = mapped_column("Status", String(16), nullable=False, default="draft")
+    created_by_user_id: Mapped[str | None] = mapped_column("CreatedByUserId", String(32), nullable=True)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
 class CXSentEmail(Base):
     """Emails sent from Salezilla via MS Graph."""
 
@@ -241,7 +265,7 @@ class CXSentEmail(Base):
     to_name: Mapped[str | None] = mapped_column("ToName", Unicode(128), nullable=True)
     subject: Mapped[str] = mapped_column("Subject", Unicode(512), nullable=False)
     body: Mapped[str] = mapped_column("Body", UnicodeText, nullable=False)
-    thread_id: Mapped[str | None] = mapped_column("ThreadId", String(64), nullable=True)
+    thread_id: Mapped[str | None] = mapped_column("ThreadId", String(512), nullable=True)
     sent_by_user_id: Mapped[str | None] = mapped_column("SentByUserId", String(32), nullable=True)
     sent_time: Mapped[datetime] = mapped_column("SentTime", DateTime, nullable=False)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)

@@ -1,20 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
-import { X, Plus, Building2, User, Briefcase, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { createPotential } from "@/lib/api";
-import { FILTER_STAGES, FILTER_SERVICES } from "@/types";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  X, Plus, Building2, User, Briefcase, ChevronDown, ChevronRight,
+  Loader2, Search, Check, AlertCircle,
+} from "lucide-react";
+import { createPotential, searchAccounts, searchContacts } from "@/lib/api";
+import type { AccountSearchResult, ContactSearchResult } from "@/types";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const STAGE_PROBABILITY: Record<string, number> = {
-  "Prospects": 10,
-  "Pre Qualified": 20,
-  "Requirements Capture": 35,
-  "Proposal": 50,
-  "Contracting": 75,
-  "Closed": 100,
-  "Contact Later": 10,
-  "Sleeping": 5,
-  "Low Value": 10,
-  "Disqualified": 0,
-  "Lost": 0,
+  "Prospects": 10, "Pre Qualified": 20, "Requirements Capture": 35,
+  "Proposal": 50, "Contracting": 75, "Closed": 100,
+  "Contact Later": 10, "Sleeping": 5, "Low Value": 10,
+  "Disqualified": 0, "Lost": 0,
 };
 
 const SUB_SERVICES: Record<string, string[]> = {
@@ -28,13 +26,125 @@ const SUB_SERVICES: Record<string, string[]> = {
   "Research & Analytics": ["Market Research", "Data Analytics", "Business Intelligence", "Competitive Analysis"],
 };
 
-const LEAD_SOURCES = ["Website", "Referral", "Cold Outreach", "Conference", "Partner", "LinkedIn", "Other"];
-
+const LEAD_SOURCES = ["Website", "Referral", "Cold Outreach", "Conference", "Partner", "LinkedIn", "Existing Client", "Other"];
+const DEAL_TYPES = ["New Business", "Existing Business"];
+const DEAL_SIZES = ["Small", "Medium", "Large", "Enterprise"];
 const INDUSTRIES = [
   "Healthcare", "Financial Services", "Insurance", "Technology", "Retail",
   "Manufacturing", "Real Estate", "Education", "Government", "Telecom",
   "Banking", "Logistics", "Media", "Other",
 ];
+const COUNTRIES = [
+  "United States", "United Kingdom", "Canada", "Australia", "India",
+  "Germany", "France", "Singapore", "UAE", "Other",
+];
+
+// ── Reusable search combobox ──────────────────────────────────────────────────
+
+interface ComboboxOption {
+  id: string;
+  primary: string;
+  secondary?: string;
+}
+
+function SearchCombobox({
+  placeholder,
+  selected,
+  options,
+  loading,
+  query,
+  onQueryChange,
+  onSelect,
+  onClear,
+  onCreateNew,
+  createLabel,
+  error,
+}: {
+  placeholder: string;
+  selected: ComboboxOption | null;
+  options: ComboboxOption[];
+  loading: boolean;
+  query: string;
+  onQueryChange: (q: string) => void;
+  onSelect: (opt: ComboboxOption) => void;
+  onClear: () => void;
+  onCreateNew: () => void;
+  createLabel: string;
+  error?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  if (selected) {
+    return (
+      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${error ? "border-red-300 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+        <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-900 truncate">{selected.primary}</p>
+          {selected.secondary && <p className="text-[11px] text-slate-500 truncate">{selected.secondary}</p>}
+        </div>
+        <button type="button" onClick={onClear} className="p-0.5 rounded text-slate-400 hover:text-red-500 transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${error ? "border-red-300 bg-red-50 focus-within:ring-2 focus-within:ring-red-200" : "border-slate-200 bg-white focus-within:ring-2 focus-within:ring-blue-200"}`}>
+        <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => { onQueryChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="flex-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none bg-transparent"
+        />
+        {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />}
+      </div>
+      {open && (query.length > 0 || options.length > 0) && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-lg border border-slate-200 shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+          {options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => { onSelect(opt); setOpen(false); onQueryChange(""); }}
+              className="w-full flex items-start gap-2 px-3 py-2 hover:bg-blue-50 transition-colors text-left"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-slate-900 truncate">{opt.primary}</p>
+                {opt.secondary && <p className="text-[11px] text-slate-500 truncate">{opt.secondary}</p>}
+              </div>
+            </button>
+          ))}
+          {options.length === 0 && query.length > 0 && !loading && (
+            <p className="px-3 py-2 text-xs text-slate-400">No matches found</p>
+          )}
+          <button
+            type="button"
+            onClick={() => { onCreateNew(); setOpen(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 border-t border-slate-100 hover:bg-slate-50 transition-colors text-left"
+          >
+            <Plus className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-xs font-medium text-blue-600">{createLabel}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main modal ────────────────────────────────────────────────────────────────
 
 interface NewPotentialModalProps {
   isOpen: boolean;
@@ -45,105 +155,140 @@ interface NewPotentialModalProps {
 }
 
 export default function NewPotentialModal({
-  isOpen,
-  onClose,
-  onCreated,
-  availableStages,
-  availableServices,
+  isOpen, onClose, onCreated, availableStages, availableServices,
 }: NewPotentialModalProps) {
-  const stages = availableStages && availableStages.length > 0 ? availableStages : [...FILTER_STAGES];
-  const services = availableServices && availableServices.length > 0 ? availableServices : [...FILTER_SERVICES];
+  const stages = availableStages && availableStages.length > 0 ? availableStages : Object.keys(STAGE_PROBABILITY);
+  const services = availableServices && availableServices.length > 0 ? availableServices : Object.keys(SUB_SERVICES);
 
-  // Company
-  const [companyName, setCompanyName] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [website, setWebsite] = useState("");
+  // ── Account state ──────────────────────────────────────────────────────────
+  const [accountQuery, setAccountQuery] = useState("");
+  const [accountOptions, setAccountOptions] = useState<AccountSearchResult[]>([]);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<AccountSearchResult | null>(null);
+  const [newAccount, setNewAccount] = useState(false);
+  const [accName, setAccName] = useState("");
+  const [accIndustry, setAccIndustry] = useState("");
+  const [accWebsite, setAccWebsite] = useState("");
+  const [accCountry, setAccCountry] = useState("");
 
-  // Contact
-  const [contactName, setContactName] = useState("");
-  const [contactTitle, setContactTitle] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
+  // ── Contact state ──────────────────────────────────────────────────────────
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactOptions, setContactOptions] = useState<ContactSearchResult[]>([]);
+  const [contactLoading, setContactLoading] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<ContactSearchResult | null>(null);
+  const [newContact, setNewContact] = useState(false);
+  const [ctName, setCtName] = useState("");
+  const [ctTitle, setCtTitle] = useState("");
+  const [ctEmail, setCtEmail] = useState("");
+  const [ctPhone, setCtPhone] = useState("");
 
-  // Deal
+  // ── Deal state ─────────────────────────────────────────────────────────────
   const [dealTitle, setDealTitle] = useState("");
   const [dealValue, setDealValue] = useState("");
   const [stage, setStage] = useState(stages[0] ?? "Prospects");
-  const [probability, setProbability] = useState(STAGE_PROBABILITY[stages[0] ?? "Prospects"] ?? 10);
+  const [probability, setProbability] = useState<number>(STAGE_PROBABILITY[stages[0] ?? "Prospects"] ?? 10);
   const [service, setService] = useState("");
   const [subService, setSubService] = useState("");
-
-  // Advanced
   const [leadSource, setLeadSource] = useState("");
+  const [dealType, setDealType] = useState("");
+  const [dealSize, setDealSize] = useState("");
   const [closingDate, setClosingDate] = useState("");
   const [nextStep, setNextStep] = useState("");
+  const [description, setDescription] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // UI
+  // ── UI state ───────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
+  const accountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contactTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset on open
   useEffect(() => {
     if (!isOpen) return;
-    setCompanyName(""); setIndustry(""); setWebsite("");
-    setContactName(""); setContactTitle(""); setContactEmail(""); setContactPhone("");
+    setAccountQuery(""); setAccountOptions([]); setSelectedAccount(null); setNewAccount(false);
+    setAccName(""); setAccIndustry(""); setAccWebsite(""); setAccCountry("");
+    setContactQuery(""); setContactOptions([]); setSelectedContact(null); setNewContact(false);
+    setCtName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
     setDealTitle(""); setDealValue("");
     const defaultStage = stages[0] ?? "Prospects";
     setStage(defaultStage);
     setProbability(STAGE_PROBABILITY[defaultStage] ?? 10);
-    setService(""); setSubService("");
-    setLeadSource(""); setClosingDate(""); setNextStep("");
+    setService(""); setSubService(""); setLeadSource(""); setDealType(""); setDealSize("");
+    setClosingDate(""); setNextStep(""); setDescription("");
     setShowAdvanced(false); setSaving(false); setError(null); setFieldErrors({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Auto-suggest deal title
   useEffect(() => {
-    if (service && companyName && !dealTitle) {
-      setDealTitle(`${service} for ${companyName}`);
-    }
+    const company = selectedAccount?.name || accName;
+    if (service && company && !dealTitle) setDealTitle(`${service} for ${company}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [service, companyName]);
+  }, [service, selectedAccount, accName]);
 
-  // Reset sub-service when service changes
   useEffect(() => { setSubService(""); }, [service]);
+  useEffect(() => { setProbability(STAGE_PROBABILITY[stage] ?? 10); }, [stage]);
 
-  const handleStageChange = useCallback((newStage: string) => {
-    setStage(newStage);
-    setProbability(STAGE_PROBABILITY[newStage] ?? 10);
+  // Debounced account search
+  const handleAccountQuery = useCallback((q: string) => {
+    setAccountQuery(q);
+    if (accountTimerRef.current) clearTimeout(accountTimerRef.current);
+    if (!q.trim()) { setAccountOptions([]); return; }
+    accountTimerRef.current = setTimeout(async () => {
+      setAccountLoading(true);
+      try { setAccountOptions(await searchAccounts(q)); } catch { setAccountOptions([]); }
+      finally { setAccountLoading(false); }
+    }, 300);
   }, []);
+
+  // Debounced contact search (filtered by selected account)
+  const handleContactQuery = useCallback((q: string) => {
+    setContactQuery(q);
+    if (contactTimerRef.current) clearTimeout(contactTimerRef.current);
+    if (!q.trim()) { setContactOptions([]); return; }
+    contactTimerRef.current = setTimeout(async () => {
+      setContactLoading(true);
+      try {
+        setContactOptions(await searchContacts(q, selectedAccount?.id));
+      } catch { setContactOptions([]); }
+      finally { setContactLoading(false); }
+    }, 300);
+  }, [selectedAccount]);
+
+  function handleSelectAccount(opt: { id: string; primary: string; secondary?: string }) {
+    const acc = accountOptions.find((a) => a.id === opt.id);
+    if (acc) { setSelectedAccount(acc); setNewAccount(false); }
+  }
+
+  function handleSelectContact(opt: { id: string; primary: string; secondary?: string }) {
+    const ct = contactOptions.find((c) => c.id === opt.id);
+    if (ct) { setSelectedContact(ct); setNewContact(false); }
+  }
+
+  // ── Validation ─────────────────────────────────────────────────────────────
 
   function validate(): boolean {
     const errors: Record<string, boolean> = {};
-    if (!companyName.trim()) errors.companyName = true;
-    if (!contactName.trim()) errors.contactName = true;
-    if (!contactTitle.trim()) errors.contactTitle = true;
-    if (!contactEmail.trim()) errors.contactEmail = true;
+    if (!selectedAccount && !newAccount) errors.account = true;
+    if (newAccount && !accName.trim()) errors.accName = true;
+    if (!selectedContact && !newContact) errors.contact = true;
+    if (newContact && !ctName.trim()) errors.ctName = true;
     if (!dealTitle.trim()) errors.dealTitle = true;
     if (!dealValue || Number(dealValue) <= 0) errors.dealValue = true;
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
   async function handleSubmit() {
     if (!validate()) return;
     setSaving(true);
     setError(null);
     try {
-      const result = await createPotential({
-        company: {
-          name: companyName.trim(),
-          industry: industry || undefined,
-          website: website.trim() || undefined,
-        },
-        contact: {
-          name: contactName.trim(),
-          title: contactTitle.trim() || undefined,
-          email: contactEmail.trim() || undefined,
-          phone: contactPhone.trim() || undefined,
-        },
+      const payload: Parameters<typeof createPotential>[0] = {
         potential_name: dealTitle.trim(),
         amount: Number(dealValue),
         stage,
@@ -153,7 +298,34 @@ export default function NewPotentialModal({
         lead_source: leadSource || undefined,
         closing_date: closingDate || undefined,
         next_step: nextStep.trim() || undefined,
-      });
+        description: description.trim() || undefined,
+        deal_type: dealType || undefined,
+        deal_size: dealSize || undefined,
+      };
+
+      if (selectedAccount) {
+        payload.account_id = selectedAccount.id;
+      } else {
+        payload.company = {
+          name: accName.trim(),
+          industry: accIndustry || undefined,
+          website: accWebsite.trim() || undefined,
+          country: accCountry || undefined,
+        };
+      }
+
+      if (selectedContact) {
+        payload.contact_id = selectedContact.id;
+      } else {
+        payload.contact = {
+          name: ctName.trim(),
+          title: ctTitle.trim() || undefined,
+          email: ctEmail.trim() || undefined,
+          phone: ctPhone.trim() || undefined,
+        };
+      }
+
+      const result = await createPotential(payload);
       onCreated(result.id);
       onClose();
     } catch (err) {
@@ -165,24 +337,24 @@ export default function NewPotentialModal({
 
   if (!isOpen) return null;
 
-  const subServiceOptions = service ? (SUB_SERVICES[service] ?? []) : [];
-
   const inputCls = (field: string) =>
-    `w-full rounded-lg border ${fieldErrors[field] ? "border-red-300 bg-red-50 focus:ring-red-300" : "border-slate-200 bg-white focus:ring-blue-300"} px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2`;
+    `w-full rounded-lg border ${fieldErrors[field] ? "border-red-300 bg-red-50 focus:ring-red-200" : "border-slate-200 bg-white focus:ring-blue-200"} px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2`;
 
   const selectCls = (field = "") =>
-    `w-full rounded-lg border ${fieldErrors[field] ? "border-red-300 bg-red-50 focus:ring-red-300" : "border-slate-200 bg-white focus:ring-blue-300"} px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 appearance-none cursor-pointer`;
+    `w-full rounded-lg border ${fieldErrors[field] ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"} px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200 appearance-none cursor-pointer`;
+
+  const subServiceOptions = service ? (SUB_SERVICES[service] ?? []) : [];
 
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          className="w-full max-w-lg bg-white rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+          className="w-full max-w-lg bg-white rounded-xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex-shrink-0">
+          <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shrink-0">
             <div className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
               <span className="font-semibold text-sm">New Potential</span>
@@ -193,106 +365,146 @@ export default function NewPotentialModal({
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 scrollbar-thin">
             {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</div>
+              <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{error}</p>
+              </div>
             )}
 
-            {/* Company */}
+            {/* ── Account section ── */}
             <div>
-              <div className="flex items-center gap-1.5 mb-3">
-                <Building2 className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Company</span>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Account / Company</span>
+                  {fieldErrors.account && <span className="text-[10px] text-red-500">Required</span>}
+                </div>
+                {!selectedAccount && (
+                  <button
+                    type="button"
+                    onClick={() => { setNewAccount((v) => !v); setSelectedAccount(null); }}
+                    className="text-[11px] font-medium text-blue-500 hover:text-blue-700 transition-colors"
+                  >
+                    {newAccount ? "Search existing" : "+ New account"}
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  placeholder="Company Name *"
-                  value={companyName}
-                  onChange={(e) => { setCompanyName(e.target.value); setFieldErrors((p) => ({ ...p, companyName: false })); }}
-                  className={inputCls("companyName")}
+
+              {newAccount ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <input type="text" placeholder="Company Name *" value={accName}
+                    onChange={(e) => { setAccName(e.target.value); setFieldErrors((p) => ({ ...p, accName: false })); }}
+                    className={inputCls("accName")} />
+                  <div className="relative">
+                    <select value={accIndustry} onChange={(e) => setAccIndustry(e.target.value)} className={selectCls()}>
+                      <option value="">Industry</option>
+                      {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  </div>
+                  <input type="url" placeholder="Website" value={accWebsite}
+                    onChange={(e) => setAccWebsite(e.target.value)} className={inputCls("")} />
+                  <div className="relative">
+                    <select value={accCountry} onChange={(e) => setAccCountry(e.target.value)} className={selectCls()}>
+                      <option value="">Country</option>
+                      {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  </div>
+                </div>
+              ) : (
+                <SearchCombobox
+                  placeholder="Search by company name…"
+                  selected={selectedAccount ? { id: selectedAccount.id, primary: selectedAccount.name, secondary: selectedAccount.industry ?? undefined } : null}
+                  options={accountOptions.map((a) => ({ id: a.id, primary: a.name, secondary: [a.industry, a.website].filter(Boolean).join(" · ") || undefined }))}
+                  loading={accountLoading}
+                  query={accountQuery}
+                  onQueryChange={handleAccountQuery}
+                  onSelect={handleSelectAccount}
+                  onClear={() => { setSelectedAccount(null); setAccountQuery(""); setAccountOptions([]); }}
+                  onCreateNew={() => setNewAccount(true)}
+                  createLabel="Create new account"
+                  error={fieldErrors.account}
                 />
-                <div className="relative">
-                  <select value={industry} onChange={(e) => setIndustry(e.target.value)} className={selectCls()}>
-                    <option value="">Industry</option>
-                    {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                </div>
-                <div className="col-span-2">
-                  <input
-                    type="url"
-                    placeholder="Website (optional)"
-                    value={website}
-                    onChange={(e) => setWebsite(e.target.value)}
-                    className={inputCls("")}
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Contact */}
+            {/* ── Contact section ── */}
             <div>
-              <div className="flex items-center gap-1.5 mb-3">
-                <User className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Contact</span>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Contact Person</span>
+                  {fieldErrors.contact && <span className="text-[10px] text-red-500">Required</span>}
+                  {selectedAccount && (
+                    <span className="text-[10px] text-slate-400">· filtered by {selectedAccount.name}</span>
+                  )}
+                </div>
+                {!selectedContact && (
+                  <button
+                    type="button"
+                    onClick={() => { setNewContact((v) => !v); setSelectedContact(null); }}
+                    className="text-[11px] font-medium text-blue-500 hover:text-blue-700 transition-colors"
+                  >
+                    {newContact ? "Search existing" : "+ New contact"}
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  placeholder="Contact Name *"
-                  value={contactName}
-                  onChange={(e) => { setContactName(e.target.value); setFieldErrors((p) => ({ ...p, contactName: false })); }}
-                  className={inputCls("contactName")}
+
+              {newContact ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <input type="text" placeholder="Full Name *" value={ctName}
+                    onChange={(e) => { setCtName(e.target.value); setFieldErrors((p) => ({ ...p, ctName: false })); }}
+                    className={inputCls("ctName")} />
+                  <input type="text" placeholder="Title / Role" value={ctTitle}
+                    onChange={(e) => setCtTitle(e.target.value)} className={inputCls("")} />
+                  <input type="email" placeholder="Email" value={ctEmail}
+                    onChange={(e) => setCtEmail(e.target.value)} className={inputCls("")} />
+                  <input type="tel" placeholder="Phone" value={ctPhone}
+                    onChange={(e) => setCtPhone(e.target.value)} className={inputCls("")} />
+                </div>
+              ) : (
+                <SearchCombobox
+                  placeholder={selectedAccount ? `Search contacts at ${selectedAccount.name}…` : "Search by contact name or email…"}
+                  selected={selectedContact ? { id: selectedContact.id, primary: selectedContact.name, secondary: [selectedContact.title, selectedContact.email].filter(Boolean).join(" · ") || undefined } : null}
+                  options={contactOptions.map((c) => ({ id: c.id, primary: c.name, secondary: [c.title, c.email, c.accountName].filter(Boolean).join(" · ") || undefined }))}
+                  loading={contactLoading}
+                  query={contactQuery}
+                  onQueryChange={handleContactQuery}
+                  onSelect={handleSelectContact}
+                  onClear={() => { setSelectedContact(null); setContactQuery(""); setContactOptions([]); }}
+                  onCreateNew={() => setNewContact(true)}
+                  createLabel="Create new contact"
+                  error={fieldErrors.contact}
                 />
-                <input
-                  type="text"
-                  placeholder="Title / Role *"
-                  value={contactTitle}
-                  onChange={(e) => { setContactTitle(e.target.value); setFieldErrors((p) => ({ ...p, contactTitle: false })); }}
-                  className={inputCls("contactTitle")}
-                />
-                <input
-                  type="email"
-                  placeholder="Email *"
-                  value={contactEmail}
-                  onChange={(e) => { setContactEmail(e.target.value); setFieldErrors((p) => ({ ...p, contactEmail: false })); }}
-                  className={inputCls("contactEmail")}
-                />
-                <input
-                  type="tel"
-                  placeholder="Phone"
-                  value={contactPhone}
-                  onChange={(e) => setContactPhone(e.target.value)}
-                  className={inputCls("")}
-                />
-              </div>
+              )}
             </div>
 
-            {/* Deal */}
+            {/* ── Deal section ── */}
             <div>
-              <div className="flex items-center gap-1.5 mb-3">
+              <div className="flex items-center gap-1.5 mb-2.5">
                 <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Deal</span>
+                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Deal Details</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  placeholder="Deal Title *"
-                  value={dealTitle}
-                  onChange={(e) => { setDealTitle(e.target.value); setFieldErrors((p) => ({ ...p, dealTitle: false })); }}
-                  className={inputCls("dealTitle")}
-                />
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="col-span-2">
+                  <input type="text" placeholder="Deal Title *" value={dealTitle}
+                    onChange={(e) => { setDealTitle(e.target.value); setFieldErrors((p) => ({ ...p, dealTitle: false })); }}
+                    className={inputCls("dealTitle")} />
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Value *"
-                    value={dealValue}
+                  <input type="number" min="0" placeholder="Value *" value={dealValue}
                     onChange={(e) => { setDealValue(e.target.value); setFieldErrors((p) => ({ ...p, dealValue: false })); }}
-                    className={`${inputCls("dealValue")} pl-7`}
-                  />
+                    className={`${inputCls("dealValue")} pl-7`} />
+                </div>
+                <div className="relative">
+                  <select value={stage} onChange={(e) => setStage(e.target.value)} className={selectCls()}>
+                    {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 </div>
                 <div className="relative">
                   <select value={service} onChange={(e) => setService(e.target.value)} className={selectCls()}>
@@ -302,39 +514,32 @@ export default function NewPotentialModal({
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 </div>
                 <div className="relative">
-                  <select
-                    value={subService}
-                    onChange={(e) => setSubService(e.target.value)}
+                  <select value={subService} onChange={(e) => setSubService(e.target.value)}
                     disabled={!service || subServiceOptions.length === 0}
-                    className={`${selectCls()} ${(!service || subServiceOptions.length === 0) ? "opacity-50" : ""}`}
-                  >
+                    className={`${selectCls()} ${(!service || subServiceOptions.length === 0) ? "opacity-50" : ""}`}>
                     <option value="">Sub-Service</option>
                     {subServiceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 </div>
-                <div className="relative">
-                  <select value={stage} onChange={(e) => handleStageChange(e.target.value)} className={selectCls()}>
-                    {stages.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                </div>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    placeholder="Probability %"
-                    value={probability}
-                    onChange={(e) => setProbability(Math.min(100, Math.max(0, Number(e.target.value))))}
-                    className={`${inputCls("")} pr-7`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
-                </div>
               </div>
             </div>
 
-            {/* More Details */}
+            {/* ── Customer Requirements ── */}
+            <div>
+              <label className="block text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5">
+                Customer Requirements / Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe the customer's requirements, pain points, or project scope…"
+                rows={3}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y"
+              />
+            </div>
+
+            {/* ── More Details (collapsible) ── */}
             <div>
               <button
                 type="button"
@@ -345,7 +550,14 @@ export default function NewPotentialModal({
                 More Details
               </button>
               {showAdvanced && (
-                <div className="grid grid-cols-2 gap-3 mt-3">
+                <div className="grid grid-cols-2 gap-2.5 mt-3">
+                  <div className="relative">
+                    <input type="number" min="0" max="100" placeholder="Probability %" value={probability}
+                      onChange={(e) => setProbability(Math.min(100, Math.max(0, Number(e.target.value))))}
+                      className={`${inputCls("")} pr-7`} />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
+                  </div>
+                  <input type="date" value={closingDate} onChange={(e) => setClosingDate(e.target.value)} className={inputCls("")} />
                   <div className="relative">
                     <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} className={selectCls()}>
                       <option value="">Lead Source</option>
@@ -353,20 +565,23 @@ export default function NewPotentialModal({
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   </div>
-                  <input
-                    type="date"
-                    value={closingDate}
-                    onChange={(e) => setClosingDate(e.target.value)}
-                    className={inputCls("")}
-                  />
+                  <div className="relative">
+                    <select value={dealType} onChange={(e) => setDealType(e.target.value)} className={selectCls()}>
+                      <option value="">Deal Type</option>
+                      {DEAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  </div>
+                  <div className="relative">
+                    <select value={dealSize} onChange={(e) => setDealSize(e.target.value)} className={selectCls()}>
+                      <option value="">Deal Size</option>
+                      {DEAL_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  </div>
                   <div className="col-span-2">
-                    <input
-                      type="text"
-                      placeholder="Next Step (e.g. Schedule discovery call)"
-                      value={nextStep}
-                      onChange={(e) => setNextStep(e.target.value)}
-                      className={inputCls("")}
-                    />
+                    <input type="text" placeholder="Next Step (e.g. Schedule discovery call)" value={nextStep}
+                      onChange={(e) => setNextStep(e.target.value)} className={inputCls("")} />
                   </div>
                 </div>
               )}
@@ -374,24 +589,16 @@ export default function NewPotentialModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-            <button
-              onClick={onClose}
-              disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors"
-            >
+          <div className="flex items-center justify-end gap-3 px-5 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0">
+            <button onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">
               Cancel
             </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-            >
-              {saving ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" />Creating...</>
-              ) : (
-                <><Plus className="h-3.5 w-3.5" />Create Potential</>
-              )}
+            <button onClick={handleSubmit} disabled={saving}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+              {saving
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Creating…</>
+                : <><Plus className="h-3.5 w-3.5" />Create Potential</>}
             </button>
           </div>
         </div>
