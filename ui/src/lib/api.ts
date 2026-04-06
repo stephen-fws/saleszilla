@@ -247,6 +247,7 @@ export async function searchAccounts(q: string): Promise<AccountSearchResult[]> 
     name: a.name ?? "",
     industry: a.industry ?? null,
     website: a.website ?? null,
+    country: a.country ?? null,
   }));
 }
 

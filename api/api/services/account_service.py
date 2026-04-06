@@ -107,6 +107,7 @@ def list_accounts(
                 industry=a.industry,
                 location=_build_location(a),
                 website=a.website,
+                country=a.billing_country or a.country_fws,
                 deal_count=deal_count,
                 contact_count=contact_counts.get(a.account_id, 0),
                 total_value=float(total_value or 0),

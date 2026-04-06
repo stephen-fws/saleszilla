@@ -259,6 +259,19 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             account = session.get(Account, data.account_id)
             if not account:
                 raise ValueError(f"Account {data.account_id} not found")
+            # Patch any agent-critical fields that are missing in the account
+            if data.company:
+                changed = False
+                if not account.website and data.company.website:
+                    account.website = data.company.website; changed = True
+                if not account.billing_country and not account.country_fws and data.company.country:
+                    account.billing_country = data.company.country; changed = True
+                if not account.industry and data.company.industry:
+                    account.industry = data.company.industry; changed = True
+                if changed:
+                    account.modified_time = dt.utcnow()
+                    session.add(account)
+                    session.flush()
         else:
             # Find-or-create by name (case-insensitive)
             account = session.execute(

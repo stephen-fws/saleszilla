@@ -198,6 +198,7 @@ export interface AccountSearchResult {
   name: string;
   industry: string | null;
   website: string | null;
+  country: string | null;
 }
 
 // ── Detail panel types ────────────────────────────────────────────────────────

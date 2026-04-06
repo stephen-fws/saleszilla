@@ -171,6 +171,7 @@ class AccountItem(BaseModel):
     industry: Optional[str] = None
     location: Optional[str] = None
     website: Optional[str] = None
+    country: Optional[str] = None
     deal_count: int = 0
     contact_count: int = 0
     total_value: float = 0.0
@@ -394,6 +395,8 @@ class AgentWebhookPayload(BaseModel):
     run_id: str
     execution_time_ms: Optional[int] = None
     status: str  # "completed" | "failed"
+    content: Optional[str] = None  # agent result content, delivered inline
+    content_type: Optional[str] = None  # "markdown" | "html" — overrides config default if provided
 
 
 # Keep old name as alias

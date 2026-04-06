@@ -141,28 +141,6 @@ def _upsert_insight(
         session.flush()
 
 
-# ── AgentFlow API calls ───────────────────────────────────────────────────────
-
-def _fetch_agent_output(external_id: str, agent_id: str) -> str | None:
-    """Fetch result content from agentflow API for one agent."""
-    try:
-        resp = requests.get(
-            f"{config.AGENTFLOW_BASE_URL}/external/outputs/{external_id}",
-            params={"include": agent_id},
-            headers={"x-api-key": config.AGENTFLOW_API_KEY},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        for item in data.get("agentResponse", []):
-            if item.get("agent_id") == agent_id:
-                return item.get("result")
-        return None
-    except Exception as e:
-        logger.warning("Failed to fetch agent output for %s/%s: %s", external_id, agent_id, e)
-        return None
-
-
 def _trigger_agentflow(potential_id: str, category: str, potential_data: dict) -> None:
     """POST to agentflow webhook to kick off agent execution. Fire-and-forget."""
     try:
@@ -224,7 +202,7 @@ def _load_potential_data(potential_id: str) -> dict:
 def process_webhook(payload_data: dict) -> None:
     """
     Process incoming agentflow webhook notification.
-    Fetches content from agentflow API and upserts the insight row.
+    Content is delivered inline in the payload — no secondary fetch needed.
     """
     agent_id = payload_data.get("agent_id", "")
     agent_name = payload_data.get("agent_name", "")
@@ -232,23 +210,20 @@ def process_webhook(payload_data: dict) -> None:
     execution_id = payload_data.get("execution_id")
     run_id = payload_data.get("run_id")
     status = payload_data.get("status", "")
+    content = payload_data.get("content")
+    content_type_override = payload_data.get("content_type")
 
     cfg = get_agent_config(agent_id)
     if not cfg:
         logger.info("Ignoring webhook for unknown agent_id=%s", agent_id)
         return
 
-    content = None
-    error_message = None
-    final_status = "completed"
-
     if status == "completed":
-        content = _fetch_agent_output(external_id, agent_id)
-        if content is None:
-            error_message = "Content unavailable from agent system"
-            final_status = "error"
+        final_status = "completed"
+        error_message = None
     else:
         final_status = "error"
+        content = None
         error_message = f"Agent execution status: {status}"
 
     _upsert_insight(
@@ -257,7 +232,7 @@ def process_webhook(payload_data: dict) -> None:
         agent_name=agent_name,
         tab_type=cfg.tab_type,
         content=content,
-        content_type=cfg.content_type,
+        content_type=content_type_override or cfg.content_type,
         status=final_status,
         execution_id=execution_id,
         run_id=run_id,
@@ -267,8 +242,9 @@ def process_webhook(payload_data: dict) -> None:
 
 def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:
     """
-    Create pending insight rows for all active agents and fire the agent system trigger.
-    Called when a new potential is created (from UI or external service).
+    Upsert all active agent rows to 'pending' and fire the agentflow trigger.
+    Works for both new potentials and re-runs on old ones — existing rows are
+    reset to pending so the UI shows loading state while agents execute.
     """
     configs = list_active_configs()
     if not configs:
@@ -283,7 +259,18 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
                     CXAgentInsight.agent_id == cfg.agent_id,
                 )
             ).scalar_one_or_none()
-            if not existing:
+            if existing:
+                # Reset existing row so UI shows spinner and old content is cleared
+                existing.status = "pending"
+                existing.content = None
+                existing.error_message = None
+                existing.triggered_by = triggered_by
+                existing.triggered_at = now
+                existing.completed_time = None
+                existing.updated_time = now
+                existing.is_active = True
+                session.add(existing)
+            else:
                 session.add(CXAgentInsight(
                     potential_id=potential_id,
                     agent_type=cfg.tab_type,
@@ -301,13 +288,9 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
                 ))
         session.commit()
 
-    # Trigger agentflow — one call per unique category
+    # Fire one POST to the gateway agent — it orchestrates all downstream agents
     potential_data = _load_potential_data(potential_id)
-    fired_categories: set[str] = set()
-    for cfg in configs:
-        if cfg.trigger_category and cfg.trigger_category not in fired_categories:
-            _trigger_agentflow(potential_id, cfg.trigger_category, potential_data)
-            fired_categories.add(cfg.trigger_category)
+    _trigger_agentflow(potential_id, config.AGENTFLOW_TRIGGER_CATEGORY, potential_data)
 
 
 def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "user") -> AgentResultItem | None:
@@ -328,9 +311,8 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
         triggered_by=triggered_by,
     )
 
-    if cfg.trigger_category:
-        potential_data = _load_potential_data(potential_id)
-        _trigger_agentflow(potential_id, cfg.trigger_category, potential_data)
+    potential_data = _load_potential_data(potential_id)
+    _trigger_agentflow(potential_id, config.AGENTFLOW_TRIGGER_CATEGORY, potential_data)
 
     # Return the pending row
     results = get_insights_for_tab(potential_id, cfg.tab_type)
