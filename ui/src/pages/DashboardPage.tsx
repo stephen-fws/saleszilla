@@ -11,6 +11,7 @@ import {
   updatePotential,
 } from "@/lib/api";
 import NewPotentialModal from "@/components/potentials/NewPotentialModal";
+import GlobalSearch from "@/components/layout/GlobalSearch";
 import type { CalendarEvent } from "@/lib/api";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import type {
@@ -304,13 +305,38 @@ export default function DashboardPage() {
     }));
   }, []);
 
+  const [newDealInitialTab, setNewDealInitialTab] = useState<"action" | undefined>(undefined);
+
   const handlePotentialCreated = useCallback((dealId: string) => {
-    // Switch to potentials view, select the new deal, and refresh the list
     setViewMode("potentials");
     setSelectedDealId(dealId);
+    setNewDealInitialTab("action");
     if (isMobile) setMobileShowDetail(true);
-    // Trigger a re-fetch by bumping filters (no-op change forces useEffect to re-run)
     setPotentialFilters((prev) => ({ ...prev }));
+  }, [isMobile]);
+
+  const handleSearchNavigate = useCallback((payload: { type: string; id?: string; accountId?: string; potentialId?: string }) => {
+    if (payload.type === "potential" && payload.id) {
+      setViewMode("potentials");
+      setSelectedDealId(payload.id);
+      setSelectedAccountId(null);
+      if (isMobile) setMobileShowDetail(true);
+    } else if (payload.type === "account" && payload.id) {
+      setViewMode("accounts");
+      setSelectedAccountId(payload.id);
+      setSelectedDealId(null);
+      if (isMobile) setMobileShowDetail(true);
+    } else if (payload.type === "contact" && payload.accountId) {
+      setViewMode("accounts");
+      setSelectedAccountId(payload.accountId);
+      setSelectedDealId(null);
+      if (isMobile) setMobileShowDetail(true);
+    } else if (payload.type === "contact-potential" && payload.potentialId) {
+      setViewMode("potentials");
+      setSelectedDealId(payload.potentialId);
+      setSelectedAccountId(null);
+      if (isMobile) setMobileShowDetail(true);
+    }
   }, [isMobile]);
 
   const handleStageChange = useCallback(async (dealId: string, stage: string) => {
@@ -362,8 +388,8 @@ export default function DashboardPage() {
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-white">
       {/* Top bar */}
-      <div className="flex h-12 items-center justify-between border-b border-slate-200 bg-slate-50 px-4 flex-shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="flex h-12 items-center border-b border-slate-200 bg-slate-50 px-4 flex-shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {nextMeeting && nextMeeting.start ? (() => {
             const start = new Date(nextMeeting.start!);
             const diffMs = start.getTime() - Date.now();
@@ -393,7 +419,12 @@ export default function DashboardPage() {
             <span className="text-xs text-slate-400">No upcoming meetings</span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        {/* Global search — centered */}
+        <div className="flex-1 flex justify-center px-4">
+          <GlobalSearch onNavigate={handleSearchNavigate} />
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 ml-auto">
           <button
             onClick={() => setCalendarOpen(true)}
             className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
@@ -591,6 +622,8 @@ export default function DashboardPage() {
               setSelectedDealId(dealId);
             }}
             availableStages={filterOptions.stages}
+            availableServices={filterOptions.services}
+            initialTab={newDealInitialTab}
           />
         </div>
       </div>

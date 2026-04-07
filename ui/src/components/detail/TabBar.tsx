@@ -1,4 +1,4 @@
-import { ArrowRightCircle, ClipboardList, Bot, Inbox, Lightbulb, NotepadText, ListTodo, FolderOpen, Clock } from "lucide-react";
+import { ArrowRightCircle, ClipboardList, Bot, Inbox, Lightbulb, NotepadText, ListTodo, FolderOpen, Clock, MessageSquare } from "lucide-react";
 import type { DetailTab } from "@/types";
 
 interface TabBarProps {
@@ -19,6 +19,7 @@ const DEAL_TABS: { id: DetailTab; label: string; icon: typeof ArrowRightCircle }
   { id: "notes", label: "Notes", icon: NotepadText },
   { id: "todos", label: "Todos", icon: ListTodo },
   { id: "files", label: "Files", icon: FolderOpen },
+  { id: "timeline", label: "Timeline", icon: Clock },
 ];
 
 export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBarProps) {
@@ -45,6 +46,7 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
             </button>
           );
         })}
+
       </div>
 
       {/* Separator + deal tabs */}
@@ -55,26 +57,31 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
             {DEAL_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
+              const isChat = tab.id === "chat";
               return (
                 <button
                   key={tab.id}
                   onClick={() => onTabChange(tab.id)}
                   title={tab.label}
                   className={`relative inline-flex items-center justify-center gap-1 rounded transition-colors group
-                    /* Mobile: label visible */
                     px-2.5 py-2.5 text-xs font-medium whitespace-nowrap
-                    /* Desktop: icon only */
                     md:gap-0 md:px-0 md:py-0 md:w-8 md:h-8
-                    ${isActive ? "text-blue-600 md:bg-blue-50" : "text-slate-400 hover:text-slate-600 md:hover:bg-slate-50"}`}
+                    ${isChat
+                      ? isActive
+                        ? "text-violet-600 md:bg-violet-50"
+                        : "text-violet-400 hover:text-violet-600 md:hover:bg-violet-50"
+                      : isActive
+                        ? "text-blue-600 md:bg-blue-50"
+                        : "text-slate-400 hover:text-slate-600 md:hover:bg-slate-50"
+                    }`}
                 >
                   <Icon className="h-3.5 w-3.5 md:h-4 md:w-4" />
                   <span className="md:hidden">{tab.label}</span>
-                  {/* Tooltip on desktop */}
                   <span className="hidden md:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
                     {tab.label}
                   </span>
                   {isActive && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t md:bottom-[-5px] md:left-1 md:right-1" />
+                    <span className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-t md:bottom-[-5px] md:left-1 md:right-1 ${isChat ? "bg-violet-600" : "bg-blue-600"}`} />
                   )}
                 </button>
               );
@@ -83,28 +90,22 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
         </>
       )}
 
-      {/* Timeline — pinned to the right */}
+      {/* Ask AI — pinned to the right */}
       {hasDeal && (
         <div className="ml-auto pl-2 flex-shrink-0">
           {(() => {
-            const isActive = activeTab === "timeline";
+            const isActive = activeTab === "chat";
             return (
               <button
-                onClick={() => onTabChange("timeline")}
-                title="Timeline"
-                className={`relative inline-flex items-center justify-center rounded transition-colors group
-                  px-2.5 py-2.5 text-xs font-medium whitespace-nowrap
-                  md:gap-0 md:px-0 md:py-0 md:w-8 md:h-8
-                  ${isActive ? "text-blue-600 md:bg-blue-50" : "text-slate-400 hover:text-slate-600 md:hover:bg-slate-50"}`}
+                onClick={() => onTabChange("chat")}
+                className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 my-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
+                  isActive
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "bg-violet-50 text-violet-600 hover:bg-violet-100"
+                }`}
               >
-                <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                <span className="md:hidden ml-1">Timeline</span>
-                <span className="hidden md:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-medium text-white bg-slate-800 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                  Timeline
-                </span>
-                {isActive && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t md:bottom-[-5px] md:left-1 md:right-1" />
-                )}
+                <MessageSquare className="h-3.5 w-3.5" />
+                Ask AI
               </button>
             );
           })()}

@@ -56,6 +56,7 @@ export interface PotentialDeal {
   service: string | null;
   ownerName: string | null;
   closingDate: string | null;
+  category: string | null;
   company: { id: string; name: string; industry: string };
   contact: { id: string; name: string; title: string; email: string };
 }
@@ -242,7 +243,7 @@ export interface AgentResult {
   errorMessage: string | null;
 }
 
-export type DetailTab = "action" | "details" | "research" | "emails" | "solution" | "notes" | "todos" | "files" | "timeline";
+export type DetailTab = "action" | "details" | "research" | "emails" | "solution" | "notes" | "todos" | "files" | "timeline" | "chat";
 
 export interface NoteItem {
   id: number;
@@ -262,6 +263,8 @@ export interface TodoItem {
 
 export interface PotentialDetail {
   id: string;
+  potentialNumber: string | null;
+  category: string | null;
   title: string | null;
   value: number | null;
   stage: string | null;
@@ -294,4 +297,55 @@ export interface PotentialDetail {
     revenue: number | null;
     description: string | null;
   } | null;
+}
+
+// ── Global search ─────────────────────────────────────────────────────────────
+
+export interface GlobalSearchPotential {
+  id: string;
+  label: string;
+  sublabel: string;
+  potentialNumber: string | null;
+}
+
+export interface GlobalSearchAccount {
+  id: string;
+  label: string;
+  sublabel: string;
+}
+
+export interface GlobalSearchContact {
+  id: string;
+  label: string;
+  sublabel: string;
+  accountId: string | null;
+  potentialId: string | null;
+}
+
+export interface GlobalSearchResults {
+  potentials: GlobalSearchPotential[];
+  accounts: GlobalSearchAccount[];
+  contacts: GlobalSearchContact[];
+}
+
+// ── Sales targets ─────────────────────────────────────────────────────────────
+
+export interface SalesTopDeal {
+  potentialNumber: string | null;
+  potentialName: string | null;
+  amount: number;
+  invoiceDate: string | null;
+}
+
+export interface SalesTargetSummary {
+  quarterLabel: string;
+  actuals: number;
+  target: number;
+  pctOfTarget: number;
+  prevQuarterLabel: string;
+  prevActuals: number;
+  prevTarget: number;
+  prevPctOfTarget: number;
+  pctChange: number;
+  topClosed: SalesTopDeal[];
 }

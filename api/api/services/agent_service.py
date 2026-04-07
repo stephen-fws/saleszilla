@@ -141,32 +141,34 @@ def _upsert_insight(
         session.flush()
 
 
-def _trigger_agentflow(potential_id: str, category: str, potential_data: dict) -> None:
+def _trigger_agentflow(potential_id: str, potential_data: dict) -> None:
     """POST to agentflow webhook to kick off agent execution. Fire-and-forget."""
-    try:
-        payload = {
-            "entityId": potential_data.get("potential_number") or potential_id,
-            "entityOwnerEmail": potential_data.get("owner_email", ""),
-            "category": category,
-            "source": "crm",
-            "potentialId": potential_id,
-            "customerName": potential_data.get("customer_name", ""),
-            "contactEmail": potential_data.get("contact_email", ""),
-            "contactPhone": potential_data.get("contact_phone", ""),
+    url = f"{config.AGENTFLOW_BASE_URL}/webhooks/crm"
+    potential_number = potential_data.get("potential_number") or potential_id
+    payload = {
+        "event_source": "crm",
+        "action": "create",
+        "entity_type": "sales_lead",
+        "entity_id": potential_number,
+        "data": {
+            "potential_id": potential_number,
+            "company_name": potential_data.get("company_name", ""),
+            "company_website": potential_data.get("company_website", ""),
+            "contact_email": potential_data.get("contact_email", ""),
+            "contact_phone": potential_data.get("contact_phone", ""),
+            "customer_name": potential_data.get("customer_name", ""),
             "service": potential_data.get("service", ""),
-            "subService": potential_data.get("sub_service", ""),
-            "companyName": potential_data.get("company_name", ""),
-            "customerCountry": potential_data.get("customer_country", ""),
-            "companyWebsite": potential_data.get("company_website", ""),
-            "customerRequirements": potential_data.get("description", ""),
-        }
-        requests.post(
-            f"{config.AGENTFLOW_BASE_URL}/webhooks/crm",
-            json=payload,
-            timeout=10,
-        )
+            "sub_service": potential_data.get("sub_service", ""),
+            "lead_source": potential_data.get("lead_source", ""),
+            "customer_requirements": potential_data.get("description", ""),
+        },
+    }
+    logger.info("Triggering agentflow: POST %s | payload=%s", url, payload)
+    try:
+        resp = requests.post(url, json=payload, headers={"x-api-key": config.AGENTFLOW_API_KEY}, timeout=10)
+        logger.info("Agentflow response: status=%s body=%s", resp.status_code, resp.text)
     except Exception as e:
-        logger.warning("Failed to trigger agentflow for %s category=%s: %s", potential_id, category, e)
+        logger.error("Failed to trigger agentflow for %s: %s", potential_id, e)
 
 
 def _load_potential_data(potential_id: str) -> dict:
@@ -193,6 +195,7 @@ def _load_potential_data(potential_id: str) -> dict:
             "customer_country": (a.billing_country or a.country_fws) if a else "",
             "company_website": a.website if a else "",
             "description": p.description or "",
+            "lead_source": p.lead_source or "",
             "potential_number": p.potential_number or "",
         }
 
@@ -246,6 +249,13 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
     Works for both new potentials and re-runs on old ones — existing rows are
     reset to pending so the UI shows loading state while agents execute.
     """
+    logger.info("init_agents_for_potential called: potential_id=%s triggered_by=%s", potential_id, triggered_by)
+    # Always fire the agentflow trigger — independent of whether config rows exist
+    potential_data = _load_potential_data(potential_id)
+    logger.info("Loaded potential data: %s", potential_data)
+    _trigger_agentflow(potential_id, potential_data)
+
+    # If agent configs exist, upsert pending insight rows so the UI shows spinners
     configs = list_active_configs()
     if not configs:
         return
@@ -288,10 +298,6 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
                 ))
         session.commit()
 
-    # Fire one POST to the gateway agent — it orchestrates all downstream agents
-    potential_data = _load_potential_data(potential_id)
-    _trigger_agentflow(potential_id, config.AGENTFLOW_TRIGGER_CATEGORY, potential_data)
-
 
 def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "user") -> AgentResultItem | None:
     """Trigger a single agent manually and mark it as pending."""
@@ -312,7 +318,7 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
     )
 
     potential_data = _load_potential_data(potential_id)
-    _trigger_agentflow(potential_id, config.AGENTFLOW_TRIGGER_CATEGORY, potential_data)
+    _trigger_agentflow(potential_id, potential_data)
 
     # Return the pending row
     results = get_insights_for_tab(potential_id, cfg.tab_type)

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Building2, X, Plus, ChevronDown, Loader2 } from "lucide-react";
+import { Briefcase, Building2, X, Plus, ChevronDown, Loader2 } from "lucide-react";
 import type { PotentialDeal } from "@/types";
 
 const STAGE_COLORS: Record<string, string> = {
@@ -235,21 +235,24 @@ export default function PotentialsList({
                         isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"
                       }`}
                     >
-                      <Building2 className="h-4 w-4" />
+                      <Briefcase className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <span className={`text-sm font-medium truncate ${isSelected ? "text-blue-900" : "text-slate-900"}`}>
-                          {deal.company.name}
+                          {deal.title || deal.company.name}
                         </span>
                         <span className="flex-shrink-0 text-xs font-semibold text-emerald-600">
                           {formatValue(deal.value)}
                         </span>
                       </div>
                       <span className="text-xs text-slate-500 truncate block mt-0.5">
-                        {deal.contact.name} - {deal.contact.title}
+                        {deal.company.name}
                       </span>
-                      <div className="flex items-center gap-1.5 mt-1.5">
+                      <span className="text-xs text-slate-400 truncate block">
+                        {deal.contact.name}{deal.contact.title ? ` · ${deal.contact.title}` : ""}
+                      </span>
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                         {onStageChange ? (
                           <StageSelector
                             stage={deal.stage}
@@ -260,6 +263,12 @@ export default function PotentialsList({
                           <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[deal.stage] ?? "bg-slate-100 text-slate-600"}`}>
                             {deal.stage}
                           </span>
+                        )}
+                        {deal.category === "Diamond" && (
+                          <span title="Diamond" className="text-base leading-none">💎</span>
+                        )}
+                        {deal.category === "Platinum" && (
+                          <span title="Platinum" className="text-base leading-none">🏆</span>
                         )}
                         {deal.service && (
                           <span className="text-[10px] text-slate-400 truncate">{deal.service}</span>

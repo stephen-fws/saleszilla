@@ -103,6 +103,8 @@ class Potential(Base):
     deal_size: Mapped[str | None] = mapped_column("Deal Size", String(32), nullable=True)
     description: Mapped[str | None] = mapped_column("Description", Text, nullable=True)
     type: Mapped[str | None] = mapped_column("Type", String(32), nullable=True)
+    potential2close: Mapped[int | None] = mapped_column("Potential2Close", Integer, nullable=True)
+    hot_potential: Mapped[str | None] = mapped_column("Hot_Potential", String(16), nullable=True)
     created_time: Mapped[datetime | None] = mapped_column("Created Time", DateTime, nullable=True)
     modified_time: Mapped[datetime | None] = mapped_column("Modified Time", DateTime, nullable=True)
 
@@ -364,6 +366,7 @@ class CXChatMessage(Base):
 
     id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
+    potential_id: Mapped[str | None] = mapped_column("PotentialId", String(16), nullable=True)  # 7-digit potential_number
     role: Mapped[str] = mapped_column("Role", String(16), nullable=False)
     content: Mapped[str] = mapped_column("Content", UnicodeText, nullable=False)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)

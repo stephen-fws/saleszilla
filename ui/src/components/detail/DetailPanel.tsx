@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Loader2,
   Building2,
@@ -6,9 +6,10 @@ import {
   CheckCircle2,
   FolderOpen,
   Inbox,
+  Bot,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
-import { getPotentialDetail, updatePotential } from "@/lib/api";
+import { getPotentialDetail, updatePotential, getAllAgentResults } from "@/lib/api";
 import type { UpdatePotentialPayload } from "@/lib/api";
 import TabBar from "./TabBar";
 import NotesTab from "./NotesTab";
@@ -18,6 +19,7 @@ import DetailsTab from "./DetailsTab";
 import TimelineTab from "./TimelineTab";
 import AgentResultTab from "./AgentResultTab";
 import EmailsTab from "./EmailsTab";
+import ChatTab from "./ChatTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 
 interface DetailPanelProps {
@@ -28,6 +30,8 @@ interface DetailPanelProps {
   onComplete?: () => void;
   onPotentialNavigate?: (dealId: string) => void;
   availableStages?: string[];
+  availableServices?: string[];
+  initialTab?: DetailTab;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -58,11 +62,15 @@ export default function DetailPanel({
   onComplete,
   onPotentialNavigate,
   availableStages = [],
+  availableServices = [],
+  initialTab,
 }: DetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<DetailTab>("details");
+  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab ?? "details");
   const [detail, setDetail] = useState<PotentialDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agentsRunning, setAgentsRunning] = useState(false);
+  const agentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function handlePotentialFieldSave(field: keyof UpdatePotentialPayload, raw: string) {
     if (!dealId) return;
@@ -80,8 +88,11 @@ export default function DetailPanel({
   useEffect(() => {
     if (!dealId) {
       setDetail(null);
+      setAgentsRunning(false);
       return;
     }
+    // Reset tab to initialTab (or details) when deal changes
+    setActiveTab(initialTab ?? "details");
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -90,7 +101,28 @@ export default function DetailPanel({
       .catch(() => { if (!cancelled) setError("Failed to load details"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [dealId, initialTab]);
+
+  // Poll all agent results to show global running indicator
+  const checkAgentStatus = useCallback(async () => {
+    if (!dealId) return;
+    try {
+      const results = await getAllAgentResults(dealId);
+      const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
+      setAgentsRunning(hasPending);
+      if (!hasPending && agentPollRef.current) {
+        clearInterval(agentPollRef.current);
+        agentPollRef.current = null;
+      }
+    } catch { setAgentsRunning(false); }
   }, [dealId]);
+
+  useEffect(() => {
+    if (!dealId) return;
+    checkAgentStatus();
+    agentPollRef.current = setInterval(checkAgentStatus, 5000);
+    return () => { if (agentPollRef.current) clearInterval(agentPollRef.current); };
+  }, [dealId, checkAgentStatus]);
 
   const hasSelection = !!(queueItemId || dealId || accountId);
 
@@ -168,6 +200,18 @@ export default function DetailPanel({
               )}
             </div>
 
+            {/* Agents running indicator */}
+            {agentsRunning && (
+              <div className="flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-200 px-2.5 py-1">
+                <Bot className="h-3 w-3 text-blue-500 shrink-0" />
+                <span className="text-[11px] font-medium text-blue-600">Agents running</span>
+                <span className="flex h-1.5 w-1.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
+                </span>
+              </div>
+            )}
+
             {/* Complete button — queue mode only */}
             {queueItemId && onComplete && (
               <button
@@ -195,7 +239,7 @@ export default function DetailPanel({
               <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
             </div>
           ) : detail ? (
-            <DetailsTab detail={detail} availableStages={availableStages} onFieldSave={handlePotentialFieldSave} />
+            <DetailsTab detail={detail} availableStages={availableStages} availableServices={availableServices} onFieldSave={handlePotentialFieldSave} />
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm text-slate-400">No details available</p>
@@ -206,7 +250,7 @@ export default function DetailPanel({
         {activeTab === "notes" && dealId && <NotesTab dealId={dealId} />}
         {activeTab === "todos" && dealId && <TodosTab dealId={dealId} />}
 
-        {activeTab === "action" && dealId && <AgentResultTab dealId={dealId} tabType="next_action" emptyLabel="No next action draft yet" emptyDescription="The agent will generate a suggested next action email once triggered" />}
+        {activeTab === "action" && dealId && <AgentResultTab dealId={dealId} tabType="next_action" hideControls emptyLabel="Waiting for next action" emptyDescription="The agent will automatically generate an FRE draft or meeting prep based on the potential" />}
         {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" />}
         {activeTab === "emails" && dealId && (
           <EmailsTab
@@ -220,6 +264,7 @@ export default function DetailPanel({
         {activeTab === "files" && dealId && <FilesTab dealId={dealId} />}
         {activeTab === "files" && !dealId && <StubTab label="Files" icon={FolderOpen} />}
         {activeTab === "timeline" && dealId && <TimelineTab dealId={dealId} />}
+        {activeTab === "chat" && dealId && <ChatTab dealId={dealId} />}
       </div>
     </div>
   );

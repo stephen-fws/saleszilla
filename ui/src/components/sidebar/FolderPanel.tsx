@@ -23,6 +23,7 @@ import type {
   AccountFilters,
 } from "@/types";
 import { SORT_OPTIONS, ACCOUNT_SORT_OPTIONS, FILTER_STAGES, FILTER_SERVICES } from "@/types";
+import TargetWidget from "./TargetWidget";
 
 interface FolderPanelProps {
   folders: Folder[];
@@ -166,8 +167,8 @@ export default function FolderPanel({
         })}
       </div>
 
-      {/* Content */}
-      <div ref={listRef} className="flex-1 overflow-y-auto scrollbar-thin">
+      {/* Content — scrollable */}
+      <div ref={listRef} className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
         {viewMode === "accounts" ? (
           <div className="p-3 space-y-4">
             {/* Search */}
@@ -454,6 +455,8 @@ export default function FolderPanel({
           </div>
         )}
       </div>
+      {/* Target widget — always pinned at bottom */}
+      <TargetWidget />
     </div>
   );
 }

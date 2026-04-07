@@ -27,6 +27,8 @@ import type {
   EmailAttachment,
   ContactSearchResult,
   AccountSearchResult,
+  SalesTargetSummary,
+  GlobalSearchResults,
 } from "@/types";
 
 // ── Auth ────────────────────────────────────────────────────────────────────
@@ -112,6 +114,7 @@ export async function getPotentials(filters: Partial<PotentialFilters>): Promise
     service: r.service ?? null,
     ownerName: r.owner_name ?? null,
     closingDate: r.closing_date ?? null,
+    category: r.category ?? null,
     company: {
       id: r.company?.id ?? "",
       name: r.company?.name ?? "",
@@ -144,6 +147,8 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
   const p = d.potential ?? {};
   return {
     id: p.id ?? id,
+    potentialNumber: p.potential_number ?? null,
+    category: p.category ?? null,
     title: p.title ?? null,
     value: p.value ?? null,
     stage: p.stage ?? null,
@@ -186,12 +191,18 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
 // ── Update potential ─────────────────────────────────────────────────────────
 
 export interface UpdatePotentialPayload {
+  title?: string;
   stage?: string;
   amount?: number;
   probability?: number;
   closing_date?: string;   // YYYY-MM-DD
   next_step?: string;
   description?: string;
+  service?: string;
+  sub_service?: string;
+  lead_source?: string;
+  deal_type?: string;
+  deal_size?: string;
 }
 
 export async function updatePotential(id: string, payload: UpdatePotentialPayload): Promise<PotentialDetail> {
@@ -201,6 +212,8 @@ export async function updatePotential(id: string, payload: UpdatePotentialPayloa
   const p = d.potential ?? {};
   return {
     id: p.id ?? id,
+    potentialNumber: p.potential_number ?? null,
+    category: p.category ?? null,
     title: p.title ?? null,
     value: p.value ?? null,
     stage: p.stage ?? null,
@@ -864,8 +877,103 @@ export async function getAgentResults(dealId: string, tabType: string): Promise<
   }));
 }
 
+export async function getAllAgentResults(dealId: string): Promise<AgentResult[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/agent-results`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((r: any): AgentResult => ({
+    id: r.id,
+    potentialId: r.potential_id,
+    agentId: r.agent_id,
+    agentName: r.agent_name,
+    tabType: r.tab_type,
+    contentType: r.content_type ?? "markdown",
+    content: r.content ?? null,
+    status: r.status,
+    sortOrder: r.sort_order ?? 0,
+    triggeredBy: r.triggered_by ?? null,
+    triggeredAt: r.triggered_at ?? null,
+    completedAt: r.completed_at ?? null,
+    errorMessage: r.error_message ?? null,
+  }));
+}
+
 export async function runAllAgents(dealId: string): Promise<void> {
   await protectedApi.post(`/potentials/${dealId}/agents/run`);
+}
+
+// ── Chat ────────────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  createdTime: string | null;
+}
+
+export async function getChatHistory(dealId: string): Promise<ChatMessage[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/chat/history`);
+  return (res.data.data ?? []).map((m: Record<string, unknown>) => ({
+    id: m.id as number,
+    role: m.role as "user" | "assistant",
+    content: m.content as string,
+    createdTime: (m.created_time as string) ?? null,
+  }));
+}
+
+export async function clearChatHistory(dealId: string): Promise<void> {
+  await protectedApi.delete(`/potentials/${dealId}/chat/history`);
+}
+
+export async function getChatSuggestions(dealId: string): Promise<string[]> {
+  const res = await protectedApi.get<{ data: string[] }>(`/potentials/${dealId}/chat/suggestions`);
+  return res.data.data ?? [];
+}
+
+export async function globalSearch(q: string): Promise<GlobalSearchResults> {
+  const res = await protectedApi.get("/search", { params: { q } });
+  const d = res.data.data;
+  return {
+    potentials: (d.potentials ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      label: r.label as string,
+      sublabel: r.sublabel as string,
+      potentialNumber: (r.potential_number as string) ?? null,
+    })),
+    accounts: (d.accounts ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      label: r.label as string,
+      sublabel: r.sublabel as string,
+    })),
+    contacts: (d.contacts ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      label: r.label as string,
+      sublabel: r.sublabel as string,
+      accountId: (r.account_id as string) ?? null,
+      potentialId: (r.potential_id as string) ?? null,
+    })),
+  };
+}
+
+export async function getSalesTargetSummary(): Promise<SalesTargetSummary> {
+  const res = await protectedApi.get("/sales/targets/summary");
+  const r = res.data.data;
+  return {
+    quarterLabel: r.quarter_label,
+    actuals: r.actuals,
+    target: r.target,
+    pctOfTarget: r.pct_of_target,
+    prevQuarterLabel: r.prev_quarter_label,
+    prevActuals: r.prev_actuals,
+    prevTarget: r.prev_target,
+    prevPctOfTarget: r.prev_pct_of_target,
+    pctChange: r.pct_change,
+    topClosed: (r.top_closed ?? []).map((d: Record<string, unknown>) => ({
+      potentialNumber: d.potential_number ?? null,
+      potentialName: d.potential_name ?? null,
+      amount: d.amount as number,
+      invoiceDate: d.invoice_date ?? null,
+    })),
+  };
 }
 
 export async function triggerAgent(dealId: string, agentId: string): Promise<AgentResult> {

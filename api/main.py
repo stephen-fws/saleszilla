@@ -62,6 +62,8 @@ from api.routes.agents import router as agents_router
 from api.routes.emails import router as emails_router
 from api.routes.calendar import router as calendar_router
 from api.routes.chat import router as chat_router
+from api.routes.sales import router as sales_router
+from api.routes.search import router as search_router
 
 app.include_router(auth_router)
 app.include_router(potentials_router)
@@ -77,6 +79,8 @@ app.include_router(agents_router)
 app.include_router(emails_router)
 app.include_router(calendar_router)
 app.include_router(chat_router)
+app.include_router(sales_router)
+app.include_router(search_router)
 
 # ── Exception handlers ───────────────────────────────────────────────────────
 

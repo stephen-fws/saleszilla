@@ -372,13 +372,78 @@ function EditableStage({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+// ── Editable select (generic dropdown, no color badges) ───────────────────────
+
+function EditableSelect({
+  label,
+  value,
+  options,
+  onSave,
+}: {
+  label: string;
+  value: string | null | undefined;
+  options: string[];
+  onSave: (val: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  async function handleSelect(val: string) {
+    if (val === (value ?? "")) { setOpen(false); return; }
+    setOpen(false);
+    setSaving(true);
+    try { await onSave(val); } finally { setSaving(false); }
+  }
+
+  return (
+    <div ref={ref} className="py-1 relative">
+      <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex items-center gap-1 text-sm text-slate-700 rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors w-full text-left"
+      >
+        {saving ? <Loader2 className="h-3 w-3 animate-spin text-blue-500" /> : (value ?? "—")}
+        {!saving && <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0" />}
+      </button>
+      {open && options.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 z-30 min-w-[180px] max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg py-1">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => handleSelect(opt)}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                opt === (value ?? "") ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DetailsTabProps {
   detail: PotentialDetail;
   availableStages: string[];
+  availableServices: string[];
   onFieldSave: (field: keyof UpdatePotentialPayload, raw: string) => Promise<void>;
 }
 
-export default function DetailsTab({ detail, availableStages, onFieldSave }: DetailsTabProps) {
+export default function DetailsTab({ detail, availableStages, availableServices, onFieldSave }: DetailsTabProps) {
   const { contact, company } = detail;
 
   return (
@@ -390,6 +455,15 @@ export default function DetailsTab({ detail, availableStages, onFieldSave }: Det
           <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
             <Briefcase className="h-4 w-4 text-slate-500" />
             <h3 className="text-sm font-semibold text-slate-800">Deal / Opportunity</h3>
+            <span className="ml-1 text-[11px] font-mono font-semibold text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">
+              {detail.potentialNumber ? `#${detail.potentialNumber}` : "—"}
+            </span>
+            {detail.category === "Diamond" && (
+              <span title="Diamond" className="text-base leading-none">💎</span>
+            )}
+            {detail.category === "Platinum" && (
+              <span title="Platinum" className="text-base leading-none">🏆</span>
+            )}
             <div className="ml-auto">
               <EditableStage value={detail.stage} availableStages={availableStages} onSave={(v) => onFieldSave("stage", v)} />
             </div>
@@ -397,7 +471,11 @@ export default function DetailsTab({ detail, availableStages, onFieldSave }: Det
           <div className="p-4">
             <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
               <div className="col-span-2">
-                <Field label="Title" value={detail.title} />
+                <EditableField
+                  label="Title"
+                  value={detail.title}
+                  onSave={(v) => onFieldSave("title", v)}
+                />
               </div>
               <EditableField
                 label="Value"
@@ -421,11 +499,32 @@ export default function DetailsTab({ detail, availableStages, onFieldSave }: Det
                 onSave={(v) => onFieldSave("closing_date", v)}
               />
               <Field label="Owner" value={detail.ownerName} />
-              <Field label="Service" value={detail.service} />
-              <Field label="Sub-service" value={detail.subService} />
-              {detail.dealType && <Field label="Type" value={detail.dealType} />}
-              {detail.dealSize && <Field label="Deal Size" value={detail.dealSize} />}
-              <Field label="Lead Source" value={detail.leadSource} />
+              <EditableSelect
+                label="Service"
+                value={detail.service}
+                options={availableServices}
+                onSave={(v) => onFieldSave("service", v)}
+              />
+              <EditableField
+                label="Sub-service"
+                value={detail.subService}
+                onSave={(v) => onFieldSave("sub_service", v)}
+              />
+              <EditableField
+                label="Type"
+                value={detail.dealType}
+                onSave={(v) => onFieldSave("deal_type", v)}
+              />
+              <EditableField
+                label="Deal Size"
+                value={detail.dealSize}
+                onSave={(v) => onFieldSave("deal_size", v)}
+              />
+              <EditableField
+                label="Lead Source"
+                value={detail.leadSource}
+                onSave={(v) => onFieldSave("lead_source", v)}
+              />
               {detail.createdAt && (
                 <Field label="Created" value={formatDate(detail.createdAt)} />
               )}

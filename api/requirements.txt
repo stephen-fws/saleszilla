@@ -25,3 +25,9 @@ markdown>=3.5.0
 
 # SendGrid (OTP emails)
 sendgrid>=6.11.0
+
+# Anthropic Claude API
+anthropic>=0.40.0
+
+# HTTP requests (agentflow triggers)
+requests>=2.31.0

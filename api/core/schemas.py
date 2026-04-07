@@ -61,6 +61,8 @@ class ContactSummary(BaseModel):
 
 class PotentialItem(BaseModel):
     id: str
+    potential_number: Optional[str] = None
+    category: Optional[str] = None  # "Diamond" | "Platinum" | "Other"
     title: Optional[str] = None
     value: Optional[float] = None
     stage: Optional[str] = None
@@ -78,12 +80,18 @@ class PotentialItem(BaseModel):
 
 
 class UpdatePotentialRequest(BaseModel):
+    title: Optional[str] = None
     stage: Optional[str] = None
     amount: Optional[float] = None
     probability: Optional[float] = None
     closing_date: Optional[str] = None   # ISO date string YYYY-MM-DD
     next_step: Optional[str] = None
     description: Optional[str] = None
+    service: Optional[str] = None
+    sub_service: Optional[str] = None
+    lead_source: Optional[str] = None
+    deal_type: Optional[str] = None
+    deal_size: Optional[str] = None
 
 
 class CreatePotentialCompany(BaseModel):
@@ -121,7 +129,7 @@ class CreatePotentialRequest(BaseModel):
 
     potential_name: str
     amount: float
-    stage: str = "Prospects"
+    stage: str = "Pre Qualified"
     probability: Optional[float] = None
     service: Optional[str] = None
     sub_service: Optional[str] = None
@@ -482,6 +490,31 @@ class UpdateDraftRequest(BaseModel):
 
 class SignatureRequest(BaseModel):
     signature: Optional[str] = None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Sales Targets
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class SalesTopDeal(BaseModel):
+    potential_number: Optional[str] = None
+    potential_name: Optional[str] = None
+    amount: float
+    invoice_date: Optional[str] = None
+
+
+class SalesTargetSummary(BaseModel):
+    quarter_label: str           # e.g. "Q1 2025"
+    actuals: float
+    target: float
+    pct_of_target: float         # actuals / target * 100
+    prev_quarter_label: str
+    prev_actuals: float
+    prev_target: float
+    prev_pct_of_target: float
+    pct_change: float            # (actuals - prev_actuals) / prev_actuals * 100, None if no prev data
+    top_closed: list[SalesTopDeal] = []
 
 
 # ═════════════════════════════════════════════════════════════════════════════

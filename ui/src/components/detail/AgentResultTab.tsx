@@ -129,9 +129,10 @@ interface AgentResultTabProps {
   tabType: string;
   emptyLabel?: string;
   emptyDescription?: string;
+  hideControls?: boolean;
 }
 
-export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescription }: AgentResultTabProps) {
+export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescription, hideControls = false }: AgentResultTabProps) {
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,14 +203,16 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
         </div>
         <p className="text-sm font-medium text-slate-500">{emptyLabel ?? "No agent results yet"}</p>
         <p className="text-xs text-slate-400 mt-1 mb-4">{emptyDescription ?? "Agents haven't run for this potential yet."}</p>
-        <button
-          onClick={handleRunAll}
-          disabled={running}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-60"
-        >
-          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          {running ? "Triggering…" : "Run Agents"}
-        </button>
+        {!hideControls && (
+          <button
+            onClick={handleRunAll}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-60"
+          >
+            {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {running ? "Triggering…" : "Run Agents"}
+          </button>
+        )}
       </div>
     );
   }
@@ -220,15 +223,17 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
         <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
           {results.length} agent{results.length !== 1 ? "s" : ""}
         </span>
-        <button
-          onClick={handleRunAll}
-          disabled={running || hasPending}
-          title="Re-run all agents"
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 transition-colors"
-        >
-          {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          Re-run all
-        </button>
+        {!hideControls && (
+          <button
+            onClick={handleRunAll}
+            disabled={running || hasPending}
+            title="Re-run all agents"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 transition-colors"
+          >
+            {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Re-run all
+          </button>
+        )}
       </div>
       {results.map((result) => (
         <AgentCard key={result.agentId} result={result} />

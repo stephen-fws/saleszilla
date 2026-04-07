@@ -1,41 +1,57 @@
-"""AI chat endpoints."""
+"""AI chat endpoints — per-potential conversation with Claude streaming."""
 
 from fastapi import APIRouter, Body, Depends
+from fastapi.responses import StreamingResponse
 
 from core.auth import get_current_active_user
 from core.models import User
 from core.schemas import ChatMessageItem, ResponseModel, SendChatRequest
-from api.services.chat_service import clear_history, list_messages, save_message
+from api.services.chat_service import clear_history, generate_suggestions, list_messages, save_message, stream_chat
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(tags=["chat"])
 
 
-@router.get("/history")
-def get_history(
+@router.get("/potentials/{potential_id}/chat/history")
+def get_chat_history(
+    potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[ChatMessageItem]]:
-    return ResponseModel(data=list_messages(user.user_id))
+    return ResponseModel(data=list_messages(user.user_id, potential_id))
 
 
-@router.post("")
+@router.post("/potentials/{potential_id}/chat")
 def post_chat(
+    potential_id: str,
     data: SendChatRequest = Body(),
     user: User = Depends(get_current_active_user),
-) -> ResponseModel[ChatMessageItem]:
-    """
-    Save user message and return it.
+):
+    """Stream Claude response as SSE. Saves both user + assistant messages."""
+    history = list_messages(user.user_id, potential_id)
 
-    Note: AI response generation will be handled separately
-    (either via the external agent system or a dedicated AI endpoint).
-    For now, this just persists the user's message.
-    """
-    msg = save_message(user.user_id, "user", data.message)
-    return ResponseModel(data=msg)
+    return StreamingResponse(
+        stream_chat(user.user_id, potential_id, data.message, history),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
-@router.delete("/history")
-def delete_history(
+@router.get("/potentials/{potential_id}/chat/suggestions")
+def get_chat_suggestions(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[list[str]]:
+    """Return 5 AI-generated suggested questions based on current deal state."""
+    return ResponseModel(data=generate_suggestions(potential_id))
+
+
+@router.delete("/potentials/{potential_id}/chat/history")
+def delete_chat_history(
+    potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
-    count = clear_history(user.user_id)
+    count = clear_history(user.user_id, potential_id)
     return ResponseModel(data={"deleted": count})

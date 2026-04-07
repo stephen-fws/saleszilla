@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   X, Plus, Building2, User, Briefcase, ChevronDown, ChevronRight,
-  Loader2, Search, Check, AlertCircle, Bot,
+  Loader2, Search, Check, AlertCircle,
 } from "lucide-react";
 import { createPotential, searchAccounts, searchContacts } from "@/lib/api";
 import type { AccountSearchResult, ContactSearchResult } from "@/types";
@@ -49,15 +49,6 @@ const COUNTRIES = [
   "United Kingdom", "United States", "Vietnam", "Other",
 ];
 
-// ── AI field badge ─────────────────────────────────────────────────────────────
-
-function AiBadge() {
-  return (
-    <span title="Used by AI agents" className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 bg-violet-50 text-violet-500 text-[9px] font-semibold uppercase tracking-wide">
-      <Bot className="h-2.5 w-2.5" />AI
-    </span>
-  );
-}
 
 // ── Search combobox ───────────────────────────────────────────────────────────
 
@@ -189,8 +180,9 @@ export default function NewPotentialModal({
   // ── Deal ───────────────────────────────────────────────────────────────────
   const [dealTitle, setDealTitle] = useState("");
   const [dealValue, setDealValue] = useState("");
-  const [stage, setStage] = useState(stages[0] ?? "Prospects");
-  const [probability, setProbability] = useState<number>(STAGE_PROBABILITY[stages[0] ?? "Prospects"] ?? 10);
+  const defaultStage = stages.includes("Pre Qualified") ? "Pre Qualified" : (stages[0] ?? "Pre Qualified");
+  const [stage, setStage] = useState(defaultStage);
+  const [probability, setProbability] = useState<number>(STAGE_PROBABILITY[defaultStage] ?? 20);
   const [service, setService] = useState("");
   const [subService, setSubService] = useState("");
   const [description, setDescription] = useState("");
@@ -222,8 +214,8 @@ export default function NewPotentialModal({
     setContactQuery(""); setContactOptions([]); setSelectedContact(null); setNewContact(false);
     setCtName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
     setDealTitle(""); setDealValue("");
-    const s0 = stages[0] ?? "Prospects";
-    setStage(s0); setProbability(STAGE_PROBABILITY[s0] ?? 10);
+    const s0 = stages.includes("Pre Qualified") ? "Pre Qualified" : (stages[0] ?? "Pre Qualified");
+    setStage(s0); setProbability(STAGE_PROBABILITY[s0] ?? 20);
     setService(""); setSubService(""); setDescription("");
     setLeadSource(""); setDealType(""); setDealSize("");
     setClosingDate(""); setNextStep("");
@@ -380,13 +372,7 @@ export default function NewPotentialModal({
             </button>
           </div>
 
-          {/* AI fields note */}
-          <div className="flex items-center gap-1.5 px-5 py-2 bg-violet-50 border-b border-violet-100 shrink-0">
-            <Bot className="h-3 w-3 text-violet-500" />
-            <p className="text-[11px] text-violet-600">Fields marked <span className="font-semibold">AI</span> are sent to AI agents on creation</p>
-          </div>
-
-          {/* Body */}
+{/* Body */}
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 scrollbar-thin">
             {error && (
               <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
@@ -414,18 +400,18 @@ export default function NewPotentialModal({
               {newAccount ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="col-span-2">
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Company Name *</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Company Name *</label>
                     <input type="text" placeholder="e.g. Acme Corporation" value={accName}
                       onChange={(e) => { setAccName(e.target.value); setFieldErrors((p) => ({ ...p, accName: false })); }}
                       className={inputCls("accName")} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Website</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Website</label>
                     <input type="url" placeholder="https://company.com" value={accWebsite}
                       onChange={(e) => setAccWebsite(e.target.value)} className={inputCls("")} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Country</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Country</label>
                     <input list="country-list" placeholder="Select or type country" value={accCountry}
                       onChange={(e) => setAccCountry(e.target.value)} className={inputCls("")} />
                   </div>
@@ -455,21 +441,20 @@ export default function NewPotentialModal({
                   {/* Supplemental fields for existing account with missing agent data */}
                   {hasSupplementalFields && (
                     <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2.5">
-                      <p className="text-[11px] text-amber-700 flex items-center gap-1">
-                        <Bot className="h-3 w-3" />
-                        Some AI agent fields are missing for this account. Add them now:
+                      <p className="text-[11px] text-amber-700">
+                        Some fields are missing for this account. Add them now:
                       </p>
                       <div className="grid grid-cols-2 gap-2.5">
                         {existingMissingWebsite && (
                           <div>
-                            <label className="flex items-center gap-1 text-[10px] text-slate-500 mb-1"><AiBadge /> Website</label>
+                            <label className="text-[10px] text-slate-500 mb-1 block">Website</label>
                             <input type="url" placeholder="https://company.com" value={suppWebsite}
                               onChange={(e) => setSuppWebsite(e.target.value)} className={inputCls("")} />
                           </div>
                         )}
                         {existingMissingCountry && (
                           <div>
-                            <label className="flex items-center gap-1 text-[10px] text-slate-500 mb-1"><AiBadge /> Country</label>
+                            <label className="text-[10px] text-slate-500 mb-1 block">Country</label>
                             <input list="country-list" placeholder="Select or type country" value={suppCountry}
                               onChange={(e) => setSuppCountry(e.target.value)} className={inputCls("")} />
                           </div>
@@ -501,7 +486,7 @@ export default function NewPotentialModal({
               {newContact ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Full Name *</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Full Name *</label>
                     <input type="text" placeholder="e.g. Jane Smith" value={ctName}
                       onChange={(e) => { setCtName(e.target.value); setFieldErrors((p) => ({ ...p, ctName: false })); }}
                       className={inputCls("ctName")} />
@@ -512,12 +497,12 @@ export default function NewPotentialModal({
                       onChange={(e) => setCtTitle(e.target.value)} className={inputCls("")} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Email</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Email</label>
                     <input type="email" placeholder="jane@company.com" value={ctEmail}
                       onChange={(e) => setCtEmail(e.target.value)} className={inputCls("")} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Phone</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Phone</label>
                     <input type="tel" placeholder="+1 555 000 0000" value={ctPhone}
                       onChange={(e) => setCtPhone(e.target.value)} className={inputCls("")} />
                   </div>
@@ -567,7 +552,7 @@ export default function NewPotentialModal({
                   </div>
                 </div>
                 <div>
-                  <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Service Line</label>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Service Line</label>
                   <div className="relative">
                     <select value={service} onChange={(e) => setService(e.target.value)} className={selectCls()}>
                       <option value="">Select service…</option>
@@ -577,7 +562,7 @@ export default function NewPotentialModal({
                   </div>
                 </div>
                 <div>
-                  <label className="flex items-center gap-1 text-[10px] text-slate-400 mb-1"><AiBadge /> Sub-Service</label>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Sub-Service</label>
                   <div className="relative">
                     <select value={subService} onChange={(e) => setSubService(e.target.value)}
                       disabled={!service || subServiceOptions.length === 0}
@@ -593,8 +578,8 @@ export default function NewPotentialModal({
 
             {/* ── Customer Requirements ── */}
             <div>
-              <label className="flex items-center gap-1.5 text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5">
-                <AiBadge /> Customer Requirements
+              <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
+                Customer Requirements
               </label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe the customer's requirements, pain points, project scope, volumes, timelines…"

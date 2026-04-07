@@ -44,6 +44,10 @@ FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 GCS_BUCKET_NAME: str = os.getenv("GCS_BUCKET_NAME", "fws-sales-ai")
 GCS_ENV: str = os.getenv("GCS_ENV", "dev")  # "dev" | "prod"
 
+# ── Anthropic ────────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
+
 # ── AgentFlow ─────────────────────────────────────────────────────────────────
 AGENTFLOW_BASE_URL: str = os.getenv("AGENTFLOW_BASE_URL", "https://agentflow-platform-api-prod-367713726367.us-central1.run.app")
 AGENTFLOW_API_KEY: str = os.getenv("AGENTFLOW_API_KEY", "QmLpT2nVjYc")

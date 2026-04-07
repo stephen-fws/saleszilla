@@ -1,6 +1,10 @@
 """Potential listing, detail, and filter queries."""
 
-from sqlalchemy import func, select, or_
+import logging
+
+from sqlalchemy import func, select, or_, text
+
+logger = logging.getLogger(__name__)
 
 from core.database import get_session
 from core.models import Account, Contact, Potential, User
@@ -67,6 +71,8 @@ def list_potentials(
         for p, a, c in rows:
             potentials.append(PotentialItem(
                 id=p.potential_id,
+                potential_number=p.potential_number,
+                category=_potential_category(p),
                 title=p.potential_name,
                 value=p.amount,
                 stage=p.stage,
@@ -117,6 +123,8 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
 
         potential_item = PotentialItem(
             id=p.potential_id,
+            potential_number=p.potential_number,
+            category=_potential_category(p),
             title=p.potential_name,
             value=p.amount,
             stage=p.stage,
@@ -184,19 +192,31 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
     from datetime import datetime as dt
 
     _FIELD_MAP = {
+        "title": "potential_name",
         "stage": "stage",
         "amount": "amount",
         "probability": "probability",
         "next_step": "next_step",
         "description": "description",
+        "service": "service",
+        "sub_service": "sub_service",
+        "lead_source": "lead_source",
+        "deal_type": "type",
+        "deal_size": "deal_size",
     }
     _LABELS = {
+        "title": "Title",
         "stage": "Stage",
         "amount": "Value",
         "probability": "Probability (%)",
         "next_step": "Next Step",
         "description": "Description",
         "closing_date": "Closing Date",
+        "service": "Service",
+        "sub_service": "Sub-service",
+        "lead_source": "Lead Source",
+        "deal_type": "Type",
+        "deal_size": "Deal Size",
     }
 
     changes: list[tuple[str, str, str]] = []  # (label, old, new)
@@ -316,8 +336,11 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             except ValueError:
                 pass
 
+        potential_number = _next_potential_number(session)
+
         potential = Potential(
             potential_id=uuid4().hex,
+            potential_number=potential_number,
             potential_name=data.potential_name,
             amount=data.amount,
             stage=data.stage,
@@ -354,9 +377,27 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
     try:
         from api.services.agent_service import init_agents_for_potential
         init_agents_for_potential(potential_id, triggered_by="new_potential")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to trigger agents for new potential %s: %s", potential_id, e)
     return get_potential_detail(potential_id)
+
+
+def _potential_category(p: "Potential") -> str:
+    """Derive Diamond / Platinum / Other from DB flag columns."""
+    if (p.potential2close or 0) == 1:
+        return "Diamond"
+    if (p.hot_potential or "false").lower() == "true":
+        return "Platinum"
+    return "Other"
+
+
+def _next_potential_number(session) -> str:
+    """Return max(potential_number) + 1 as a zero-padded 7-digit string."""
+    result = session.execute(
+        text("SELECT MAX(TRY_CAST([Potential Number] AS INT)) FROM Potentials")
+    ).scalar()
+    next_num = (result or 1000000) + 1
+    return str(next_num).zfill(7)
 
 
 def _build_location(a: Account) -> str | None:
