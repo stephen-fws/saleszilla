@@ -319,7 +319,8 @@ class CreateTodoRequest(BaseModel):
 
 
 class UpdateTodoRequest(BaseModel):
-    status: str
+    status: Optional[str] = None
+    text: Optional[str] = None
 
 
 class FileItem(BaseModel):

@@ -44,19 +44,20 @@ def patch_todo(
     data: UpdateTodoRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[TodoItem]:
-    if data.status not in TODO_STATUSES:
+    if data.status is not None and data.status not in TODO_STATUSES:
         raise BotApiException(400, "ERR_VALIDATION", f"Invalid status. Must be one of: {', '.join(TODO_STATUSES)}.")
-    updated = update_todo(todo_id, data.status)
+    if data.text is not None and not data.text.strip():
+        raise BotApiException(400, "ERR_VALIDATION", "Text cannot be empty.")
+    updated = update_todo(todo_id, status=data.status, text=data.text.strip() if data.text else None)
     if not updated:
         raise BotApiException(404, "ERR_NOT_FOUND", "Todo not found.")
     result, old_status = updated
-    old_label = _STATUS_LABELS.get(old_status, old_status)
-    new_label = _STATUS_LABELS.get(data.status, data.status)
-    log_activity(
-        potential_id, "todo_updated",
-        f"Todo status: '{old_label}' → '{new_label}': \"{result.text}\"",
-        user.user_id,
-    )
+    if data.status is not None and data.status != old_status:
+        old_label = _STATUS_LABELS.get(old_status, old_status)
+        new_label = _STATUS_LABELS.get(data.status, data.status)
+        log_activity(potential_id, "todo_updated", f"Todo status: '{old_label}' → '{new_label}': \"{result.text}\"", user.user_id)
+    if data.text is not None:
+        log_activity(potential_id, "todo_updated", f"Todo text updated: \"{result.text}\"", user.user_id)
     return ResponseModel(data=result)
 
 

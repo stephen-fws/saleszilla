@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Loader2, Trash2, Bot, User, AlertCircle, Square, Pencil } from "lucide-react";
+import { Send, Loader2, Trash2, Bot, User, AlertCircle, Square, Pencil, Globe } from "lucide-react";
 import { getChatHistory, clearChatHistory, getChatSuggestions } from "@/lib/api";
 import type { ChatMessage } from "@/lib/api";
 import { tokenStore } from "@/lib/tokenStore";
@@ -254,6 +254,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [isSearchingWeb, setIsSearchingWeb] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -349,7 +350,10 @@ export default function ChatTab({ dealId }: ChatTabProps) {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === "text") {
+            if (data.type === "searching") {
+              setIsSearchingWeb(true);
+            } else if (data.type === "text") {
+              setIsSearchingWeb(false);
               accumulated += data.content;
               setStreamingContent(accumulated);
             } else if (data.type === "done") {
@@ -372,12 +376,15 @@ export default function ChatTab({ dealId }: ChatTabProps) {
         }
       }
     } catch (err: unknown) {
-      if ((err as Error).name !== "AbortError") {
+      if ((err as Error).name === "AbortError") {
+        setStreamingContent("");
+      } else {
         setError("Failed to get response. Please try again.");
         setStreamingContent("");
       }
     } finally {
       setSending(false);
+      setIsSearchingWeb(false);
       inputRef.current?.focus();
     }
   }, [input, sending, dealId]);
@@ -464,6 +471,24 @@ export default function ChatTab({ dealId }: ChatTabProps) {
                 } : undefined}
               />
             ))}
+            {sending && !streamingContent && !isSearchingWeb && (
+              <div className="flex gap-2.5">
+                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <Bot className="h-3 w-3 text-white" />
+                </div>
+                <div className="bg-slate-100 rounded-xl rounded-tl-sm px-4 py-3 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+                </div>
+              </div>
+            )}
+            {isSearchingWeb && (
+              <div className="flex items-center gap-1.5 text-[11px] text-violet-500 px-1">
+                <Globe className="h-3 w-3 animate-pulse" />
+                Searching the web…
+              </div>
+            )}
             {isStreaming && (
               <MessageBubble
                 msg={{ id: -1, role: "assistant", content: streamingContent, createdTime: null }}

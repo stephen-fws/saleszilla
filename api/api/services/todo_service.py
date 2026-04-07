@@ -44,16 +44,19 @@ def create_todo(potential_id: str, text: str, user_id: str | None = None) -> Tod
         return _to_item(todo)
 
 
-def update_todo(todo_id: int, status: str) -> tuple[TodoItem, str] | None:
-    """Update todo status. Returns (updated_item, old_status) or None if not found."""
+def update_todo(todo_id: int, status: str | None = None, text: str | None = None) -> tuple[TodoItem, str] | None:
+    """Update todo status and/or text. Returns (updated_item, old_status) or None if not found."""
     now = datetime.now(timezone.utc)
     with get_session() as session:
         todo = session.get(CXTodo, todo_id)
         if not todo or not todo.is_active:
             return None
         old_status = todo.status
-        todo.status = status
-        todo.is_completed = status == "done"
+        if status is not None:
+            todo.status = status
+            todo.is_completed = status == "done"
+        if text is not None:
+            todo.text = text
         todo.updated_time = now
         session.add(todo)
         session.flush()

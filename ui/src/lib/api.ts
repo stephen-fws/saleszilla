@@ -392,8 +392,8 @@ export async function addTodo(dealId: string, text: string): Promise<TodoItem> {
   return { id: r.id, text: r.text ?? "", status: (r.status ?? "pending") as TodoStatus, isCompleted: r.is_completed ?? false, createdTime: r.created_time ?? null };
 }
 
-export async function updateTodo(dealId: string, todoId: number, status: TodoStatus): Promise<void> {
-  await protectedApi.patch(`/potentials/${dealId}/todos/${todoId}`, { status });
+export async function updateTodo(dealId: string, todoId: number, fields: { status?: TodoStatus; text?: string }): Promise<void> {
+  await protectedApi.patch(`/potentials/${dealId}/todos/${todoId}`, fields);
 }
 
 export async function deleteTodo(dealId: string, todoId: number): Promise<void> {

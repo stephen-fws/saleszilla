@@ -313,23 +313,42 @@ def stream_chat(
         logger.error("Context build failed for potential %s: %s", potential_id, e)
         system_prompt = "You are a helpful sales assistant. Context could not be loaded."
 
-    # Build message history for Claude (exclude system messages)
-    messages = [{"role": m.role, "content": m.content} for m in history]
+    # Build message history for Claude
+    # Drop any trailing user message (dangling from a previous aborted stream)
+    trimmed_history = list(history)
+    while trimmed_history and trimmed_history[-1].role == "user":
+        trimmed_history.pop()
+    messages = [{"role": m.role, "content": m.content} for m in trimmed_history]
     messages.append({"role": "user", "content": user_message})
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     full_response = ""
     try:
+        web_search_tool = {"type": "web_search_20250305", "name": "web_search"}
+        searching_notified = False
+
         with client.messages.stream(
             model=config.ANTHROPIC_MODEL,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
+            tools=[web_search_tool],
         ) as stream:
-            for text in stream.text_stream:
-                full_response += text
-                yield f"data: {json.dumps({'type': 'text', 'content': text})}\n\n"
+            for event in stream:
+                event_type = getattr(event, "type", None)
+                # Notify UI once when web search starts
+                if event_type == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if block and getattr(block, "type", None) == "tool_use" and not searching_notified:
+                        yield f"data: {json.dumps({'type': 'searching'})}\n\n"
+                        searching_notified = True
+                elif event_type == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta and getattr(delta, "type", None) == "text_delta":
+                        text = delta.text
+                        full_response += text
+                        yield f"data: {json.dumps({'type': 'text', 'content': text})}\n\n"
 
         # Save assistant response using potential_number directly
         now2 = datetime.now(timezone.utc)

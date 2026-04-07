@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  CheckSquare, Plus, Trash2, Loader2,
+  CheckSquare, Plus, Trash2, Loader2, Pencil, Check, X,
   Circle, Clock, PauseCircle, CheckCircle2,
 } from "lucide-react";
 import type { TodoItem, TodoStatus } from "@/types";
@@ -88,24 +88,47 @@ interface TodoCardProps {
   todo: TodoItem;
   dealId: string;
   onStatusChange: (id: number, status: TodoStatus) => void;
+  onTextChange: (id: number, text: string) => void;
   onDelete: (id: number) => void;
 }
 
-function TodoCard({ todo, dealId, onStatusChange, onDelete }: TodoCardProps) {
+function TodoCard({ todo, dealId, onStatusChange, onTextChange, onDelete }: TodoCardProps) {
   const [updating, setUpdating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(todo.text);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
 
   const handleStatusChange = useCallback(async (newStatus: TodoStatus) => {
     if (newStatus === todo.status || updating) return;
     setUpdating(true);
-    onStatusChange(todo.id, newStatus); // optimistic
+    onStatusChange(todo.id, newStatus);
     try {
-      await updateTodo(dealId, todo.id, newStatus);
+      await updateTodo(dealId, todo.id, { status: newStatus });
     } catch {
-      onStatusChange(todo.id, todo.status); // revert
+      onStatusChange(todo.id, todo.status);
     } finally {
       setUpdating(false);
     }
   }, [dealId, todo.id, todo.status, updating, onStatusChange]);
+
+  const handleEditSave = useCallback(async () => {
+    const trimmed = editText.trim();
+    if (!trimmed || trimmed === todo.text) { setEditing(false); setEditText(todo.text); return; }
+    setEditing(false);
+    onTextChange(todo.id, trimmed);
+    try {
+      await updateTodo(dealId, todo.id, { text: trimmed });
+    } catch {
+      onTextChange(todo.id, todo.text);
+      setEditText(todo.text);
+    }
+  }, [dealId, todo.id, todo.text, editText, onTextChange]);
+
+  const handleEditCancel = () => { setEditing(false); setEditText(todo.text); };
 
   const isDone = todo.status === "done";
 
@@ -122,19 +145,38 @@ function TodoCard({ todo, dealId, onStatusChange, onDelete }: TodoCardProps) {
         )}
       </div>
 
-      {/* Text */}
-      <span className={`flex-1 text-sm leading-snug pt-0.5 ${isDone ? "text-slate-400 line-through" : "text-slate-700"}`}>
-        {todo.text}
-      </span>
+      {/* Text / edit input */}
+      <div className="flex-1 min-w-0 pt-0.5">
+        {editing ? (
+          <div className="flex items-center gap-1">
+            <input
+              ref={inputRef}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleEditSave(); if (e.key === "Escape") handleEditCancel(); }}
+              className="flex-1 text-sm border border-blue-300 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <button onClick={handleEditSave} className="p-1 text-emerald-500 hover:bg-emerald-50 rounded" title="Save"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={handleEditCancel} className="p-1 text-slate-400 hover:bg-slate-100 rounded" title="Cancel"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ) : (
+          <span className={`text-sm leading-snug ${isDone ? "text-slate-400 line-through" : "text-slate-700"}`}>
+            {todo.text}
+          </span>
+        )}
+      </div>
 
-      {/* Delete */}
-      <button
-        onClick={() => onDelete(todo.id)}
-        className="flex-shrink-0 opacity-0 group-hover:opacity-100 rounded p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all mt-0.5"
-        title="Delete"
-      >
-        <Trash2 className="h-3 w-3" />
-      </button>
+      {/* Actions */}
+      {!editing && (
+        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all mt-0.5">
+          <button onClick={() => { setEditText(todo.text); setEditing(true); }} className="rounded p-1 text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors" title="Edit">
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button onClick={() => onDelete(todo.id)} className="rounded p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Delete">
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -173,6 +215,10 @@ export default function TodosTab({ dealId }: TodosTabProps) {
 
   const handleStatusChange = useCallback((id: number, status: TodoStatus) => {
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, status, isCompleted: status === "done" } : t)));
+  }, []);
+
+  const handleTextChange = useCallback((id: number, text: string) => {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text } : t)));
   }, []);
 
   const handleDelete = useCallback(async (todoId: number) => {
@@ -238,6 +284,7 @@ export default function TodosTab({ dealId }: TodosTabProps) {
                     todo={todo}
                     dealId={dealId}
                     onStatusChange={handleStatusChange}
+                    onTextChange={handleTextChange}
                     onDelete={handleDelete}
                   />
                 ))}
@@ -257,6 +304,7 @@ export default function TodosTab({ dealId }: TodosTabProps) {
                       todo={todo}
                       dealId={dealId}
                       onStatusChange={handleStatusChange}
+                      onTextChange={handleTextChange}
                       onDelete={handleDelete}
                     />
                   ))}
