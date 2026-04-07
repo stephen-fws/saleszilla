@@ -49,6 +49,87 @@ function MarkdownBlock({ content }: { content: string }) {
       i++; continue;
     }
 
+    // Horizontal rule
+    if (/^[-*_]{3,}\s*$/.test(line)) {
+      nodes.push(<hr key={i} className="border-slate-200 my-1" />);
+      i++; continue;
+    }
+
+    // Fenced code block (``` ... ```)
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (lines[i]?.startsWith("```")) i++; // consume closing fence
+      nodes.push(
+        <pre key={`code-${i}`} className="bg-slate-800 text-slate-100 rounded-lg px-3 py-2.5 text-xs overflow-x-auto whitespace-pre font-mono leading-relaxed">
+          {codeLines.join("\n")}
+        </pre>
+      );
+      continue;
+    }
+
+    // Box-drawing / diagram lines — collect consecutive lines containing box chars
+    const BOX_RE = /[┌┐└┘│─┬┴┼┤├▶◀◁▷←→↑↓]/;
+    if (BOX_RE.test(line)) {
+      const diagramLines: string[] = [];
+      while (i < lines.length && (BOX_RE.test(lines[i]) || lines[i].trim() === "" && i + 1 < lines.length && BOX_RE.test(lines[i + 1]))) {
+        diagramLines.push(lines[i]);
+        i++;
+      }
+      nodes.push(
+        <pre key={`diag-${i}`} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs overflow-x-auto whitespace-pre font-mono text-slate-700 leading-relaxed">
+          {diagramLines.join("\n")}
+        </pre>
+      );
+      continue;
+    }
+
+    // Table — collect consecutive pipe-delimited lines
+    if (line.startsWith("|")) {
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        const cells = lines[i].split("|").slice(1, -1).map((c) => c.trim());
+        rows.push(cells);
+        i++;
+      }
+      // Filter out separator rows (---|--- style)
+      const isseparator = (row: string[]) => row.every((c) => /^[-:\s]+$/.test(c));
+      const [headerRow, ...bodyRows] = rows.filter((r) => !isseparator(r));
+      if (headerRow) {
+        nodes.push(
+          <div key={`tbl-${i}`} className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr>
+                  {headerRow.map((cell, ci) => (
+                    <th key={ci} className="text-left px-2 py-1.5 bg-slate-200 font-semibold text-slate-700 border border-slate-300 whitespace-nowrap">
+                      {renderInline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => (
+                  <tr key={ri} className={ri % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-2 py-1.5 border border-slate-200 text-slate-700 align-top">
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      continue;
+    }
+
     // List block — collect consecutive list items
     if (line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ")) {
       const items: React.ReactNode[] = [];
@@ -106,7 +187,7 @@ function MarkdownBlock({ content }: { content: string }) {
     }
   }
 
-  return <div className="space-y-1.5 text-sm leading-relaxed">{nodes}</div>;
+  return <div className="space-y-1.5 text-sm leading-normal">{nodes}</div>;
 }
 
 // ── Message bubble ────────────────────────────────────────────────────────────
@@ -139,7 +220,7 @@ function MessageBubble({
             : "bg-slate-100 text-slate-800 rounded-tl-sm"
         }`}>
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+            <p className="text-sm leading-normal whitespace-pre-wrap">{msg.content}</p>
           ) : (
             <MarkdownBlock content={msg.content} />
           )}
