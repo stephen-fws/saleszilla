@@ -7,6 +7,7 @@ from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import AccountDetailResponse, AccountListResponse, ResponseModel, UpdateAccountRequest
 from api.services.account_service import get_account_detail, list_accounts, update_account
+from api.services.access_control import require_account_owner
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -36,6 +37,7 @@ def get_account(
     account_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[AccountDetailResponse]:
+    require_account_owner(user.user_id, account_id)
     result = get_account_detail(account_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Account not found.")
@@ -48,6 +50,7 @@ def patch_account(
     data: UpdateAccountRequest,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[AccountDetailResponse]:
+    require_account_owner(user.user_id, account_id)
     result = update_account(account_id, data.model_dump(exclude_none=True))
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Account not found.")

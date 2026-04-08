@@ -89,6 +89,10 @@ export async function completeQueueItem(itemId: string): Promise<void> {
   await protectedApi.post(`/queue-items/${itemId}/complete`);
 }
 
+export async function skipQueueItem(itemId: string): Promise<void> {
+  await protectedApi.post(`/queue-items/${itemId}/skip`);
+}
+
 // ── Potentials ──────────────────────────────────────────────────────────────
 
 export async function getPotentials(filters: Partial<PotentialFilters>): Promise<{
@@ -929,6 +933,60 @@ export async function getChatSuggestions(dealId: string): Promise<string[]> {
   return res.data.data ?? [];
 }
 
+// ── Global cross-entity chat ─────────────────────────────────────────────────
+
+export interface GlobalChatConversation {
+  id: number;
+  title: string | null;
+  createdTime: string | null;
+  updatedTime: string | null;
+  messageCount: number;
+  lastMessageTime: string | null;
+}
+
+export async function listGlobalConversations(): Promise<GlobalChatConversation[]> {
+  const res = await protectedApi.get<{ data: Array<{ id: number; title: string | null; created_time: string | null; updated_time: string | null; message_count: number; last_message_time: string | null }> }>(`/chat/global/conversations`);
+  return (res.data.data ?? []).map((c) => ({
+    id: c.id,
+    title: c.title,
+    createdTime: c.created_time,
+    updatedTime: c.updated_time,
+    messageCount: c.message_count,
+    lastMessageTime: c.last_message_time,
+  }));
+}
+
+export async function createGlobalConversation(): Promise<GlobalChatConversation> {
+  const res = await protectedApi.post<{ data: { id: number; title: string | null; created_time: string | null; updated_time: string | null; message_count: number; last_message_time: string | null } }>(`/chat/global/conversations`);
+  const c = res.data.data;
+  return {
+    id: c.id,
+    title: c.title,
+    createdTime: c.created_time,
+    updatedTime: c.updated_time,
+    messageCount: c.message_count,
+    lastMessageTime: c.last_message_time,
+  };
+}
+
+export async function deleteGlobalConversation(conversationId: number): Promise<void> {
+  await protectedApi.delete(`/chat/global/conversations/${conversationId}`);
+}
+
+export async function renameGlobalConversation(conversationId: number, title: string): Promise<void> {
+  await protectedApi.patch(`/chat/global/conversations/${conversationId}`, { title });
+}
+
+export async function getGlobalConversationMessages(conversationId: number): Promise<ChatMessage[]> {
+  const res = await protectedApi.get<{ data: Array<{ id: number; role: string; content: string; created_time: string | null }> }>(`/chat/global/conversations/${conversationId}/messages`);
+  return (res.data.data ?? []).map((m) => ({
+    id: m.id,
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    createdTime: m.created_time,
+  }));
+}
+
 export async function globalSearch(q: string): Promise<GlobalSearchResults> {
   const res = await protectedApi.get("/search", { params: { q } });
   const d = res.data.data;
@@ -958,20 +1016,19 @@ export async function getSalesTargetSummary(): Promise<SalesTargetSummary> {
   const res = await protectedApi.get("/sales/targets/summary");
   const r = res.data.data;
   return {
-    quarterLabel: r.quarter_label,
+    periodLabel: r.period_label,
     actuals: r.actuals,
     target: r.target,
     pctOfTarget: r.pct_of_target,
-    prevQuarterLabel: r.prev_quarter_label,
+    prevPeriodLabel: r.prev_period_label,
     prevActuals: r.prev_actuals,
     prevTarget: r.prev_target,
     prevPctOfTarget: r.prev_pct_of_target,
     pctChange: r.pct_change,
     topClosed: (r.top_closed ?? []).map((d: Record<string, unknown>) => ({
-      potentialNumber: d.potential_number ?? null,
-      potentialName: d.potential_name ?? null,
+      companyName: (d.company_name as string) ?? null,
       amount: d.amount as number,
-      invoiceDate: d.invoice_date ?? null,
+      invoiceDate: (d.invoice_date as string) ?? null,
     })),
   };
 }
@@ -994,4 +1051,119 @@ export async function triggerAgent(dealId: string, agentId: string): Promise<Age
     completedAt: r.completed_at ?? null,
     errorMessage: r.error_message ?? null,
   };
+}
+
+// ── Meeting Briefs ───────────────────────────────────────────────────────────
+
+export interface MeetingBriefAttendee {
+  email: string;
+  name: string | null;
+  domain: string;
+}
+
+export interface MeetingBriefSkeleton {
+  msEventId: string;
+  meetingTitle: string;
+  meetingStart: string | null;
+  meetingEnd: string | null;
+  isOnline: boolean;
+  attendees: MeetingBriefAttendee[];
+  potential: {
+    potentialId: string;
+    potentialNumber: string | null;
+    name: string | null;
+    stage: string | null;
+    amount: number | null;
+    probability: number | null;
+    closingDate: string | null;
+    owner: string | null;
+  };
+  account: { accountId: string | null; name: string | null; industry: string | null; website: string | null } | null;
+  contact: { contactId: string | null; name: string | null; title: string | null; email: string | null } | null;
+  rollups: { notesCount: number; openTodosCount: number; recentEmails7d: number };
+}
+
+export interface MeetingBriefBody {
+  status: "pending" | "running" | "completed" | "error";
+  content: string | null;
+  contentType: string;
+  errorMessage: string | null;
+  completedAt: string | null;
+}
+
+export interface MeetingBriefItem {
+  skeleton: MeetingBriefSkeleton;
+  brief: MeetingBriefBody;
+}
+
+export async function resolveMeetingBrief(msEventId: string, action: "done" | "skip"): Promise<void> {
+  await protectedApi.post(`/meetings/briefs/${encodeURIComponent(msEventId)}/resolve`, { action });
+}
+
+export async function getUpcomingMeetingBriefs(hoursAhead = 24): Promise<MeetingBriefItem[]> {
+  const res = await protectedApi.get<{ data: Array<Record<string, unknown>> }>(
+    `/meetings/briefs/upcoming`,
+    { params: { hours_ahead: hoursAhead } },
+  );
+  const items = res.data.data ?? [];
+  return items.map((item) => {
+    const sk = item.skeleton as Record<string, unknown>;
+    const br = item.brief as Record<string, unknown>;
+    const pot = (sk.potential ?? {}) as Record<string, unknown>;
+    const acc = sk.account as Record<string, unknown> | null;
+    const con = sk.contact as Record<string, unknown> | null;
+    const rl = (sk.rollups ?? {}) as Record<string, unknown>;
+    return {
+      skeleton: {
+        msEventId: sk.ms_event_id as string,
+        meetingTitle: (sk.meeting_title as string) ?? "",
+        meetingStart: (sk.meeting_start as string) ?? null,
+        meetingEnd: (sk.meeting_end as string) ?? null,
+        isOnline: Boolean(sk.is_online),
+        attendees: ((sk.attendees as Array<Record<string, unknown>>) ?? []).map((a) => ({
+          email: a.email as string,
+          name: (a.name as string) ?? null,
+          domain: (a.domain as string) ?? "",
+        })),
+        potential: {
+          potentialId: pot.potential_id as string,
+          potentialNumber: (pot.potential_number as string) ?? null,
+          name: (pot.name as string) ?? null,
+          stage: (pot.stage as string) ?? null,
+          amount: (pot.amount as number) ?? null,
+          probability: (pot.probability as number) ?? null,
+          closingDate: (pot.closing_date as string) ?? null,
+          owner: (pot.owner as string) ?? null,
+        },
+        account: acc
+          ? {
+              accountId: (acc.account_id as string) ?? null,
+              name: (acc.name as string) ?? null,
+              industry: (acc.industry as string) ?? null,
+              website: (acc.website as string) ?? null,
+            }
+          : null,
+        contact: con
+          ? {
+              contactId: (con.contact_id as string) ?? null,
+              name: (con.name as string) ?? null,
+              title: (con.title as string) ?? null,
+              email: (con.email as string) ?? null,
+            }
+          : null,
+        rollups: {
+          notesCount: (rl.notes_count as number) ?? 0,
+          openTodosCount: (rl.open_todos_count as number) ?? 0,
+          recentEmails7d: (rl.recent_emails_7d as number) ?? 0,
+        },
+      },
+      brief: {
+        status: (br.status as MeetingBriefBody["status"]) ?? "pending",
+        content: (br.content as string) ?? null,
+        contentType: (br.content_type as string) ?? "markdown",
+        errorMessage: (br.error_message as string) ?? null,
+        completedAt: (br.completed_at as string) ?? null,
+      },
+    };
+  });
 }

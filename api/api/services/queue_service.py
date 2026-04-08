@@ -89,14 +89,31 @@ def list_queue_items(
         ]
 
 
-def complete_queue_item(item_id: int) -> bool:
-    """Mark a queue item as completed."""
+RESOLVED_STATUSES = {"completed", "skipped"}
+
+
+def resolve_queue_item(item_id: int, status: str) -> bool:
+    """Mark a queue item as resolved with the given terminal status.
+
+    Allowed statuses:
+      - 'completed' — user acted on the AI suggestion (FRE sent, todo done, etc.)
+      - 'skipped'   — user dismissed the AI suggestion as not needed
+    Both remove the item from the active queue but preserve the distinction
+    so we can later analyze how often each AI item type is used vs ignored.
+    """
+    if status not in RESOLVED_STATUSES:
+        return False
     now = datetime.now(timezone.utc)
     with get_session() as session:
         item = session.get(CXQueueItem, item_id)
         if not item:
             return False
-        item.status = "completed"
+        item.status = status
         item.updated_time = now
         session.add(item)
     return True
+
+
+def complete_queue_item(item_id: int) -> bool:
+    """Backwards-compatible alias — marks as 'completed'."""
+    return resolve_queue_item(item_id, "completed")

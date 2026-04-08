@@ -64,6 +64,8 @@ from api.routes.calendar import router as calendar_router
 from api.routes.chat import router as chat_router
 from api.routes.sales import router as sales_router
 from api.routes.search import router as search_router
+from api.routes.global_chat import router as global_chat_router
+from api.routes.meeting_briefs import router as meeting_briefs_router
 
 app.include_router(auth_router)
 app.include_router(potentials_router)
@@ -81,6 +83,8 @@ app.include_router(calendar_router)
 app.include_router(chat_router)
 app.include_router(sales_router)
 app.include_router(search_router)
+app.include_router(global_chat_router)
+app.include_router(meeting_briefs_router)
 
 # ── Exception handlers ───────────────────────────────────────────────────────
 

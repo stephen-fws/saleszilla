@@ -10,6 +10,7 @@ from core.database import get_session
 from core.exceptions import BotApiException
 from core.models import Account, Contact, User
 from core.schemas import AccountDetailContact, ContactSearchItem, ResponseModel, UpdateContactRequest
+from api.services.access_control import require_contact_owner
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
 
@@ -25,6 +26,7 @@ def search_contacts(
         stmt = (
             select(Contact, Account)
             .outerjoin(Account, Contact.account_id == Account.account_id)
+            .where(Contact.contact_owner_id == user.user_id)
         )
         if account_id:
             stmt = stmt.where(Contact.account_id == account_id)
@@ -59,6 +61,7 @@ def patch_contact(
     data: UpdateContactRequest,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[AccountDetailContact]:
+    require_contact_owner(user.user_id, contact_id)
     with get_session() as session:
         contact = session.get(Contact, contact_id)
         if not contact:

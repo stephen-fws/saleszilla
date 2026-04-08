@@ -331,18 +331,17 @@ export interface GlobalSearchResults {
 // ── Sales targets ─────────────────────────────────────────────────────────────
 
 export interface SalesTopDeal {
-  potentialNumber: string | null;
-  potentialName: string | null;
+  companyName: string | null;
   amount: number;
   invoiceDate: string | null;
 }
 
 export interface SalesTargetSummary {
-  quarterLabel: string;
+  periodLabel: string;          // e.g. "April 2026"
   actuals: number;
   target: number;
   pctOfTarget: number;
-  prevQuarterLabel: string;
+  prevPeriodLabel: string;      // e.g. "March 2026"
   prevActuals: number;
   prevTarget: number;
   prevPctOfTarget: number;

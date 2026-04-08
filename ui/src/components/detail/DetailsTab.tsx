@@ -173,13 +173,69 @@ function EditableField({
 
 const URL_REGEX = /https?:\/\/[^\s,）\]>'"]+/g;
 
+/**
+ * Some inbound chat-form transcripts arrive as one giant single-line string
+ * where newlines were collapsed into spaces. Detect chat-style timestamps and
+ * known section headers, and insert real newlines so each message renders on
+ * its own line.
+ */
+function normalizeChatTranscript(text: string): string {
+  if (!text) return text;
+  // Quick exit for normal short text
+  const looksLikeChatTranscript =
+    /\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2}\s+(?:AM|PM)/i.test(text) ||
+    /\bChat (Started|Message|Information|ID)\b/i.test(text);
+  if (!looksLikeChatTranscript) return text;
+
+  let out = text;
+
+  // 1) Newline before each chat message timestamp ("YYYY-MM-DD HH:MM:SS AM/PM ...")
+  //    when preceded by 2+ whitespace (not already on its own line)
+  out = out.replace(
+    /\s{2,}(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2}\s+(?:AM|PM))/gi,
+    "\n$1",
+  );
+
+  // 2) Double newline before major section headers
+  const SECTIONS = [
+    "Form Type:",
+    "CHAT INFORMATION:",
+    "Chat Message:",
+    "Chat Started At:",
+    "Chat ID:",
+    "Chat Started URL:",
+    "City:",
+    "Country:",
+    "Visitor Name:",
+    "Referrer:",
+    "ClientID:",
+    "Agent Email:",
+    "Attempted to Transfer Chat?:",
+    "Reason-ATC-No?:",
+    "Reason-ATC-No-Others?:",
+    "SalesOfficialWorkHours?:",
+    "IST-SOWH:",
+  ];
+  for (const label of SECTIONS) {
+    // Escape regex special chars in label
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`\\s{2,}(${escaped})`, "g"), "\n$1");
+  }
+
+  // 3) Collapse 3+ consecutive newlines down to 2 for tidiness
+  out = out.replace(/\n{3,}/g, "\n\n");
+
+  return out.trim();
+}
+
 function LinkifiedText({ text }: { text: string }) {
+  const normalized = normalizeChatTranscript(text);
   const parts: React.ReactNode[] = [];
   let last = 0;
   let match: RegExpExecArray | null;
   URL_REGEX.lastIndex = 0;
-  while ((match = URL_REGEX.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
+  while ((match = URL_REGEX.exec(normalized)) !== null) {
+    if (match.index > last) parts.push(normalized.slice(last, match.index));
     const url = match[0];
     parts.push(
       <a
@@ -195,7 +251,7 @@ function LinkifiedText({ text }: { text: string }) {
     );
     last = match.index + url.length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < normalized.length) parts.push(normalized.slice(last));
   return <span className="whitespace-pre-wrap">{parts}</span>;
 }
 
@@ -213,6 +269,15 @@ function EditableTextarea({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
   const [saving, setSaving] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the textarea to fit content while editing
+  useEffect(() => {
+    if (!editing || !taRef.current) return;
+    const ta = taRef.current;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 200), 600)}px`;
+  }, [editing, draft]);
 
   async function commit() {
     if (draft === (value ?? "")) { setEditing(false); return; }
@@ -226,6 +291,13 @@ function EditableTextarea({
     if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); commit(); }
   }
 
+  function startEditing() {
+    // Pre-format the draft so the user edits the readable, line-broken version
+    // — newlines persist back to DB on save, so future renders are clean too.
+    setDraft(normalizeChatTranscript(value ?? ""));
+    setEditing(true);
+  }
+
   if (editing) {
     return (
       <div className="py-1">
@@ -235,13 +307,13 @@ function EditableTextarea({
         </div>
         <div className="relative">
           <textarea
+            ref={taRef}
             autoFocus
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKey}
             onBlur={commit}
-            rows={3}
-            className="w-full rounded border border-blue-300 px-2 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y min-h-[72px]"
+            className="w-full rounded border border-blue-300 px-2 py-1.5 text-xs leading-relaxed text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y min-h-[200px] font-mono"
           />
           {saving && (
             <Loader2 className="absolute bottom-2 right-2 h-3 w-3 animate-spin text-blue-500" />
@@ -258,7 +330,7 @@ function EditableTextarea({
         <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
       <div
-        onClick={() => { setDraft(value ?? ""); setEditing(true); }}
+        onClick={startEditing}
         className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
       >
         {value ? <LinkifiedText text={value} /> : <span className="text-slate-400">—</span>}

@@ -1,4 +1,4 @@
-import { Building2, Video, Clock } from "lucide-react";
+import { Building2, Video, Clock, Check, X } from "lucide-react";
 import type { QueueItem } from "@/types";
 
 function formatTime24to12(time24: string): string {
@@ -50,6 +50,34 @@ interface QueuePanelProps {
   onSelectItem: (id: string) => void;
   folderType: string;
   loading?: boolean;
+  onResolveItem?: (id: string, action: "done" | "skip") => void;
+}
+
+function ItemActions({
+  itemId,
+  onResolve,
+}: {
+  itemId: string;
+  onResolve: (id: string, action: "done" | "skip") => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button
+        onClick={(e) => { e.stopPropagation(); onResolve(itemId, "done"); }}
+        title="Mark done — I acted on this"
+        className="rounded-md p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+      >
+        <Check className="h-3.5 w-3.5" />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onResolve(itemId, "skip"); }}
+        title="Skip — not needed"
+        className="rounded-md p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 export default function QueuePanel({
@@ -58,6 +86,7 @@ export default function QueuePanel({
   onSelectItem,
   folderType,
   loading = false,
+  onResolveItem,
 }: QueuePanelProps) {
   const isEmailsSent = folderType === "emails-sent";
   const isMeetingBriefs = folderType === "meeting-briefs";
@@ -104,10 +133,10 @@ export default function QueuePanel({
                 const agendaText = item.preview.replace(/\s*Duration:\s*\d+\s*min\s*$/i, "");
 
                 return (
-                  <button
+                  <div
                     key={item.id}
                     onClick={() => onSelectItem(item.id)}
-                    className={`w-full p-3 text-left transition-colors ${
+                    className={`group cursor-pointer w-full p-3 text-left transition-colors ${
                       isSelected
                         ? "bg-blue-50 border-l-2 border-l-blue-500"
                         : "hover:bg-slate-50 border-l-2 border-l-transparent"
@@ -144,16 +173,17 @@ export default function QueuePanel({
                           {agendaText}
                         </p>
                       </div>
+                      {onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
                     </div>
-                  </button>
+                  </div>
                 );
               }
 
               return (
-                <button
+                <div
                   key={item.id}
                   onClick={() => onSelectItem(item.id)}
-                  className={`w-full p-3 text-left transition-colors ${
+                  className={`group cursor-pointer w-full p-3 text-left transition-colors ${
                     isSelected
                       ? "bg-blue-50 border-l-2 border-l-blue-500"
                       : "hover:bg-slate-50 border-l-2 border-l-transparent"
@@ -172,7 +202,10 @@ export default function QueuePanel({
                         <span className={`text-sm font-medium truncate ${isSelected ? "text-blue-900" : "text-slate-900"}`}>
                           {item.title}
                         </span>
-                        <span className="flex-shrink-0 text-xs text-slate-400">{item.timeLabel}</span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
+                          <span className="text-xs text-slate-400">{item.timeLabel}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs text-slate-500 truncate">{item.subtitle}</span>
@@ -183,7 +216,7 @@ export default function QueuePanel({
                       </p>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

@@ -34,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { deleteCalendarEvent, getCalendarEvents } from "@/lib/api";
-import type { CalendarEvent as ApiCalendarEvent } from "@/lib/api";
+import type { CalendarAttendee, CalendarEvent as ApiCalendarEvent } from "@/lib/api";
 import EventFormModal from "./EventFormModal";
 import type { EventFormDefaults } from "./EventFormModal";
 
@@ -50,7 +50,7 @@ type UIEvent = {
   startAt: Date;
   endAt: Date;
   color: EventColor;
-  attendees: string[];
+  attendees: CalendarAttendee[];
   location?: string;
   description?: string;
   isAllDay: boolean;
@@ -90,7 +90,7 @@ function mapEvent(e: ApiCalendarEvent): UIEvent | null {
     startAt: new Date(e.start),
     endAt: new Date(e.end),
     color: colorForId(e.id),
-    attendees: [],
+    attendees: e.attendees ?? [],
     location: e.location ?? undefined,
     description: e.bodyPreview ?? undefined,
     isAllDay: e.isAllDay,
@@ -267,9 +267,13 @@ function EventDetailCard({
             <div className="flex items-start gap-2">
               <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
               <div className="flex flex-wrap gap-1">
-                {event.attendees.map((name) => (
-                  <span key={name} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
-                    {name}
+                {event.attendees.map((a) => (
+                  <span
+                    key={a.email}
+                    title={a.email}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600"
+                  >
+                    {a.name || a.email}
                   </span>
                 ))}
               </div>
@@ -789,6 +793,8 @@ export default function CalendarPanel({ onClose }: CalendarPanelProps) {
       location: ev.location,
       body: ev.description,
       isOnlineMeeting: ev.onlineMeeting,
+      requiredAttendees: ev.attendees.filter((a) => a.type !== "optional"),
+      optionalAttendees: ev.attendees.filter((a) => a.type === "optional"),
     });
     setSelectedEvent(null);
   }

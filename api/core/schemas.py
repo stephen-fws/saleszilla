@@ -499,22 +499,22 @@ class SignatureRequest(BaseModel):
 
 
 class SalesTopDeal(BaseModel):
-    potential_number: Optional[str] = None
-    potential_name: Optional[str] = None
-    amount: float
+    company_name: Optional[str] = None   # from VW.CompanyName
+    amount: float                         # SUM(Invoiceamount) for that company in the period
+    # legacy field — kept for backwards compat with anything that still reads it
     invoice_date: Optional[str] = None
 
 
 class SalesTargetSummary(BaseModel):
-    quarter_label: str           # e.g. "Q1 2025"
+    period_label: str            # e.g. "April 2026"
     actuals: float
     target: float
     pct_of_target: float         # actuals / target * 100
-    prev_quarter_label: str
+    prev_period_label: str       # e.g. "March 2026"
     prev_actuals: float
     prev_target: float
     prev_pct_of_target: float
-    pct_change: float            # (actuals - prev_actuals) / prev_actuals * 100, None if no prev data
+    pct_change: float            # (actuals - prev_actuals) / prev_actuals * 100
     top_closed: list[SalesTopDeal] = []
 
 

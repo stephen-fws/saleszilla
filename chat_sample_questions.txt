@@ -1,0 +1,163 @@
+#	Category	Question
+1	Pipeline & Stages	What stage is the potential with [Account Name] in right now?
+2	Pipeline & Stages	Show me all potentials currently in the Proposal stage.
+3	Pipeline & Stages	How many potentials are in the Pre-Qualified stage this month?
+4	Pipeline & Stages	Which potentials have been sitting in the same stage for more than 30 days?
+5	Pipeline & Stages	What is the stage distribution of my current pipeline?
+6	Pipeline & Stages	Which potentials moved from Open to Contracting this week?
+7	Pipeline & Stages	How many potentials are marked as Lost and what are the reasons?
+8	Pipeline & Stages	List all potentials that are in the Disqualified stage and why.
+9	Pipeline & Stages	Which potentials are in the Sleeping stage and when were they last touched?
+10	Pipeline & Stages	Show me the full stage history of potential [Potential Name].
+11	Pipeline & Stages	How many potentials closed successfully versus lost this quarter?
+12	Pipeline & Stages	What percentage of my pipeline is beyond the Pre-Qualified stage?
+13	Pipeline & Stages	Which potentials have a closing date this week but are still in early stages?
+14	Pipeline & Stages	Are there any potentials marked as Prospects that have gone cold?
+15	Pipeline & Stages	Show me all potentials in the 'Customer Responded' stage.
+16	Potential Details	What is the potential size and expected revenue for [Potential Name]?
+17	Potential Details	Show me the full description and next steps for potential [Potential Number].
+18	Potential Details	Which potentials are marked as Platinum Potentials?
+19	Potential Details	List all high-priority potentials assigned to me.
+20	Potential Details	Which potentials are Diamond tier or Platinum tier?
+21	Potential Details	What is the probability of closure for the potential with [Account Name]?
+22	Potential Details	Which potentials are New Business versus Existing Business?
+23	Potential Details	Show me all potentials with a potential size of Large.
+24	Potential Details	What is the next step I need to take for [Potential Name]?
+25	Potential Details	Which potentials have no next step defined?
+26	Potential Details	Are there any duplicate potentials I should know about?
+27	Potential Details	What is the project type — ongoing or one-time — for [Potential Name]?
+28	Potential Details	Which potentials involve upselling or cross-selling from a previous contract?
+29	Potential Details	Show me potentials where the customer type is Enterprise.
+30	Potential Details	What is the execution type (offshore, hybrid, internal) for [Potential Name]?
+31	Potential Details	Which potentials have a possible defaulter flag set?
+32	Potential Details	Show me all potentials linked to an existing contract number.
+33	Potential Details	Which potentials have the 'for review' flag turned on?
+34	Account Info	What industry does [Account Name] operate in?
+35	Account Info	What is the annual revenue of [Account Name]?
+36	Account Info	How many employees does [Account Name] have?
+37	Account Info	What is the account type and ownership structure for [Account Name]?
+38	Account Info	Show me the billing and shipping address for [Account Name].
+39	Account Info	Does [Account Name] have a parent account?
+40	Account Info	What is the account rating for [Account Name]?
+41	Account Info	When was [Account Name] created in the CRM?
+42	Account Info	Show me all accounts with no associated potentials.
+43	Account Info	Which accounts have the Possible Defaulter flag set?
+44	Account Info	What is the website URL for [Account Name]?
+45	Account Info	List all accounts in the Healthcare industry.
+46	Account Info	Which accounts were last active more than 90 days ago?
+47	Account Info	How many accounts do I own vs. my teammates?
+48	Account Info	What territories are associated with [Account Name]?
+49	Contact Info	Who is the primary contact for [Account Name]?
+50	Contact Info	What is the email address and phone number of [Contact Name]?
+51	Contact Info	What is [Contact Name]'s job title and department?
+52	Contact Info	Is [Contact Name] opted out of emails?
+53	Contact Info	Show me all contacts associated with [Account Name].
+54	Contact Info	What is the delivery contact for potential [Potential Name]?
+55	Contact Info	When did [Contact Name] last visit our website?
+56	Contact Info	How many times has [Contact Name] chatted with us online?
+57	Contact Info	What was the first URL [Contact Name] visited on our site?
+58	Contact Info	What is [Contact Name]'s visitor score?
+59	Contact Info	Show me contacts who came through the cross-selling lead source.
+60	Contact Info	Are there any contacts without a linked account?
+61	Contact Info	What is the mailing address for [Contact Name]?
+62	Contact Info	Which contacts have a secondary email address on record?
+63	Contact Info	Show me all contacts in the IT department.
+64	Owner / Team	Which potentials are currently assigned to me?
+65	Owner / Team	How many open potentials does [Owner Name] have in their pipeline?
+66	Owner / Team	Who closed the most potentials last month?
+67	Owner / Team	Which potentials were recently reassigned to a new owner?
+68	Owner / Team	Show me all potentials owned by [Owner Name] that are closing this quarter.
+69	Owner / Team	Who is the owner of potential [Potential Name]?
+70	Owner / Team	Which salesperson has the highest total expected revenue in pipeline?
+71	Owner / Team	Show me potentials where the source potential owner is different from the current owner.
+72	Owner / Team	Which team member has the most potentials stuck in the same stage?
+73	Owner / Team	Who is the chat agent associated with potential [Potential Name]?
+74	Owner / Team	How is the pipeline distributed across business units BU1, BU2, and BPO?
+75	Owner / Team	Which potentials were closed by [Owner Name] and when?
+76	Time & Dates	Which potentials are closing in the next 7 days?
+77	Time & Dates	Show me all potentials with a closing date that has already passed but are still open.
+78	Time & Dates	Which potentials were created in the last 30 days?
+79	Time & Dates	What is the average sales cycle duration across my potentials?
+80	Time & Dates	How long has potential [Potential Name] been in the pipeline?
+81	Time & Dates	When was the last activity recorded on [Potential Name]?
+82	Time & Dates	Which potentials have had no activity in the last 2 weeks?
+83	Time & Dates	What is the expected start date for potential [Potential Name]?
+84	Time & Dates	Show me potentials that were modified today.
+85	Time & Dates	What is the overall sales duration for potentials closed last quarter?
+86	Time & Dates	Which potentials have had the closing date moved or rescheduled?
+87	Time & Dates	Show me potentials where the lead conversion time was less than 3 days.
+88	Time & Dates	When was the inquiry submitted for [Potential Name]?
+89	Time & Dates	Which potentials were closed last week?
+90	Service & Product	Show me all potentials in the Healthcare service category.
+91	Service & Product	Which potentials involve Creative and Print and Design services?
+92	Service & Product	What sub-services are most common in my pipeline?
+93	Service & Product	How many open potentials are in the Data Management service line?
+94	Service & Product	Which service line has the highest average potential value?
+95	Service & Product	Show me all Mortgage service potentials and their current stages.
+96	Service & Product	Which potentials involve Call Center services?
+97	Service & Product	What is the service and sub-service for [Potential Name]?
+98	Service & Product	List potentials in the FW AI SW service category.
+99	Service & Product	Which sub-vertical does [Potential Name] fall under?
+100	Service & Product	Show me all potentials in the Insurance service category.
+101	Service & Product	How are potentials distributed across the Research Services line?
+102	Service & Product	Which Mechanical service potentials are currently in the Contracting stage?
+103	Lead Source & UTM	Where did the lead for [Potential Name] come from?
+104	Lead Source & UTM	How many potentials came in through the website this month?
+105	Lead Source & UTM	Which UTM campaign is driving the most inquiries?
+106	Lead Source & UTM	Show me all potentials sourced from chat.
+107	Lead Source & UTM	What is the lead website for [Potential Name]?
+108	Lead Source & UTM	Which potentials came from paid search (Google Click Identifier is set)?
+109	Lead Source & UTM	What UTM medium and source are linked to [Potential Name]?
+110	Lead Source & UTM	How many potentials came in through upselling versus new website forms?
+111	Lead Source & UTM	What was the referrer URL for [Potential Name]?
+112	Lead Source & UTM	Show me all potentials where the lead source is phone call from website.
+113	Lead Source & UTM	Which campaign source has the best close rate?
+114	Lead Source & UTM	What keywords were associated with the inquiry for [Potential Name]?
+115	Lead Source & UTM	Show me potentials with a form type of Small Form.
+116	Lead Source & UTM	Which potentials came in from Facebook ads?
+117	Lead Source & UTM	What is the lead score for [Potential Name]?
+118	Geography	Show me all potentials from the USA.
+119	Geography	How many potentials are from India vs international markets?
+120	Geography	Which country has the most open potentials right now?
+121	Geography	List all potentials from the UK that are in the Proposal stage.
+122	Geography	Show me potentials from Australia and their service categories.
+123	Geography	Which territory are my potentials assigned to?
+124	Geography	How many potentials are from the North America territory?
+125	Geography	Show me all potentials where the country is marked as 'Others'.
+126	Geography	Which city did the inquiry for [Potential Name] come from?
+127	Geography	What is the geographic breakdown of my closed potentials?
+128	Revenue & Finance	What is the total expected revenue of my current pipeline?
+129	Revenue & Finance	What is the potential amount for [Potential Name]?
+130	Revenue & Finance	Which potentials have an amount above $50,000?
+131	Revenue & Finance	What is the cost price for [Potential Name]?
+132	Revenue & Finance	What is the average potential size for potentials I closed this quarter?
+133	Revenue & Finance	Show me potentials where the closure probability is above 70%.
+134	Revenue & Finance	What currency is [Potential Name] denominated in?
+135	Revenue & Finance	What is the weighted expected revenue of my pipeline?
+136	Revenue & Finance	Which potentials have no amount filled in yet?
+137	Revenue & Finance	What is the total pipeline value broken down by stage?
+138	Revenue & Finance	Show me potentials with Large size and high closure probability.
+139	Revenue & Finance	What is the total revenue from closed potentials this fiscal year?
+140	Priority & Flags	Which of my potentials are marked as Platinum Potentials?
+141	Priority & Flags	Show me all High Priority potentials closing this month.
+142	Priority & Flags	Which potentials are flagged as Diamond accounts?
+143	Priority & Flags	Are there any potentials with a possible defaulter warning?
+144	Priority & Flags	Show me all potentials marked 'for review' that need my attention.
+145	Priority & Flags	Which potentials have a 'Good Inquiry' flag set to No?
+146	Priority & Flags	Show me potentials where a trial was offered.
+147	Priority & Flags	What is the prediction score for [Potential Name]?
+148	Priority & Flags	Which potentials involve a Possible Defaulter account and are still open?
+149	Priority & Flags	List all potentials where the reason for working despite possible default is recorded.
+150	Cross-entity & Analytics	Show me the full 360 view of [Account Name] — account, contacts, and potentials.
+151	Cross-entity & Analytics	Which accounts have multiple open potentials right now?
+152	Cross-entity & Analytics	What is the win rate for potentials in the Healthcare service line?
+153	Cross-entity & Analytics	Which leads that came from the website converted the fastest?
+154	Cross-entity & Analytics	Show me all activities and touchpoints for contact [Contact Name].
+155	Cross-entity & Analytics	What are the top 5 reasons potentials are being lost?
+156	Cross-entity & Analytics	Which potentials from last quarter that were lost could be revived?
+157	Cross-entity & Analytics	How does my pipeline this month compare to last month?
+158	Cross-entity & Analytics	Which accounts have both a potential and a flagged defaulter risk?
+159	Cross-entity & Analytics	What is the average time from inquiry to potential creation?
+160	Cross-entity & Analytics	Show me potentials where the contracting company is different from the executing company.
+161	Cross-entity & Analytics	Which potentials came through cross-selling from an existing contract?
+162	Cross-entity & Analytics	What is the breakdown of potential types (New vs Existing Business) by service?

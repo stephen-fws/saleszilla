@@ -1,8 +1,127 @@
 """Calendar events endpoints — MS Graph backed."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
+
+# Optional zoneinfo support — Windows needs the `tzdata` pip package for the
+# IANA database. We try the import but tolerate failure and fall back to a
+# manual fixed-offset table below for the timezones we actually see in practice.
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError  # type: ignore
+    _HAS_ZONEINFO = True
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
+    ZoneInfoNotFoundError = Exception  # type: ignore
+    _HAS_ZONEINFO = False
+
+logger = logging.getLogger(__name__)
+
+# Manual UTC-offset fallback (in hours) for the most common timezones MS Graph
+# returns. Used when zoneinfo isn't available (Windows w/o tzdata) or when the
+# label can't be resolved. NOTE: this does NOT handle DST transitions — for
+# DST-aware behaviour install the `tzdata` package which lights up zoneinfo.
+WINDOWS_TZ_OFFSETS_HOURS = {
+    "UTC": 0,
+    "Coordinated Universal Time": 0,
+    "India Standard Time": 5.5,
+    "Asia/Kolkata": 5.5,
+    "Asia/Calcutta": 5.5,
+    "Pacific Standard Time": -8,
+    "Eastern Standard Time": -5,
+    "Central Standard Time": -6,
+    "Mountain Standard Time": -7,
+    "GMT Standard Time": 0,
+    "Romance Standard Time": 1,
+    "W. Europe Standard Time": 1,
+    "Central European Standard Time": 1,
+    "Singapore Standard Time": 8,
+    "Tokyo Standard Time": 9,
+    "AUS Eastern Standard Time": 10,
+    "China Standard Time": 8,
+    "Arabian Standard Time": 4,
+}
+
+# Map Windows tz names to IANA names for the zoneinfo path (when tzdata is available)
+WINDOWS_TZ_TO_IANA = {
+    "UTC": "UTC",
+    "Coordinated Universal Time": "UTC",
+    "India Standard Time": "Asia/Kolkata",
+    "Pacific Standard Time": "America/Los_Angeles",
+    "Eastern Standard Time": "America/New_York",
+    "Central Standard Time": "America/Chicago",
+    "Mountain Standard Time": "America/Denver",
+    "GMT Standard Time": "Europe/London",
+    "Romance Standard Time": "Europe/Paris",
+    "W. Europe Standard Time": "Europe/Berlin",
+    "Central European Standard Time": "Europe/Warsaw",
+    "Singapore Standard Time": "Asia/Singapore",
+    "Tokyo Standard Time": "Asia/Tokyo",
+    "AUS Eastern Standard Time": "Australia/Sydney",
+    "China Standard Time": "Asia/Shanghai",
+    "Arabian Standard Time": "Asia/Dubai",
+}
+
+
+def _resolve_tz(tz_label: str):
+    """Resolve a Graph timezone label to a tzinfo. Prefers zoneinfo if available,
+    otherwise falls back to a fixed UTC-offset constructed from WINDOWS_TZ_OFFSETS_HOURS.
+    """
+    if _HAS_ZONEINFO:
+        # Try IANA first
+        try:
+            return ZoneInfo(tz_label)
+        except Exception:
+            pass
+        # Try Windows → IANA mapping
+        iana = WINDOWS_TZ_TO_IANA.get(tz_label)
+        if iana:
+            try:
+                return ZoneInfo(iana)
+            except Exception:
+                pass
+
+    # Fallback to fixed offset
+    offset_hours = WINDOWS_TZ_OFFSETS_HOURS.get(tz_label)
+    if offset_hours is None:
+        logger.warning("Unknown timezone '%s' from MS Graph, defaulting to UTC", tz_label)
+        return timezone.utc
+    return timezone(timedelta(hours=offset_hours))
+
+
+def _graph_dt_to_utc_iso(field: dict) -> str | None:
+    """Convert MS Graph's `{dateTime, timeZone}` block to a UTC ISO string with 'Z'.
+
+    Graph may return timeZone as either an IANA name (when Prefer outlook.timezone
+    is set) OR as a Windows-style name (default for create/update responses).
+    Either way we parse + convert to UTC explicitly so the frontend can rely
+    on the +Z parse.
+    """
+    if not field:
+        return None
+    raw_dt = field.get("dateTime")
+    if not raw_dt:
+        return None
+    tz_label = field.get("timeZone") or "UTC"
+
+    tz = _resolve_tz(tz_label)
+
+    # Parse the naive dateTime and attach the tz
+    try:
+        # Graph sends fractional seconds like "2026-04-08T17:45:00.0000000"
+        # which Python's fromisoformat can't always parse — trim to 6 digits.
+        cleaned = raw_dt
+        if "." in cleaned:
+            head, frac = cleaned.split(".", 1)
+            cleaned = f"{head}.{frac[:6]}"
+        naive = datetime.fromisoformat(cleaned)
+    except ValueError as e:
+        logger.error("Failed to parse Graph dateTime '%s': %s", raw_dt, e)
+        return raw_dt  # last-resort fallback
+    aware = naive.replace(tzinfo=tz)
+    utc = aware.astimezone(timezone.utc)
+    return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 from core.auth import get_current_active_user
 from core.exceptions import BotApiException
@@ -53,8 +172,8 @@ def _map_event(e: dict) -> CalendarEventResponse:
         id=e.get("id", ""),
         subject=e.get("subject", ""),
         body_preview=e.get("bodyPreview"),
-        start=start.get("dateTime"),
-        end=end.get("dateTime"),
+        start=_graph_dt_to_utc_iso(start),
+        end=_graph_dt_to_utc_iso(end),
         is_all_day=e.get("isAllDay", False),
         is_cancelled=e.get("isCancelled", False),
         show_as=e.get("showAs", "busy"),

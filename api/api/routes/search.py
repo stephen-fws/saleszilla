@@ -47,14 +47,17 @@ def global_search(
     q: str = Query(..., min_length=2, max_length=100),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Global search — restricted to records OWNED BY the current user."""
     term = f"%{q}%"
+    user_id = current_user.user_id
 
     with get_session() as session:
-        # ── Potentials ────────────────────────────────────────────────────────
+        # ── Potentials (owned by current user only) ───────────────────────────
         pot_rows = session.execute(
             select(Potential, Account)
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .where(
+                Potential.potential_owner_id == user_id,
                 or_(
                     Potential.potential_name.ilike(term),
                     Potential.potential_number.ilike(term),
@@ -76,10 +79,13 @@ def global_search(
             for p, a in pot_rows
         ]
 
-        # ── Accounts ──────────────────────────────────────────────────────────
+        # ── Accounts (owned by current user only) ─────────────────────────────
         acc_rows = session.execute(
             select(Account)
-            .where(Account.account_name.ilike(term))
+            .where(
+                Account.account_owner_id == user_id,
+                Account.account_name.ilike(term),
+            )
             .limit(LIMIT)
         ).scalars().all()
 
@@ -92,19 +98,21 @@ def global_search(
             for a in acc_rows
         ]
 
-        # ── Contacts ──────────────────────────────────────────────────────────
+        # ── Contacts (owned by current user only) ─────────────────────────────
         con_rows = session.execute(
             select(Contact)
             .where(
+                Contact.contact_owner_id == user_id,
                 or_(
                     Contact.full_name.ilike(term),
                     Contact.email.ilike(term),
-                )
+                ),
             )
             .limit(LIMIT)
         ).scalars().all()
 
-        # For contacts without account, fetch their latest potential
+        # For contacts without an account, fetch their latest potential — also
+        # restricted to potentials owned by the current user
         contact_ids_no_account = [c.contact_id for c in con_rows if not c.account_id]
         latest_potentials: dict[str, str] = {}
         if contact_ids_no_account:
@@ -112,7 +120,7 @@ def global_search(
                 select(Potential.contact_id, Potential.potential_id)
                 .where(
                     Potential.contact_id.in_(contact_ids_no_account),
-                    Potential.is_active == True,
+                    Potential.potential_owner_id == user_id,
                 )
                 .order_by(Potential.created_time.desc())
             ).all()

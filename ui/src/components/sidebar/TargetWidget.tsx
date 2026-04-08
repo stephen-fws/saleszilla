@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TrendingUp, TrendingDown, Minus, X, Trophy } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, X, Trophy, Building2 } from "lucide-react";
 import { getSalesTargetSummary } from "@/lib/api";
 import type { SalesTargetSummary, SalesTopDeal } from "@/types";
 
@@ -34,7 +34,7 @@ function TopDealsModal({
           <div className="flex items-center gap-2">
             <Trophy className="h-4 w-4 text-amber-500" />
             <span className="text-sm font-semibold text-slate-800">
-              Top Closed — {data.quarterLabel}
+              Top Accounts — {data.periodLabel}
             </span>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -42,7 +42,7 @@ function TopDealsModal({
           </button>
         </div>
 
-        {/* Quarter summary row */}
+        {/* Month summary row */}
         <div className="grid grid-cols-2 divide-x divide-slate-100 border-b border-slate-100">
           <div className="px-4 py-2.5 text-center">
             <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">Actuals</p>
@@ -50,7 +50,7 @@ function TopDealsModal({
             <p className="text-[10px] text-slate-400">of {fmt(data.target)} target</p>
           </div>
           <div className="px-4 py-2.5 text-center">
-            <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">vs {data.prevQuarterLabel}</p>
+            <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wide">vs {data.prevPeriodLabel}</p>
             <p className={`text-base font-bold ${data.pctChange >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {data.pctChange >= 0 ? "+" : ""}{data.pctChange.toFixed(1)}%
             </p>
@@ -58,14 +58,14 @@ function TopDealsModal({
           </div>
         </div>
 
-        {/* Top deals list */}
+        {/* Top accounts list */}
         <div className="overflow-y-auto max-h-64 scrollbar-thin">
           {data.topClosed.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-6">No closed deals this quarter</p>
+            <p className="text-xs text-slate-400 text-center py-6">No invoiced accounts this month</p>
           ) : (
             <ul className="divide-y divide-slate-50">
               {data.topClosed.map((deal, i) => (
-                <TopDealRow key={i} rank={i + 1} deal={deal} />
+                <TopAccountRow key={i} rank={i + 1} deal={deal} />
               ))}
             </ul>
           )}
@@ -75,25 +75,17 @@ function TopDealsModal({
   );
 }
 
-function TopDealRow({ rank, deal }: { rank: number; deal: SalesTopDeal }) {
+function TopAccountRow({ rank, deal }: { rank: number; deal: SalesTopDeal }) {
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
       <span className="w-5 text-[11px] font-bold text-slate-300 text-center shrink-0">
         {rank}
       </span>
+      <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
       <div className="flex-1 min-w-0">
-        {deal.potentialName ? (
-          <>
-            <p className="text-xs font-medium text-slate-800 truncate">{deal.potentialName}</p>
-            {deal.potentialNumber && (
-              <p className="text-[10px] text-slate-400 font-mono">#{deal.potentialNumber}</p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs text-slate-500 truncate">
-            {deal.invoiceDate ? new Date(deal.invoiceDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
-          </p>
-        )}
+        <p className="text-xs font-medium text-slate-800 truncate">
+          {deal.companyName || "—"}
+        </p>
       </div>
       <span className="text-xs font-semibold text-emerald-700 shrink-0">{fmt(deal.amount)}</span>
     </li>
@@ -152,7 +144,7 @@ export default function TargetWidget() {
         {/* Label row */}
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
-            {data.quarterLabel} Target
+            {data.periodLabel} Target
           </span>
           <div className="flex items-center gap-1">
             {change > 0 ? (
@@ -163,7 +155,7 @@ export default function TargetWidget() {
               <Minus className="h-3 w-3 text-slate-300" />
             )}
             <span className={`text-[10px] font-semibold ${change > 0 ? "text-emerald-600" : change < 0 ? "text-red-500" : "text-slate-400"}`}>
-              {change >= 0 ? "+" : ""}{change.toFixed(1)}% vs {data.prevQuarterLabel}
+              {change >= 0 ? "+" : ""}{change.toFixed(1)}% vs {data.prevPeriodLabel}
             </span>
           </div>
         </div>

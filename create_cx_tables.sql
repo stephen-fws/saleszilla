@@ -26,6 +26,7 @@ CREATE TABLE CX_AgentInsights (
     Id              INT IDENTITY(1,1) PRIMARY KEY,
     PotentialId     VARCHAR(32)     NOT NULL,
     AgentType       VARCHAR(64)     NOT NULL,
+    MSEventId       VARCHAR(256)    NULL,        -- Set only for meeting_brief insights, otherwise NULL
     Content         NVARCHAR(MAX)   NULL,
     Status          VARCHAR(16)     NOT NULL DEFAULT 'pending',
     RequestedTime   DATETIME        NULL,
@@ -33,8 +34,13 @@ CREATE TABLE CX_AgentInsights (
     CreatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
     IsActive        BIT             NOT NULL DEFAULT 1,
-    CONSTRAINT UQ_AgentInsights_Potential_Agent UNIQUE (PotentialId, AgentType)
+    CONSTRAINT UQ_AgentInsights_Potential_Agent_Event UNIQUE (PotentialId, AgentType, MSEventId)
 );
+
+-- If you ALREADY ran the previous CREATE without MSEventId, run this migration:
+-- ALTER TABLE CX_AgentInsights ADD MSEventId VARCHAR(256) NULL;
+-- ALTER TABLE CX_AgentInsights DROP CONSTRAINT UQ_AgentInsights_Potential_Agent;
+-- ALTER TABLE CX_AgentInsights ADD CONSTRAINT UQ_AgentInsights_Potential_Agent_Event UNIQUE (PotentialId, AgentType, MSEventId);
 
 -- 3. CX_EmailDrafts
 CREATE TABLE CX_EmailDrafts (
@@ -150,6 +156,44 @@ CREATE TABLE CX_ChatMessages (
     UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
     IsActive        BIT             NOT NULL DEFAULT 1
 );
+
+-- 10b. CX_GlobalChatMessages — global cross-entity AI chat history (one row per message)
+CREATE TABLE CX_GlobalChatMessages (
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    UserId          VARCHAR(32)     NOT NULL,
+    ConversationId  INT             NULL,
+    Role            VARCHAR(16)     NOT NULL,
+    Content         NVARCHAR(MAX)   NOT NULL,
+    CreatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    IsActive        BIT             NOT NULL DEFAULT 1
+);
+
+-- 10c. CX_GlobalChatConversations — one row per chat thread per user
+CREATE TABLE CX_GlobalChatConversations (
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    UserId          VARCHAR(32)     NOT NULL,
+    Title           NVARCHAR(256)   NULL,
+    CreatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    IsActive        BIT             NOT NULL DEFAULT 1
+);
+
+-- 10d. CX_MeetingBriefDismissals — per-user dismissal of meeting briefs (done/skipped)
+CREATE TABLE CX_MeetingBriefDismissals (
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    UserId          VARCHAR(32)     NOT NULL,
+    MSEventId       VARCHAR(256)    NOT NULL,
+    Status          VARCHAR(16)     NOT NULL,
+    CreatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    IsActive        BIT             NOT NULL DEFAULT 1,
+    CONSTRAINT UQ_MeetingBriefDismissal UNIQUE (UserId, MSEventId)
+);
+
+-- If you ALREADY ran the previous CX_GlobalChatMessages CREATE without ConversationId,
+-- run this ALTER instead of the CREATE above:
+-- ALTER TABLE CX_GlobalChatMessages ADD ConversationId INT NULL;
 
 -- 11. CX_Meetings
 CREATE TABLE CX_Meetings (

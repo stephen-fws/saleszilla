@@ -171,13 +171,19 @@ class CXQueueItem(Base):
 
 
 class CXAgentInsight(Base):
-    """Cached AI agent results per Potential."""
+    """Cached AI agent results per Potential.
+
+    For meeting briefs: ms_event_id is set to the MS Graph event id, so the
+    same potential can have one brief per scheduled meeting. For all other
+    agents, ms_event_id is NULL.
+    """
 
     __tablename__ = "CX_AgentInsights"
 
     id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
     potential_id: Mapped[str] = mapped_column("PotentialId", String(32), nullable=False)
     agent_type: Mapped[str] = mapped_column("AgentType", String(64), nullable=False)
+    ms_event_id: Mapped[str | None] = mapped_column("MSEventId", String(256), nullable=True)
     agent_id: Mapped[str | None] = mapped_column("AgentId", String(64), nullable=True)
     agent_name: Mapped[str | None] = mapped_column("AgentName", Unicode(128), nullable=True)
     content: Mapped[str | None] = mapped_column("Content", UnicodeText, nullable=True)
@@ -367,6 +373,49 @@ class CXChatMessage(Base):
     id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
     potential_id: Mapped[str | None] = mapped_column("PotentialId", String(16), nullable=True)  # 7-digit potential_number
+    role: Mapped[str] = mapped_column("Role", String(16), nullable=False)
+    content: Mapped[str] = mapped_column("Content", UnicodeText, nullable=False)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
+class CXMeetingBriefDismissal(Base):
+    """Per-user dismissal of a meeting brief — keeps the meeting from re-appearing
+    in the upcoming briefs list after the user marks it done/skipped."""
+
+    __tablename__ = "CX_MeetingBriefDismissals"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
+    ms_event_id: Mapped[str] = mapped_column("MSEventId", String(256), nullable=False)
+    status: Mapped[str] = mapped_column("Status", String(16), nullable=False)  # 'done' | 'skipped'
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
+class CXGlobalChatConversation(Base):
+    """Global AI chat — one row per conversation thread per user."""
+
+    __tablename__ = "CX_GlobalChatConversations"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
+    title: Mapped[str | None] = mapped_column("Title", Unicode(256), nullable=True)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
+class CXGlobalChatMessage(Base):
+    """Global AI chat history — cross-entity questions, not tied to any single Potential."""
+
+    __tablename__ = "CX_GlobalChatMessages"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
+    conversation_id: Mapped[int | None] = mapped_column("ConversationId", Integer, nullable=True)
     role: Mapped[str] = mapped_column("Role", String(16), nullable=False)
     content: Mapped[str] = mapped_column("Content", UnicodeText, nullable=False)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)

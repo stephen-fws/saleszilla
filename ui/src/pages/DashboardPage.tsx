@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown } from "lucide-react";
+import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown, Sparkles } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import {
   getFolders,
@@ -7,13 +7,19 @@ import {
   getPotentials,
   getAccounts,
   completeQueueItem,
+  skipQueueItem,
   getCalendarEvents,
   updatePotential,
+  getUpcomingMeetingBriefs,
+  resolveMeetingBrief,
 } from "@/lib/api";
 import NewPotentialModal from "@/components/potentials/NewPotentialModal";
 import GlobalSearch from "@/components/layout/GlobalSearch";
-import type { CalendarEvent } from "@/lib/api";
+import type { CalendarEvent, MeetingBriefItem } from "@/lib/api";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
+import GlobalChatPanel from "@/components/chat/GlobalChatPanel";
+import MeetingBriefOverlay from "@/components/sidebar/MeetingBriefOverlay";
+import MeetingBriefsList from "@/components/sidebar/MeetingBriefsList";
 import type {
   ViewMode,
   Folder,
@@ -49,6 +55,14 @@ export default function DashboardPage() {
   const logout = useAuthStore((s) => s.logout);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [globalChatOpen, setGlobalChatOpen] = useState(false);
+
+  // Meeting briefs (Panel 1 section + right-panel overlay)
+  const [meetingBriefs, setMeetingBriefs] = useState<MeetingBriefItem[]>([]);
+  const [meetingBriefsLoading, setMeetingBriefsLoading] = useState(false);
+  const [meetingBriefsError, setMeetingBriefsError] = useState<string | null>(null);
+  const [activeBrief, setActiveBrief] = useState<MeetingBriefItem | null>(null);
+  const meetingBriefsAbortRef = useRef<AbortController | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +110,59 @@ export default function DashboardPage() {
       sidebarInitialized.current = true;
     }
   }, []);
+
+  // ── Meeting Briefs ────────────────────────────────────────────────────────
+  // Fetch on mount + on tab focus (visibilitychange). Backend is idempotent —
+  // cache hits return instantly, only fires the agent for missing/stale briefs.
+  const refreshMeetingBriefs = useCallback(async () => {
+    // Cancel any in-flight request to avoid race conditions
+    meetingBriefsAbortRef.current?.abort();
+    meetingBriefsAbortRef.current = new AbortController();
+    setMeetingBriefsLoading(true);
+    setMeetingBriefsError(null);
+    try {
+      const items = await getUpcomingMeetingBriefs(24);
+      setMeetingBriefs(items);
+      // If an overlay is open, keep its data fresh by re-binding to the latest version
+      setActiveBrief((prev) => {
+        if (!prev) return prev;
+        const updated = items.find((i) => i.skeleton.msEventId === prev.skeleton.msEventId);
+        return updated ?? prev;
+      });
+    } catch (err) {
+      if ((err as Error).name !== "CanceledError" && (err as Error).name !== "AbortError") {
+        setMeetingBriefsError("Failed to load meeting briefs");
+      }
+    } finally {
+      setMeetingBriefsLoading(false);
+    }
+  }, []);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    refreshMeetingBriefs();
+  }, [refreshMeetingBriefs]);
+
+  // Refresh on tab focus (visibilitychange → visible)
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        refreshMeetingBriefs();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [refreshMeetingBriefs]);
+
+  // Poll every 30s while any brief is pending/running. Stops once all are completed.
+  // Tab focus + dashboard mount + calendar close still fire instant refreshes,
+  // so this only matters when the user is actively staring at the page.
+  useEffect(() => {
+    const anyInFlight = meetingBriefs.some((b) => b.brief.status === "pending" || b.brief.status === "running");
+    if (!anyInFlight) return;
+    const id = setInterval(refreshMeetingBriefs, 30000);
+    return () => clearInterval(id);
+  }, [meetingBriefs, refreshMeetingBriefs]);
 
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("queue");
@@ -146,6 +213,13 @@ export default function DashboardPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [newPotentialOpen, setNewPotentialOpen] = useState(false);
+
+  // Auto-close the meeting brief overlay when the user navigates somewhere else.
+  // Triggered by changes to selectedDealId, selectedAccountId, selectedQueueItemId, viewMode.
+  useEffect(() => {
+    if (activeBrief !== null) setActiveBrief(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDealId, selectedAccountId, selectedQueueItemId, viewMode]);
 
   // Fetch folders on mount
   useEffect(() => {
@@ -281,6 +355,48 @@ export default function DashboardPage() {
       if (isMobile) setMobileShowDetail(false);
     }
   }, [selectedQueueItemId, selectedFolderId, queueItems, isMobile]);
+
+  const handleResolveBrief = useCallback(async (msEventId: string, action: "done" | "skip") => {
+    // Optimistic remove from list
+    setMeetingBriefs((prev) => prev.filter((b) => b.skeleton.msEventId !== msEventId));
+    // If this was the open overlay, close it
+    if (activeBrief?.skeleton.msEventId === msEventId) {
+      setActiveBrief(null);
+    }
+    try {
+      await resolveMeetingBrief(msEventId, action);
+    } catch {
+      // ignore — optimistic UX
+    }
+  }, [activeBrief]);
+
+  const handleResolveQueueItem = useCallback(async (itemId: string, action: "done" | "skip") => {
+    // Optimistic remove from list + decrement folder count
+    setQueueItems((prev) => prev.filter((i) => i.id !== itemId));
+    if (selectedFolderId) {
+      setFolders((prev) =>
+        prev.map((f) =>
+          f.id === selectedFolderId ? { ...f, count: Math.max(0, f.count - 1) } : f
+        )
+      );
+    }
+    // If the resolved item happened to be the currently selected one,
+    // clear selection so the right panel doesn't show stale state
+    if (selectedQueueItemId === itemId) {
+      setSelectedQueueItemId(null);
+      if (isMobile) setMobileShowDetail(false);
+    }
+    // Fire the API call (fire-and-forget; on failure the user can refresh)
+    try {
+      if (action === "done") {
+        await completeQueueItem(itemId);
+      } else {
+        await skipQueueItem(itemId);
+      }
+    } catch {
+      // ignore — optimistic UX
+    }
+  }, [selectedFolderId, selectedQueueItemId, isMobile]);
 
   const handleMobileBack = useCallback(() => {
     setMobileShowDetail(false);
@@ -426,6 +542,14 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3 shrink-0 ml-auto">
           <button
+            onClick={() => setGlobalChatOpen(true)}
+            className="flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm"
+            title="Ask Salezilla AI"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Ask AI
+          </button>
+          <button
             onClick={() => setCalendarOpen(true)}
             className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
             title="Open calendar"
@@ -499,6 +623,8 @@ export default function DashboardPage() {
               filters={potentialFilters}
               onFiltersChange={setPotentialFilters}
               filterOptions={myFilterOptions}
+              meetingBriefsCount={meetingBriefs.length}
+              meetingBriefsLoading={meetingBriefsLoading}
             />
           </div>
         </>
@@ -528,6 +654,8 @@ export default function DashboardPage() {
               accountFilters={accountFilters}
               onAccountFiltersChange={setAccountFilters}
               accountFilterOptions={accountFilterOptions}
+              meetingBriefsCount={meetingBriefs.length}
+              meetingBriefsLoading={meetingBriefsLoading}
             />
           </div>
         )}
@@ -558,13 +686,24 @@ export default function DashboardPage() {
           )}
 
           {viewMode === "queue" ? (
-            <QueuePanel
-              items={queueItems}
-              selectedItemId={selectedQueueItemId}
-              onSelectItem={handleQueueItemSelect}
-              folderType={currentFolderType}
-              loading={loadingQueue}
-            />
+            selectedFolderId === "meeting-briefs" ? (
+              <MeetingBriefsList
+                items={meetingBriefs}
+                loading={meetingBriefsLoading}
+                selectedMsEventId={activeBrief?.skeleton.msEventId ?? null}
+                onSelect={(item) => setActiveBrief(item)}
+                onResolve={handleResolveBrief}
+              />
+            ) : (
+              <QueuePanel
+                items={queueItems}
+                selectedItemId={selectedQueueItemId}
+                onSelectItem={handleQueueItemSelect}
+                folderType={currentFolderType}
+                loading={loadingQueue}
+                onResolveItem={handleResolveQueueItem}
+              />
+            )
           ) : viewMode === "accounts" ? (
             <AccountsList
               accounts={sortedAccounts}
@@ -605,26 +744,38 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <DetailPanel
-            queueItemId={viewMode === "queue" ? selectedQueueItemId : null}
-            dealId={
-              viewMode === "potentials"
-                ? selectedDealId
-                : viewMode === "queue"
-                ? (queueItems.find((i) => i.id === selectedQueueItemId)?.dealId ?? null)
-                : null
-            }
-            accountId={viewMode === "accounts" ? selectedAccountId : null}
-            folderType={viewMode === "queue" ? currentFolderType : "all-potentials"}
-            onComplete={handleComplete}
-            onPotentialNavigate={(dealId) => {
-              setViewMode("potentials");
-              setSelectedDealId(dealId);
-            }}
-            availableStages={filterOptions.stages}
-            availableServices={filterOptions.services}
-            initialTab={newDealInitialTab}
-          />
+          {activeBrief ? (
+            <MeetingBriefOverlay
+              item={activeBrief}
+              onClose={() => setActiveBrief(null)}
+              onOpenDeal={(potentialId) => {
+                setViewMode("potentials");
+                setSelectedDealId(potentialId);
+                setActiveBrief(null);
+              }}
+            />
+          ) : (
+            <DetailPanel
+              queueItemId={viewMode === "queue" ? selectedQueueItemId : null}
+              dealId={
+                viewMode === "potentials"
+                  ? selectedDealId
+                  : viewMode === "queue"
+                  ? (queueItems.find((i) => i.id === selectedQueueItemId)?.dealId ?? null)
+                  : null
+              }
+              accountId={viewMode === "accounts" ? selectedAccountId : null}
+              folderType={viewMode === "queue" ? currentFolderType : "all-potentials"}
+              onComplete={handleComplete}
+              onPotentialNavigate={(dealId) => {
+                setViewMode("potentials");
+                setSelectedDealId(dealId);
+              }}
+              availableStages={filterOptions.stages}
+              availableServices={filterOptions.services}
+              initialTab={newDealInitialTab}
+            />
+          )}
         </div>
       </div>
 
@@ -640,8 +791,16 @@ export default function DashboardPage() {
         <CalendarPanel onClose={() => {
           setCalendarOpen(false);
           // Small delay to allow MS Graph to propagate newly created/edited events
-          setTimeout(refreshNextMeeting, 2000);
+          setTimeout(() => {
+            refreshNextMeeting();
+            // Also re-check meeting briefs — a new in-app meeting might qualify
+            refreshMeetingBriefs();
+          }, 2000);
         }} />
+      )}
+
+      {globalChatOpen && (
+        <GlobalChatPanel onClose={() => setGlobalChatOpen(false)} />
       )}
     </div>
   );

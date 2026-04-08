@@ -7,6 +7,7 @@ from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import CreatePotentialRequest, PotentialDetailResponse, PotentialListResponse, ResponseModel, UpdatePotentialRequest
 from api.services.potential_service import create_potential, get_potential_detail, list_potentials, update_potential
+from api.services.access_control import require_potential_owner
 
 router = APIRouter(prefix="/potentials", tags=["potentials"])
 
@@ -51,6 +52,7 @@ def get_potential(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[PotentialDetailResponse]:
+    require_potential_owner(user.user_id, potential_id)
     result = get_potential_detail(potential_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")
@@ -63,6 +65,7 @@ def patch_potential(
     data: UpdatePotentialRequest,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[PotentialDetailResponse]:
+    require_potential_owner(user.user_id, potential_id)
     result = update_potential(potential_id, data.model_dump(exclude_none=True), user_id=user.user_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")

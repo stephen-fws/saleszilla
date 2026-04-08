@@ -252,7 +252,7 @@ async def fetch_calendar_events(
         "$top": 100,
         "$orderby": "start/dateTime asc",
         "$select": (
-            "id,subject,bodyPreview,start,end,isAllDay,isCancelled,"
+            "id,subject,body,bodyPreview,start,end,isAllDay,isCancelled,"
             "showAs,responseStatus,organizer,attendees,location,"
             "isOnlineMeeting,onlineMeeting,recurrence,categories"
         ),
@@ -314,7 +314,14 @@ async def create_calendar_event(
         resp = await client.post(
             GRAPH_EVENTS_URL,
             json=payload,
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                # Force the response back in UTC so the frontend's `+Z` parse is correct.
+                # Without this, Graph echoes back start/end in the timezone we submitted,
+                # and the frontend would mis-interpret IST times as UTC.
+                "Prefer": 'outlook.timezone="UTC"',
+            },
         )
         resp.raise_for_status()
         return resp.json()
@@ -357,7 +364,12 @@ async def update_calendar_event(
         resp = await client.patch(
             f"{GRAPH_EVENTS_URL}/{event_id}",
             json=payload,
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                # Force response back in UTC (see create_calendar_event for rationale)
+                "Prefer": 'outlook.timezone="UTC"',
+            },
         )
         resp.raise_for_status()
         return resp.json()

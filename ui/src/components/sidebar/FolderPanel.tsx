@@ -14,6 +14,7 @@ import {
   Search,
   X,
   SlidersHorizontal,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -40,6 +41,10 @@ interface FolderPanelProps {
   accountFilters?: AccountFilters;
   onAccountFiltersChange?: (filters: AccountFilters) => void;
   accountFilterOptions?: { industries: string[] };
+  // Optional: badge override for the meeting-briefs folder so we can show
+  // the live count from the new lazy-load flow + a refresh spinner.
+  meetingBriefsCount?: number;
+  meetingBriefsLoading?: boolean;
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -69,6 +74,8 @@ export default function FolderPanel({
   accountFilters,
   onAccountFiltersChange,
   accountFilterOptions,
+  meetingBriefsCount,
+  meetingBriefsLoading = false,
 }: FolderPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
@@ -272,6 +279,13 @@ export default function FolderPanel({
               {folders.map((folder) => {
                 const IconComponent = ICON_MAP[folder.icon] || Inbox;
                 const isSelected = folder.id === selectedId;
+                const isMeetingBriefs = folder.id === "meeting-briefs";
+                // Override the count for the meeting-briefs folder so it
+                // reflects the live lazy-loaded brief list, not the legacy
+                // CXQueueItem count which is unused for this folder.
+                const displayCount = isMeetingBriefs && meetingBriefsCount !== undefined
+                  ? meetingBriefsCount
+                  : folder.count;
                 return (
                   <button
                     key={folder.id}
@@ -287,13 +301,16 @@ export default function FolderPanel({
                       className={`h-4 w-4 flex-shrink-0 ${isSelected ? "text-slate-900" : "text-slate-400"}`}
                     />
                     <span className="flex-1 truncate">{folder.label}</span>
-                    {folder.count > 0 && (
+                    {isMeetingBriefs && meetingBriefsLoading && (
+                      <Loader2 className="h-3 w-3 animate-spin text-blue-500 flex-shrink-0" />
+                    )}
+                    {displayCount > 0 && !(isMeetingBriefs && meetingBriefsLoading) && (
                       <span
                         className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium ${
                           isSelected ? "bg-slate-300 text-slate-800" : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {folder.count}
+                        {displayCount}
                       </span>
                     )}
                   </button>
