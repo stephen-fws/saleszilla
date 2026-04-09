@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Briefcase, Building2, X, Plus, ChevronDown, Loader2 } from "lucide-react";
+import { Briefcase, Building2, X, Plus, ChevronDown, Loader2, Users } from "lucide-react";
 import type { PotentialDeal } from "@/types";
 
 const STAGE_COLORS: Record<string, string> = {
@@ -144,6 +144,7 @@ interface PotentialsListProps {
   onNewDeal?: () => void;
   availableStages?: string[];
   onStageChange?: (dealId: string, stage: string) => Promise<void>;
+  currentUserName?: string | null;
 }
 
 export default function PotentialsList({
@@ -156,6 +157,7 @@ export default function PotentialsList({
   onNewDeal,
   availableStages = [],
   onStageChange,
+  currentUserName,
 }: PotentialsListProps) {
   return (
     <div className="flex h-full flex-col bg-white">
@@ -252,6 +254,13 @@ export default function PotentialsList({
                       <span className="text-xs text-slate-400 truncate block">
                         {deal.contact.name}{deal.contact.title ? ` · ${deal.contact.title}` : ""}
                       </span>
+                      {/* Reportee badge — shown when the deal belongs to a team member, not the logged-in user */}
+                      {currentUserName && deal.ownerName && deal.ownerName !== currentUserName && (
+                        <span className="inline-flex items-center gap-1 mt-1 rounded-full bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">
+                          <Users className="h-2.5 w-2.5" />
+                          {deal.ownerName}
+                        </span>
+                      )}
                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                         {onStageChange ? (
                           <StageSelector

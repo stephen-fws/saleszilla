@@ -45,6 +45,11 @@ interface FolderPanelProps {
   // the live count from the new lazy-load flow + a refresh spinner.
   meetingBriefsCount?: number;
   meetingBriefsLoading?: boolean;
+  // Team toggle for potentials view
+  includeTeam?: boolean;
+  onIncludeTeamChange?: (v: boolean) => void;
+  // Current user name — used to make their owner filter entry non-uncheckable
+  currentUserName?: string | null;
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -76,6 +81,9 @@ export default function FolderPanel({
   accountFilterOptions,
   meetingBriefsCount,
   meetingBriefsLoading = false,
+  includeTeam = false,
+  onIncludeTeamChange,
+  currentUserName = null,
 }: FolderPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
@@ -346,6 +354,27 @@ export default function FolderPanel({
               )}
             </div>
 
+            {/* Team toggle */}
+            {onIncludeTeamChange && (
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
+                  Include My Team
+                </label>
+                <button
+                  onClick={() => onIncludeTeamChange(!includeTeam)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    includeTeam ? "bg-blue-600" : "bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                      includeTeam ? "translate-x-[18px]" : "translate-x-[3px]"
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+
             {/* Sort */}
             <div>
               <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
@@ -431,21 +460,33 @@ export default function FolderPanel({
                 </label>
                 <div className="space-y-0.5">
                   {filterOptions.owners.map((owner) => {
-                    const isChecked = filters?.owners.includes(owner) || false;
+                    const isMe = currentUserName != null && owner === currentUserName;
+                    // When team toggle is OFF: only "You" row shows, always checked, non-checkable
+                    // When team toggle is ON: all owners are freely checkable
+                    const locked = !includeTeam && isMe;
+                    const isChecked = locked || (filters?.owners.includes(owner) || false);
                     return (
                       <label
                         key={owner}
-                        className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer transition-colors ${
-                          isChecked ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+                        className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                          locked
+                            ? "bg-blue-50 text-blue-700 cursor-default"
+                            : isChecked
+                              ? "bg-blue-50 text-blue-700 cursor-pointer"
+                              : "text-slate-600 hover:bg-slate-50 cursor-pointer"
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={isChecked}
-                          onChange={() => toggleFilter("owners", owner)}
-                          className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+                          disabled={locked}
+                          onChange={() => { if (!locked) toggleFilter("owners", owner); }}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300 disabled:opacity-60"
                         />
                         <span className="flex-1 truncate">{owner}</span>
+                        {isMe && (
+                          <span className="text-[9px] text-blue-400 font-medium shrink-0">You</span>
+                        )}
                       </label>
                     );
                   })}

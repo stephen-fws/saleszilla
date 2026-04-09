@@ -1,4 +1,9 @@
-"""Global search route — potentials, accounts, contacts."""
+"""Global search route — potentials, accounts, contacts.
+
+Results include the current user's records + their direct reports' records
+(users whose reporting_to = current user's email). This lets managers find
+their team's deals in the same search bar.
+"""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
@@ -7,6 +12,7 @@ from core.auth import get_current_active_user
 from core.database import get_session
 from core.models import Account, Contact, Potential, User
 from core.schemas import ResponseModel
+from api.services.potential_service import get_team_user_ids
 from pydantic import BaseModel
 from typing import Optional
 
@@ -47,17 +53,19 @@ def global_search(
     q: str = Query(..., min_length=2, max_length=100),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Global search — restricted to records OWNED BY the current user."""
+    """Global search — returns records owned by the current user + their direct reports."""
     term = f"%{q}%"
     user_id = current_user.user_id
+    team_ids = get_team_user_ids(user_id)
+    all_owner_ids = [user_id] + team_ids
 
     with get_session() as session:
-        # ── Potentials (owned by current user only) ───────────────────────────
+        # ── Potentials (owned by user + team) ─────────────────────────────────
         pot_rows = session.execute(
             select(Potential, Account)
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .where(
-                Potential.potential_owner_id == user_id,
+                Potential.potential_owner_id.in_(all_owner_ids),
                 or_(
                     Potential.potential_name.ilike(term),
                     Potential.potential_number.ilike(term),
@@ -79,11 +87,11 @@ def global_search(
             for p, a in pot_rows
         ]
 
-        # ── Accounts (owned by current user only) ─────────────────────────────
+        # ── Accounts (owned by user + team) ───────────────────────────────────
         acc_rows = session.execute(
             select(Account)
             .where(
-                Account.account_owner_id == user_id,
+                Account.account_owner_id.in_(all_owner_ids),
                 Account.account_name.ilike(term),
             )
             .limit(LIMIT)
@@ -98,11 +106,11 @@ def global_search(
             for a in acc_rows
         ]
 
-        # ── Contacts (owned by current user only) ─────────────────────────────
+        # ── Contacts (owned by user + team) ───────────────────────────────────
         con_rows = session.execute(
             select(Contact)
             .where(
-                Contact.contact_owner_id == user_id,
+                Contact.contact_owner_id.in_(all_owner_ids),
                 or_(
                     Contact.full_name.ilike(term),
                     Contact.email.ilike(term),
@@ -111,8 +119,8 @@ def global_search(
             .limit(LIMIT)
         ).scalars().all()
 
-        # For contacts without an account, fetch their latest potential — also
-        # restricted to potentials owned by the current user
+        # For contacts without an account, fetch their latest potential —
+        # also restricted to user + team ownership
         contact_ids_no_account = [c.contact_id for c in con_rows if not c.account_id]
         latest_potentials: dict[str, str] = {}
         if contact_ids_no_account:
@@ -120,7 +128,7 @@ def global_search(
                 select(Potential.contact_id, Potential.potential_id)
                 .where(
                     Potential.contact_id.in_(contact_ids_no_account),
-                    Potential.potential_owner_id == user_id,
+                    Potential.potential_owner_id.in_(all_owner_ids),
                 )
                 .order_by(Potential.created_time.desc())
             ).all()

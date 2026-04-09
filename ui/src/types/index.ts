@@ -328,6 +328,20 @@ export interface GlobalSearchResults {
   contacts: GlobalSearchContact[];
 }
 
+// ── Twilio calling ────────────────────────────────────────────────────────────
+
+export interface ContactForCall {
+  contactId: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  isPrimary: boolean;
+}
+
+export type CallState = "idle" | "fetching-token" | "connecting" | "ringing" | "in-progress" | "completed" | "failed";
+
 // ── Sales targets ─────────────────────────────────────────────────────────────
 
 export interface SalesTopDeal {

@@ -21,6 +21,25 @@ from core.schemas import (
 from api.services.activity_service import log_activity
 
 
+def get_team_user_ids(manager_user_id: str) -> list[str]:
+    """Return user_ids of direct reports — users whose reporting_to matches
+    the manager's email address. Returns an empty list if no reports found."""
+    with get_session() as session:
+        # First get the manager's email
+        manager = session.get(User, manager_user_id)
+        if not manager or not manager.email:
+            return []
+        # Find users who report to this email
+        report_ids = session.execute(
+            select(User.user_id).where(
+                User.reporting_to == manager.email,
+                User.is_active == True,
+                User.user_id != manager_user_id,
+            )
+        ).scalars().all()
+        return list(report_ids)
+
+
 def list_potentials(
     stages: list[str] | None = None,
     services: list[str] | None = None,
@@ -29,8 +48,13 @@ def list_potentials(
     page: int = 1,
     page_size: int = 100,
     owner_user_id: str | None = None,
+    include_team: bool = False,
 ) -> PotentialListResponse:
-    """List potentials with optional filters, joined with Account + Contact."""
+    """List potentials with optional filters, joined with Account + Contact.
+
+    When include_team=True and owner_user_id is set, also includes potentials
+    owned by the user's direct reports (users whose reporting_to = user's email).
+    """
     with get_session() as session:
         stmt = select(Potential, Account, Contact).outerjoin(
             Account, Potential.account_id == Account.account_id
@@ -39,7 +63,12 @@ def list_potentials(
         )
 
         if owner_user_id:
-            stmt = stmt.where(Potential.potential_owner_id == owner_user_id)
+            if include_team:
+                team_ids = get_team_user_ids(owner_user_id)
+                all_owner_ids = [owner_user_id] + team_ids
+                stmt = stmt.where(Potential.potential_owner_id.in_(all_owner_ids))
+            else:
+                stmt = stmt.where(Potential.potential_owner_id == owner_user_id)
         if stages:
             stmt = stmt.where(Potential.stage.in_(stages))
         if services:
@@ -96,8 +125,14 @@ def list_potentials(
                 ) if c else None,
             ))
 
-        # Filter options (from all potentials, unfiltered)
-        filter_opts = _get_filter_options(session)
+        # Filter options scoped to the same owner set as the main query
+        scoped_owner_ids = None
+        if owner_user_id:
+            if include_team:
+                scoped_owner_ids = [owner_user_id] + get_team_user_ids(owner_user_id)
+            else:
+                scoped_owner_ids = [owner_user_id]
+        filter_opts = _get_filter_options(session, owner_ids=scoped_owner_ids)
 
         return PotentialListResponse(
             potentials=potentials,
@@ -164,23 +199,32 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
         )
 
 
-def _get_filter_options(session) -> PotentialFilterOptions:
-    """Get distinct owners, services, stages from all potentials."""
+def _get_filter_options(session, owner_ids: list[str] | None = None) -> PotentialFilterOptions:
+    """Get distinct owners, services, stages scoped to the given owner IDs.
+    If owner_ids is None, returns options from all potentials (legacy/fallback)."""
+
+    base = select(Potential)
+    if owner_ids:
+        base = base.where(Potential.potential_owner_id.in_(owner_ids))
+
     owners = [r[0] for r in session.execute(
         select(Potential.potential_owner_name).where(
-            Potential.potential_owner_name.isnot(None)
+            Potential.potential_owner_name.isnot(None),
+            *([Potential.potential_owner_id.in_(owner_ids)] if owner_ids else []),
         ).distinct().order_by(Potential.potential_owner_name)
     ).all()]
 
     services = [r[0] for r in session.execute(
         select(Potential.service).where(
-            Potential.service.isnot(None)
+            Potential.service.isnot(None),
+            *([Potential.potential_owner_id.in_(owner_ids)] if owner_ids else []),
         ).distinct().order_by(Potential.service)
     ).all()]
 
     stages = [r[0] for r in session.execute(
         select(Potential.stage).where(
-            Potential.stage.isnot(None)
+            Potential.stage.isnot(None),
+            *([Potential.potential_owner_id.in_(owner_ids)] if owner_ids else []),
         ).distinct().order_by(Potential.stage)
     ).all()]
 

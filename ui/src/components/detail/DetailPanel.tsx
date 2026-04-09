@@ -7,6 +7,7 @@ import {
   FolderOpen,
   Inbox,
   Bot,
+  Phone,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults } from "@/lib/api";
@@ -21,6 +22,7 @@ import AgentResultTab from "./AgentResultTab";
 import EmailsTab from "./EmailsTab";
 import ChatTab from "./ChatTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
+import CallDialog from "./CallDialog";
 
 interface DetailPanelProps {
   queueItemId: string | null;
@@ -70,6 +72,8 @@ export default function DetailPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentsRunning, setAgentsRunning] = useState(false);
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const agentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function handlePotentialFieldSave(field: keyof UpdatePotentialPayload, raw: string) {
@@ -212,6 +216,18 @@ export default function DetailPanel({
               </div>
             )}
 
+            {/* Call button */}
+            {dealId && (
+              <button
+                onClick={() => setCallDialogOpen(true)}
+                title="Call contact"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+              >
+                <Phone className="h-3.5 w-3.5" />
+                Call
+              </button>
+            )}
+
             {/* Complete button — queue mode only */}
             {queueItemId && onComplete && (
               <button
@@ -263,9 +279,24 @@ export default function DetailPanel({
         {activeTab === "solution" && dealId && <AgentResultTab dealId={dealId} tabType="solution_brief" emptyLabel="No solution brief yet" emptyDescription="The solution brief agent will generate content based on the potential details" />}
         {activeTab === "files" && dealId && <FilesTab dealId={dealId} />}
         {activeTab === "files" && !dealId && <StubTab label="Files" icon={FolderOpen} />}
-        {activeTab === "timeline" && dealId && <TimelineTab dealId={dealId} />}
+        {activeTab === "timeline" && dealId && <TimelineTab dealId={dealId} refreshKey={timelineRefreshKey} />}
         {activeTab === "chat" && dealId && <ChatTab dealId={dealId} />}
       </div>
+
+      {/* Call dialog */}
+      {callDialogOpen && dealId && (
+        <CallDialog
+          potentialId={dealId}
+          potentialName={detail?.title ?? detail?.company?.name ?? null}
+          onClose={(callSaved) => {
+            setCallDialogOpen(false);
+            if (callSaved) {
+              // Bump the timeline refresh key so it re-fetches with the new call activity
+              setTimelineRefreshKey((k) => k + 1);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

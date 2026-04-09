@@ -24,17 +24,17 @@ function MessageBubble({
   return (
     <div className={`flex gap-2.5 group ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       {/* Avatar */}
-      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isUser ? "bg-blue-600" : "bg-slate-700"}`}>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isUser ? "bg-slate-300" : "bg-slate-700"}`}>
         {isUser
-          ? <User className="h-3 w-3 text-white" />
+          ? <User className="h-3 w-3 text-slate-600" />
           : <Bot className="h-3 w-3 text-white" />}
       </div>
       {/* Bubble + edit button */}
       <div className={`flex items-start gap-1.5 max-w-[80%] ${isUser ? "flex-row-reverse" : "flex-row"}`}>
         <div className={`rounded-xl px-3.5 py-2.5 ${
           isUser
-            ? `bg-blue-600 text-white rounded-tr-sm ${isEditing ? "ring-2 ring-offset-1 ring-blue-300 opacity-60" : ""}`
-            : "bg-slate-100 text-slate-800 rounded-tl-sm"
+            ? `bg-slate-100 border border-slate-200 text-slate-800 rounded-tr-sm ${isEditing ? "ring-2 ring-offset-1 ring-blue-300 opacity-60" : ""}`
+            : "bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm"
         }`}>
           {isUser ? (
             <p className="text-sm leading-normal whitespace-pre-wrap">{msg.content}</p>

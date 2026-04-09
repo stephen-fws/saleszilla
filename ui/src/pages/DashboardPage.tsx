@@ -178,6 +178,7 @@ export default function DashboardPage() {
   // Potentials state
   const [potentialDeals, setPotentialDeals] = useState<PotentialDeal[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [includeTeam, setIncludeTeam] = useState(false);
   const [potentialFilters, setPotentialFilters] = useState<PotentialFilters>({
     stages: [],
     services: [],
@@ -192,10 +193,13 @@ export default function DashboardPage() {
   });
   const [loadingPotentials, setLoadingPotentials] = useState(false);
 
-  // Limit owner filter to the logged-in user only
+  // When includeTeam is OFF: show only the logged-in user in the owner filter (non-checkable, always included).
+  // When includeTeam is ON: show the full owner list returned by the backend (which contains the user + their reports).
   const myFilterOptions = {
     ...filterOptions,
-    owners: user?.name ? filterOptions.owners.filter((o) => o === user.name) : filterOptions.owners,
+    owners: includeTeam
+      ? filterOptions.owners
+      : user?.name ? filterOptions.owners.filter((o) => o === user.name) : filterOptions.owners,
   };
 
   // Accounts state
@@ -264,7 +268,7 @@ export default function DashboardPage() {
     async function load() {
       try {
         setLoadingPotentials(true);
-        const data = await getPotentials(potentialFilters);
+        const data = await getPotentials({ ...potentialFilters, includeTeam });
         setPotentialDeals(data.deals ?? []);
         setFilterOptions(data.filterOptions ?? { owners: [], services: [], stages: [] });
       } catch {
@@ -275,7 +279,7 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, [viewMode, potentialFilters]);
+  }, [viewMode, potentialFilters, includeTeam]);
 
   // Fetch accounts
   useEffect(() => {
@@ -464,7 +468,7 @@ export default function DashboardPage() {
       await updatePotential(dealId, { stage });
     } catch {
       // Revert on failure by re-fetching
-      getPotentials(potentialFilters).then((data) => setPotentialDeals(data.deals ?? [])).catch(() => {});
+      getPotentials({ ...potentialFilters, includeTeam }).then((data) => setPotentialDeals(data.deals ?? [])).catch(() => {});
     }
   }, [potentialFilters]);
 
@@ -625,6 +629,9 @@ export default function DashboardPage() {
               filterOptions={myFilterOptions}
               meetingBriefsCount={meetingBriefs.length}
               meetingBriefsLoading={meetingBriefsLoading}
+              includeTeam={includeTeam}
+              onIncludeTeamChange={setIncludeTeam}
+              currentUserName={user?.name ?? null}
             />
           </div>
         </>
@@ -656,6 +663,9 @@ export default function DashboardPage() {
               accountFilterOptions={accountFilterOptions}
               meetingBriefsCount={meetingBriefs.length}
               meetingBriefsLoading={meetingBriefsLoading}
+              includeTeam={includeTeam}
+              onIncludeTeamChange={setIncludeTeam}
+              currentUserName={user?.name ?? null}
             />
           </div>
         )}
@@ -722,6 +732,7 @@ export default function DashboardPage() {
               onNewDeal={() => setNewPotentialOpen(true)}
               availableStages={filterOptions.stages}
               onStageChange={handleStageChange}
+              currentUserName={includeTeam ? (user?.name ?? null) : null}
             />
           )}
         </div>

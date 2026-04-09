@@ -22,14 +22,23 @@ saleszilla/
 │   │   └── exceptions.py # BotApiException
 │   └── api/
 │       ├── routes/       # One file per resource (auth, potentials, accounts, contacts, agents, …)
-│       │   ├── chat.py   # AI chat endpoints (history, stream, suggestions, clear)
-│       │   ├── sales.py  # Sales target summary (GET /sales/targets/summary)
-│       │   └── search.py # Global search (GET /search?q=)
+│       │   ├── chat.py            # Per-potential AI chat (history, stream, suggestions, clear)
+│       │   ├── global_chat.py     # Global AI chat — multi-conversation, tool use
+│       │   ├── meeting_briefs.py  # Meeting Briefs (GET /meetings/briefs/upcoming, POST resolve)
+│       │   ├── sales.py           # Monthly sales target summary
+│       │   ├── search.py          # Global search (user + team scope)
+│       │   └── twilio.py          # Twilio calling (token, voice webhook, status, recording)
 │       └── services/
 │           ├── account_service.py
-│           ├── potential_service.py
-│           ├── agent_service.py
-│           └── chat_service.py  # Context assembly, Claude streaming, message persistence
+│           ├── potential_service.py    # Includes get_team_user_ids() for team hierarchy
+│           ├── agent_service.py        # Agent triggers + meeting brief trigger + base research check
+│           ├── chat_service.py         # Per-potential context assembly, Claude streaming
+│           ├── global_chat_service.py  # Global chat: tool dispatch, streaming, conversations, title gen
+│           ├── crm_query_tools.py      # 12 CRM query tools for global chat (search, aggregate, activity)
+│           ├── chat_attachments.py     # PDF/DOCX/text extraction for chat file uploads
+│           ├── meeting_brief_service.py # Meeting filter, CRM binding, skeleton builder
+│           ├── twilio_service.py       # Twilio token gen, TwiML, call log upsert, recording download
+│           └── access_control.py       # Ownership checks (user + team), entity-level access guards
 └── ui/                   # React + Vite frontend (TypeScript)
     ├── index.html
     ├── vite.config.ts
@@ -55,32 +64,38 @@ saleszilla/
     │       │   ├── ProtectedRoute.tsx
     │       │   └── OTPInput.tsx
     │       ├── sidebar/
-    │       │   ├── FolderPanel.tsx     # Left panel: view toggle + folder list + TargetWidget
-    │       │   └── TargetWidget.tsx    # Quarterly revenue target progress bar (bottom of Panel 1)
+    │       │   ├── FolderPanel.tsx        # Left panel: view toggle + folder list + team toggle + TargetWidget
+    │       │   ├── TargetWidget.tsx       # Monthly revenue target progress bar (bottom of Panel 1)
+    │       │   ├── MeetingBriefsList.tsx  # Panel 2 list for Meeting Briefs folder
+    │       │   └── MeetingBriefOverlay.tsx # Panel 3 overlay for a single meeting brief (skeleton + AI)
     │       ├── queue/
-    │       │   └── QueuePanel.tsx      # Queue item list (middle panel, queue view)
+    │       │   └── QueuePanel.tsx      # Queue item list (middle panel, queue view) + done/skip actions
     │       ├── potentials/
-    │       │   ├── PotentialsList.tsx  # Deal cards (middle panel, potentials view)
+    │       │   ├── PotentialsList.tsx  # Deal cards (middle panel, potentials view) + team badge
     │       │   └── NewPotentialModal.tsx # Create new potential modal (default stage: Pre Qualified)
     │       ├── accounts/
     │       │   ├── AccountsList.tsx        # Account cards (middle panel, accounts view)
     │       │   └── AccountDetailPanel.tsx  # Right panel for accounts view
     │       ├── layout/
-    │       │   └── GlobalSearch.tsx    # Top bar search (potentials/accounts/contacts, keyboard nav)
+    │       │   └── GlobalSearch.tsx    # Top bar search (user + team scope, keyboard nav)
+    │       ├── chat/
+    │       │   ├── MarkdownBlock.tsx   # Shared markdown renderer (headings, tables, code, diagrams, hr)
+    │       │   └── GlobalChatPanel.tsx # Full-screen global AI chat (multi-conversation, tool use, file upload)
     │       ├── detail/
-    │       │   ├── DetailPanel.tsx     # Right panel router (potential detail or account detail)
-    │       │   ├── TabBar.tsx          # Tabs: base group + icon-only deal group + "Ask AI" violet pill
-    │       │   ├── DetailsTab.tsx
+    │       │   ├── DetailPanel.tsx     # Right panel router (potential detail, account detail, or meeting brief)
+    │       │   ├── TabBar.tsx          # Tabs: base group + icon-only deal group + "Ask AI" pill
+    │       │   ├── DetailsTab.tsx      # Includes chat-transcript normalisation for inbound leads
     │       │   ├── NotesTab.tsx
-    │       │   ├── TodosTab.tsx
+    │       │   ├── TodosTab.tsx        # Inline text editing + status change
     │       │   ├── FilesTab.tsx
     │       │   ├── TimelineTab.tsx
     │       │   ├── AgentResultTab.tsx  # Renders agent results (research/solution/next_action)
     │       │   ├── EmailsTab.tsx
-    │       │   └── ChatTab.tsx         # Per-potential AI chat with Claude streaming
+    │       │   ├── ChatTab.tsx         # Per-potential AI chat with Claude streaming + web search
+    │       │   └── CallDialog.tsx      # Twilio browser calling modal (pre-call/in-call/post-call)
     │       └── calendar/
     │           ├── CalendarPanel.tsx   # Full-screen calendar overlay (month/week/day views)
-    │           └── EventFormModal.tsx  # Create/edit event modal
+    │           └── EventFormModal.tsx  # Create/edit event modal (attendees persist on edit)
 ```
 
 ---
@@ -106,7 +121,7 @@ saleszilla/
 
 ### Environment variables
 - `ui/.env` — `VITE_API_BASE_URL=http://localhost:8000`
-- `api/.env` — `MSSQL_*`, `JWT_ACCESS_SECRET_KEY`, `JWT_REFRESH_SECRET_KEY`, `AZURE_*`, `GCS_BUCKET_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`, `AGENTFLOW_BASE_URL`, `AGENTFLOW_API_KEY`, `AGENTFLOW_TRIGGER_CATEGORY`, `WEBHOOK_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
+- `api/.env` — `MSSQL_*`, `JWT_ACCESS_SECRET_KEY`, `JWT_REFRESH_SECRET_KEY`, `AZURE_*`, `GCS_BUCKET_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`, `AGENTFLOW_BASE_URL`, `AGENTFLOW_API_KEY`, `AGENTFLOW_TRIGGER_CATEGORY`, `WEBHOOK_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_CALLING_NUMBER`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_TWIML_APP_SID`, `BASE_URL`
 
 ---
 
@@ -122,11 +137,15 @@ Key tables (ORM models in `api/core/models.py`):
 | `Potentials` | `potential_id` (str) | Deals — linked to Account + Contact. Has `Potential Number` (7-digit str), `Potential2Close` (INT), `Hot_Potential` (str) |
 | `CXActivities` | `id` (int) | Activity log — linked to Account + Potential, `is_active` BIT |
 | `Users` | `user_id` (str) | App users, OTP login, MS OAuth tokens stored here |
-| `CX_AgentInsights` | `id` (int) | Agent results per potential — status: pending/running/completed/error |
+| `CX_AgentInsights` | `id` (int) | Agent results per potential — status: pending/running/completed/error. Has `MSEventId` for meeting briefs (NULL for regular agents). UNIQUE on `(PotentialId, AgentType, MSEventId)` |
 | `CX_AgentTypeConfig` | `agent_id` (str) | Registry of agents — maps agent_id to tab_type, content_type, sort_order |
+| `CX_CallLogs` | `id` (int) | Call records — has `TwilioCallSid` for linking to Twilio calls, `RecordingUrl`/`RecordingFileId` for GCS recordings, `Transcript` for call transcription |
 | `CX_ChatMessages` | `id` (int) | Per-potential AI chat history — keyed on `potential_id` = **potential_number** (7-digit), not UUID |
+| `CX_GlobalChatConversations` | `id` (int) | Global chat threads per user — has `Title` (AI-generated after first response) |
+| `CX_GlobalChatMessages` | `id` (int) | Global chat messages — has `ConversationId` FK to conversations table |
+| `CX_MeetingBriefDismissals` | `id` (int) | Per-user meeting brief done/skipped tracking. UNIQUE on `(UserId, MSEventId)` |
 | `CX_UserTokens` | — | MS OAuth tokens per user — has `ms_email` field used for sales target view matching |
-| `VW_actuals_vs_targets_salescopilot` | — | SQL Server view — daily invoice rows with repeated `targetsamount`; must deduplicate with MAX per day before SUM |
+| `VW_actuals_vs_targets_salescopilot` | — | SQL Server view — daily invoice rows. Has `CustomerName`, `Email`, `Accountingmonth`, `Invoiceamount`, `targetsamount` columns |
 
 **Critical SQLAlchemy gotcha**: SQL Server BIT columns — use `== True` not `.is_(True)` in WHERE clauses.
 
@@ -158,6 +177,7 @@ All responses are wrapped in `ResponseModel<T>`:
 | `/folders` | `routes/queue.py` | Folder list with counts |
 | `/queue/{folder_type}` | `routes/queue.py` | Queue items per folder |
 | `/queue-items/{id}/complete` | `routes/queue.py` | Mark item done |
+| `/queue-items/{id}/skip` | `routes/queue.py` | Mark item skipped (not needed) |
 | `/potentials/{id}/notes` | `routes/notes.py` | Notes CRUD |
 | `/potentials/{id}/todos` | `routes/todos.py` | Todos CRUD |
 | `/potentials/{id}/files` | `routes/files.py` | File upload/download (GCS) |
@@ -171,8 +191,20 @@ All responses are wrapped in `ResponseModel<T>`:
 | `/potentials/{id}/chat` | `routes/chat.py` | POST — stream Claude response (SSE) |
 | `/potentials/{id}/chat/suggestions` | `routes/chat.py` | GET AI-generated suggested questions |
 | `/potentials/{id}/chat/history` | `routes/chat.py` | DELETE — soft-delete all messages |
-| `/sales/targets/summary` | `routes/sales.py` | Quarterly revenue target vs actuals for current user |
-| `/search` | `routes/search.py` | Global search across potentials, accounts, contacts |
+| `/sales/targets/summary` | `routes/sales.py` | Monthly revenue target vs actuals for current user |
+| `/search` | `routes/search.py` | Global search across potentials, accounts, contacts (user + team scope) |
+| `/chat/global/conversations` | `routes/global_chat.py` | CRUD for global chat conversations |
+| `/chat/global/conversations/{id}` | `routes/global_chat.py` | POST stream message in conversation |
+| `/chat/global/conversations/{id}/upload` | `routes/global_chat.py` | POST stream with file attachments (multipart) |
+| `/chat/global/conversations/{id}/messages` | `routes/global_chat.py` | GET conversation messages |
+| `/meetings/briefs/upcoming` | `routes/meeting_briefs.py` | GET upcoming client meeting briefs (lazy-load + skeleton) |
+| `/meetings/briefs/{ms_event_id}/resolve` | `routes/meeting_briefs.py` | POST mark brief done/skipped |
+| `/twilio/token` | `routes/twilio.py` | POST — generate Twilio Access Token for browser Voice SDK |
+| `/twilio/contacts/{potential_id}` | `routes/twilio.py` | GET — contacts with phone numbers for calling |
+| `/twilio/call-log` | `routes/twilio.py` | POST — create/update call log (upserts by twilio_call_sid) |
+| `/twilio/voice` | `routes/twilio.py` | POST — Twilio webhook: returns TwiML for outbound call |
+| `/twilio/status` | `routes/twilio.py` | POST — Twilio webhook: call status updates |
+| `/twilio/recording-status` | `routes/twilio.py` | POST — Twilio webhook: recording ready → download + GCS upload |
 
 ---
 
@@ -194,9 +226,9 @@ Three-panel responsive layout:
 
 **Top bar** includes:
 - Next upcoming meeting pill (left-aligned; refreshes every 5 min, ticks every 1 min, shows meetings within 8 hours; uses MS Graph)
-- `GlobalSearch` (centered, `flex-1 justify-center`) — open text search across potentials, accounts, contacts; grouped dropdown results; keyboard navigation (↑↓ Enter Esc); clicking result navigates to the right panel
+- `GlobalSearch` (centered, `flex-1 justify-center`) — open text search across potentials, accounts, contacts scoped to user + team; grouped dropdown results; keyboard navigation (↑↓ Enter Esc)
+- **"Ask AI"** button (blue gradient pill, Google Cloud Console theme) → opens `GlobalChatPanel` full-screen overlay
 - Calendar button + user avatar dropdown (right-aligned, `ml-auto`)
-- User avatar dropdown (initials, name, email, Sign Out)
 
 ### State management
 - `useAuthStore` (Zustand, persisted) — user object + isAuthenticated
@@ -209,7 +241,7 @@ Three-panel responsive layout:
 
 ### API layer (`lib/api.ts`)
 - All backend `snake_case` fields mapped to frontend `camelCase`
-- **MS Graph datetime fix**: backend returns UTC datetimes without `Z` suffix; `toUTCString()` appends `Z` before passing to `new Date()` to prevent incorrect local-time parsing
+- **MS Graph datetime fix**: backend now explicitly converts all Graph datetimes to UTC with `Z` suffix server-side (via `_graph_dt_to_utc_iso` in `routes/calendar.py` which resolves Windows tz names → IANA → UTC). Frontend `toUTCString()` still appends `Z` as a safety net.
 - All functions throw on non-2xx (Axios default); callers catch as needed
 
 ---
@@ -225,6 +257,169 @@ Three-panel responsive layout:
 - **New event default time**: rounds current time up to next 30-minute boundary
 - **After create/delete**: 2-second delay before refreshing next meeting (MS Graph propagation lag)
 - **Attendee search**: debounced 300ms, min 2 chars, keyboard navigation (↑↓ Enter Esc), gracefully handles 403 (People.Read not consented)
+- **Attendees persist on edit**: `openEditEvent` now passes `requiredAttendees` / `optionalAttendees` from `UIEvent` to `EventFormDefaults`. Previously attendees were dropped on edit.
+- **Timezone conversion for create/update responses**: `_graph_dt_to_utc_iso()` in `routes/calendar.py` handles Windows tz names (`"India Standard Time"`) and IANA names, converts to UTC explicitly. Includes a fallback fixed-offset table for Windows environments without `tzdata` installed. Install `tzdata` pip package for full DST support.
+
+---
+
+## Access Control & Team Hierarchy
+
+### Ownership policy
+- **UI navigation** (search, detail GETs/PATCHes) is restricted to records the user OWNS or their **direct reports** own.
+- **Global chat agent** has all-org access for aggregate analytics.
+
+### Team hierarchy
+- `User.reporting_to` stores the **manager's email** (not user_id)
+- `get_team_user_ids(manager_user_id)` in `potential_service.py`: resolves the manager's email → finds `User` rows where `reporting_to == email` → returns their `user_id` list
+- `_get_allowed_owner_ids(user_id)` in `access_control.py`: `{user_id} + team_ids`
+
+### Enforcement points
+| Layer | Scope |
+|---|---|
+| `GET /search` | Potentials/accounts/contacts owned by user + team |
+| `GET /potentials` | `?include_team=true` includes direct reports' deals |
+| `GET /potentials/{id}` | `require_potential_owner` (user + team) |
+| `PATCH /potentials/{id}` | Same |
+| `GET /accounts/{id}` | `require_account_owner` (user + team) |
+| `PATCH /accounts/{id}` | Same |
+| `PATCH /contacts/{id}` | `require_contact_owner` (user + team + account-owner fallback) |
+| `GET /contacts` | Scoped by `contact_owner_id` |
+
+### "Include My Team" toggle (Panel 1, Potentials view)
+- Toggle in the Potentials filter sidebar (between search and sort)
+- OFF (default): owner filter shows only "You" (locked checkbox), potentials scoped to current user
+- ON: owner filter expands to show team members (from `filterOptions.owners` scoped to user + reports); all checkboxes are interactive so manager can select specific reportees; current user's checkbox also unlockable when team is ON
+- Panel 2 deal cards show an **indigo team badge** (`👥 Owner Name`) when the deal belongs to a reportee
+
+---
+
+## Global AI Chat (`GlobalChatPanel.tsx`)
+
+### Overview
+Full-screen overlay accessible from the top bar "Ask AI" button. Multi-conversation, tool-based, streams Claude responses with CRM query tools.
+
+### Architecture
+- **Multi-conversation**: sidebar lists all threads sorted by recency. "New chat" button. Click to switch. Delete on hover.
+- **Tool use**: Claude calls 12 CRM query tools to answer questions about potentials, accounts, contacts, pipeline, revenue, activity. Multi-turn: model → tool_use → execute → tool_result → model continues.
+- **Auto title**: after the first assistant response in an untitled conversation, a one-shot Claude call generates a 3-6 word title. Emits a `{type: "title"}` SSE event so the sidebar updates live.
+
+### CRM query tools (`crm_query_tools.py`)
+| Tool | Purpose |
+|---|---|
+| `search_potentials` | Filter by stage/service/owner/country/amount/date/flags |
+| `get_potential_details` | Single potential quick lookup |
+| `get_potential_full_context` | Deep context (notes, todos, emails, AI insights) — reuses `build_context_prompt` from per-potential chat |
+| `search_accounts` | Filter by industry/country/name/revenue |
+| `get_account_360` | Full account + contacts + potentials |
+| `search_contacts` | Filter by name/email/department/account |
+| `get_contact_details` | Single contact + linked potentials |
+| `pipeline_summary` | Aggregation by stage/service/owner/country/lead_source/type/deal_size |
+| `revenue_summary` | Revenue totals for a period (open pipeline + closed-won + lost) |
+| `time_based_query` | Closing soon, overdue, created/modified in N hours/days, stale in stage |
+| `recent_activity` | Queries `CX_Activities` audit log — notes/todos/emails/calls/stage changes |
+| `list_owners` | Resolve user names/emails |
+
+### System prompt highlights
+- Pagination awareness: always check `total` vs `returned`; use aggregation tools for "how many" questions
+- Conversation continuity: reuse filters from previous turns
+- Ambiguous questions: show overview breakdown first, ask which to drill into
+- Follow-ups: every response ends with `<followups>["Q1","Q2","Q3"]</followups>` rendered as clickable chips
+- Honest about gaps: when data isn't tracked, say so
+
+### UI features
+- **Google Cloud Console blue** color theme (not violet/Anthropic)
+- Conversation search in sidebar (client-side title filter)
+- Starter question cards on empty state (6 pre-built)
+- Tool indicator pills ("Searching potentials…", "Calculating pipeline…", etc.)
+- Typing indicator (bouncing dots) before first text/tool
+- Stop button (red square)
+- Copy + PDF export per response (renders via `renderToStaticMarkup` + browser print)
+- Follow-up question chips (auto-generated, contextual, clickable)
+- **File upload**: paperclip button, multi-file, PDF/DOCX text extraction (via `pypdf` + `python-docx`), TXT/CSV/code files. Extracted text is embedded in the user message so follow-up turns retain context.
+- User messages: slate-100 gray background (not blue)
+- Web search: enabled via Anthropic's `web_search_20250305` tool (per-potential chat only)
+
+### SSE event types
+```
+{type: "tool", name: "search_potentials", status: "running"}
+{type: "text", content: "..."}
+{type: "done", message_id: 123}
+{type: "title", title: "Pipeline By Stage Overview"}
+{type: "error", message: "..."}
+```
+
+---
+
+## Meeting Briefs
+
+### Overview
+Panel 1 has a "Meeting Briefs" folder. Clicking it shows qualifying client meetings in Panel 2. Clicking a brief opens a focused overlay in Panel 3 with an instant skeleton (DB data) + AI-generated brief (agent output).
+
+### Filter rules (deterministic, no AI classification)
+A meeting qualifies only if at least one is true:
+1. Already linked to a Potential (`CX_Meetings.PotentialId`)
+2. External attendee email matches a Contact in CRM
+3. External attendee email domain matches an Account.website domain
+
+Internal-only meetings (all attendees `@flatworldsolutions.com`), cancelled events, and user-dismissed briefs are silently dropped.
+
+### Trigger model (lazy-load, no scheduler)
+| Trigger | When |
+|---|---|
+| Dashboard mount | Once per page load |
+| `visibilitychange → visible` | User switches back to the Salezilla browser tab |
+| Calendar overlay close | After user closes the in-app calendar (2-sec delay) |
+| Polling (30 sec) | Only while any brief is `pending`/`running` |
+
+### Idempotency
+- `CX_AgentInsights` row per `(potential_id, ms_event_id)` with UNIQUE constraint
+- 5-min hard floor: won't re-trigger the same meeting's brief within 5 min
+- TTL: brief regenerates after 4 hours OR when the linked Potential has been modified since generation
+- `CX_MeetingBriefDismissals`: user can mark a brief as `done` (attended) or `skipped` (not needed); dismissed events are filtered out on next refresh
+
+### Agent trigger payload
+Two cases based on `has_all_base_research_completed(potential_id)`:
+- **Base research missing** → `category: "meeting-prep"` (agentflow chains research → meeting_brief)
+- **Base research cached** → `category: "meeting-brief-only"` (agentflow runs just the brief)
+
+Both include `meeting_info` nested object:
+```json
+{
+  "ms_event_id": "...",
+  "title": "Acme Discovery Call",
+  "start": "2026-04-09T14:00:00",
+  "end": "2026-04-09T15:00:00",
+  "is_online": true,
+  "location": "Microsoft Teams Meeting",
+  "organizer": "alice@flatworldsolutions.com",
+  "attendees": [{"email": "john@acme.com", "name": "John Doe", "domain": "acme.com"}],
+  "agenda": "Discuss requirements..."
+}
+```
+
+### Rendering
+- **Skeleton (instant, 0ms)**: meeting time, linked deal (name/stage/amount/probability/closing date/owner), account, contact, external attendees, rollups (notes count, open todos, recent emails)
+- **AI Brief (agent, ~30s)**: talking points, suggested questions, risks, recent activity summary — rendered via shared `MarkdownBlock`
+- **Done/Skip actions**: hover cards in Panel 2 → ✓ Done (emerald) / ✕ Skip (red) icons
+
+### Queue item actions (all folders)
+All queue items (not just meeting briefs) now have Done/Skip hover actions:
+- `POST /queue-items/{id}/complete` → `status = "completed"`
+- `POST /queue-items/{id}/skip` → `status = "skipped"`
+- Optimistic UI removal + folder count decrement
+
+---
+
+## Monthly Revenue Target (`TargetWidget.tsx`)
+
+- Shown at the bottom of Panel 1 (`FolderPanel`), outside the scrollable area
+- `GET /sales/targets/summary` — resolves user's MS email via `CX_UserTokens.ms_email` (fallback: login email), queries `VW_actuals_vs_targets_salescopilot` for **current month** (not quarter)
+- **Target calculation**: direct `SUM(targetsamount)` for the month (no deduplication needed — one target amount per `(CustomerName, day)` row)
+- **Actuals**: `SUM(Invoiceamount)` for the month
+- Progress bar color: red (<40%) → amber (40–75%) → blue (75–99%) → green (≥100%)
+- Trending arrow + % change vs **previous month**
+- Click → modal with **top 10 accounts by invoiced amount** (grouped by `CustomerName` column)
+- Period label: e.g. "April 2026" (was previously quarterly)
 
 ---
 
@@ -257,7 +452,7 @@ else → "Other"  # no badge shown
 - **Deal Size** — free text input
 - **Lead Source** — free text input
 - **Next Step** — text input
-- **Description** — textarea, Shift+Enter to save, URLs auto-linked via `LinkifiedText`
+- **Description** — textarea, Shift+Enter to save, URLs auto-linked via `LinkifiedText`. Chat-form transcript descriptions (inbound website leads) are auto-normalized: `normalizeChatTranscript()` injects newlines before timestamp patterns and section headers so each chat message renders on its own line. Editing loads the normalized version; saving persists the newlines back to DB so they don't need re-normalization.
 
 ### Read-only fields
 Owner, Created date, Potential Number
@@ -278,6 +473,7 @@ Owner, Created date, Potential Number
 - **Headline**: potential name (`deal.title`)
 - **Line 2**: company name
 - **Line 3**: contact name · title
+- **Team badge** (indigo, `👥 Owner Name`): shown when "Include My Team" is ON and the deal belongs to a reportee (not the logged-in user)
 - **Top-right**: deal value
 - **Bottom row**: stage badge, 💎/🏆 category badge (if applicable), service label
 
@@ -304,26 +500,28 @@ Owner, Created date, Potential Number
 
 ## Potentials Filter Sidebar (Panel 1)
 
-Stage and Service filters are **dynamically populated from the DB** via `filter_options` returned by `GET /potentials`. Never hardcoded.
+Stage, Service, and Owner filters are **dynamically populated from the DB** via `filter_options` returned by `GET /potentials`. Never hardcoded. Filter options are **scoped to the same owner set** as the main query (user only, or user + team when `include_team=true`).
 
-- `getPotentials()` returns `filterOptions: { owners, services, stages }`
-- `FolderPanel` receives `filterOptions` prop; renders stage checkboxes only when `filterOptions.stages.length > 0`
+- `getPotentials({ includeTeam })` returns `filterOptions: { owners, services, stages }` scoped to the allowed owner IDs
+- **"Include My Team" toggle**: when ON, owner filter shows the user + direct reports; when OFF, shows only the user (locked checkbox)
 - Stage names displayed as-is from DB (no normalisation)
 
 ---
 
 ## Queue Folders
 
-7 active folders (defined in `queue_service.py`):
-1. **New Leads** — Recently assigned potentials with no prior activity
-2. **Follow Up** — Potentials awaiting follow-up after activity
-3. **Proposals Due** — Proposals stage, closing date approaching
-4. **Awaiting Response** — Email sent, no reply yet
-5. **Hot Deals** — High probability, high value
-6. **Meetings Today** — Potentials with meetings scheduled today
-7. **Stale Deals** — No activity in 14+ days
+Active folders (defined in `queue_service.py`):
+1. **Meeting Briefs** — client meetings in next 24h with AI-prepared briefs (uses live lazy-load, not CXQueueItem rows)
+2. **New Inquiries** — Recently assigned potentials with no prior activity
+3. **Reply** — Potentials awaiting reply
+4. **Follow Up Active** — Potentials awaiting follow-up
+5. **Follow Up Inactive** — Inactive follow-up potentials
+6. **News** — CRM news items
+7. **Emails Sent** — Sent email tracking
 
-`Change Strategy` folder is explicitly ignored/excluded.
+When the "Meeting Briefs" folder is selected, Panel 2 renders `MeetingBriefsList` (live from MS Graph + agent data) instead of `QueuePanel` (from `CXQueueItem` rows).
+
+All queue items in Panel 2 have **Done/Skip hover actions**: ✓ (emerald) marks `status=completed`, ✕ (red) marks `status=skipped`. Both are optimistic and fire-and-forget.
 
 ---
 
@@ -358,19 +556,25 @@ External agentflow system processes potentials and pushes results back. Salezill
     "service": "...",
     "sub_service": "...",
     "lead_source": "...",
-    "customer_requirements": "..."
+    "customer_requirements": "...",
+    "category": "meeting-prep | meeting-brief-only",
+    "meeting_info": { "ms_event_id": "...", "title": "...", "start": "...", "end": "...", "is_online": true, "location": "...", "organizer": "...", "attendees": [...], "agenda": "..." }
   }
 }
 ```
 Headers: `x-api-key: AGENTFLOW_API_KEY`
 URL: `AGENTFLOW_BASE_URL/webhooks/crm`
 
+`category` and `meeting_info` are only present for meeting brief triggers:
+- `meeting-prep` — base research missing, agentflow chains all agents → meeting_brief
+- `meeting-brief-only` — base research cached, agentflow runs just meeting_brief
+
 ### Webhook receive (agentflow → Salezilla)
 `POST /agents/webhook` — content delivered inline in payload (no secondary fetch):
 ```json
-{ "agent_id": "...", "external_id": "<potential_id>", "status": "completed", "content": "...", "content_type": "markdown" }
+{ "agent_id": "...", "external_id": "<potential_id>", "status": "completed", "content": "...", "content_type": "markdown", "ms_event_id": "..." }
 ```
-Matched to `CX_AgentTypeConfig` by `agent_id`. Unknown agent_ids are ignored.
+Matched to `CX_AgentTypeConfig` by `agent_id`. Unknown agent_ids are ignored. `ms_event_id` is only set for `meeting_brief` results (routes the result to the correct per-meeting row in `CX_AgentInsights`).
 
 ### When agents are triggered
 1. **Manual creation** (`NewPotentialModal`) — triggered automatically after commit
@@ -455,17 +659,22 @@ Streaming chat with Claude, full deal context rebuilt on every message, persiste
 
 ### SSE protocol (frontend parsing)
 ```
-data: {"type": "text", "content": "..."}   # streamed chunk
-data: {"type": "done", "message_id": 123}   # stream complete
-data: {"type": "error", "message": "..."}   # error
+data: {"type": "searching"}                  # web search triggered
+data: {"type": "text", "content": "..."}     # streamed chunk
+data: {"type": "done", "message_id": 123}    # stream complete
+data: {"type": "error", "message": "..."}    # error
 ```
 
 ### UI features (`ChatTab.tsx`)
-- **Empty state**: "Your AI potential co-pilot is ready" + AI-generated suggestion chips (fetched on mount, disabled input while loading)
+- **Empty state**: "Your AI potential co-pilot is ready" + AI-generated suggestion chips (fetched on mount, disabled input while loading — shows "Setting up your conversation…")
 - **Streaming**: `fetch` (not axios) with SSE parsing; streaming cursor animation
+- **Web search**: Anthropic's `web_search_20250305` tool is enabled — Claude autonomously decides when to search. "🌐 Searching the web…" indicator shown during search. Useful for "latest news about [company]", "competitors", exchange rates, etc.
 - **Stop button**: red square replaces send button while streaming; calls `abortRef.current?.abort()`
+- **Typing indicator**: bouncing dots shown immediately after sending, before first text/tool/search event
 - **Edit & resend**: hover user message → pencil icon; click → fills input + highlights message; on send → truncates messages from that index in local state, sends fresh
 - **Clear history**: trash icon in header, confirms before clearing
+- **User messages**: slate-100 gray background (matches global chat style)
+- **Markdown**: shared `MarkdownBlock` from `components/chat/MarkdownBlock.tsx` — headings (h1-h6), bullet/numbered lists, tables (with escaped-pipe support for `\|`), code blocks, box-drawing diagrams, horizontal rules
 - Context rebuilt server-side on every message — no need for client-side cache invalidation
 
 ---
@@ -474,22 +683,12 @@ data: {"type": "error", "message": "..."}   # error
 
 - Search input in top bar, 300ms debounce, min 2 chars
 - `GET /search?q=<term>` — searches potentials (name, number), accounts (name), contacts (name, email)
+- **Scoped to user + direct reports** — uses `get_team_user_ids` to build the allowed owner IDs
 - Grouped dropdown: Potentials / Accounts / Contacts sections
 - Matching text highlighted in results
 - Keyboard navigation: ↑↓ to move, Enter to select, Esc to close
-- `onNavigate` callback: potential → potentials view + select deal; account → accounts view + select; contact with accountId → accounts view + select account; contact with potentialId → potentials view + select deal
+- `onNavigate` callback: potential → potentials view + select deal; account → accounts view + select; contact → navigate to linked account or potential
 - **Gotcha**: `Potential` model has no `is_active` column — do not filter on it in search queries
-
----
-
-## Quarterly Target Widget (`TargetWidget.tsx`)
-
-- Shown at the bottom of Panel 1 (`FolderPanel`), outside the scrollable area
-- `GET /sales/targets/summary` — resolves user's MS email via `CX_UserTokens.ms_email` (fallback: login email), queries `VW_actuals_vs_targets_salescopilot` for current quarter
-- **Deduplication**: `targetsamount` repeats for every invoice row on same date — use `MAX(targetsamount) per day` then SUM daily targets
-- Progress bar color: red (<50%) → amber (50–75%) → blue (75–99%) → green (≥100%)
-- Trending arrow + % change vs previous quarter
-- Click → modal with top 10 highest daily revenue totals
 
 ---
 
@@ -520,15 +719,15 @@ Backend returns `snake_case`. Frontend `api.ts` maps everything to `camelCase`. 
 - Refresh token: `sz_refresh_token`
 - Zustand persist key: `sz-auth-storage`
 
-### MS Graph datetime strings
-Graph returns datetimes like `"2026-04-02T14:30:00"` (no `Z`). JavaScript's `new Date()` parses these as **local time**, not UTC. Always append `Z`:
-```typescript
-function toUTCString(s: string | null | undefined): string | null {
-  if (!s) return null;
-  return s.endsWith("Z") || s.includes("+") ? s : s + "Z";
-}
-```
-Applied in `mapCalendarEvent()` for all start/end fields.
+### MS Graph datetime handling
+**Backend** (`routes/calendar.py`): `_graph_dt_to_utc_iso()` converts every Graph `{dateTime, timeZone}` block to an explicit UTC ISO string with `Z`. Handles both IANA names (`Asia/Kolkata`) and Windows-style names (`India Standard Time`) via a mapping table + optional `tzdata` package for full DST support.
+
+**Frontend** (`api.ts`): `toUTCString()` still appends `Z` as a safety net (no-op if the backend already sent `Z`).
+
+**Important**: never use `new Date(isoString)` on a string without `Z` or `+` — it'll be parsed as local time.
+
+### SQL Server `NULLS LAST` not supported
+Do NOT use `.nullslast()` in SQLAlchemy order_by clauses — SQL Server throws a syntax error. Just use `.desc()` or `.asc()` and accept the default NULL ordering.
 
 ### Agentflow trigger is always unconditional
 `_trigger_agentflow` is called regardless of whether `CX_AgentTypeConfig` has rows. Config rows only control insight row creation (UI spinners). The POST to agentflow must always fire.
@@ -541,8 +740,77 @@ Applied in `mapCalendarEvent()` for all start/end fields.
 
 ---
 
+## Twilio Calling (`CallDialog.tsx`)
+
+### Overview
+Browser-based calling via Twilio Client SDK (WebRTC). Sales reps call clients directly from the CRM without switching to a phone. The call button appears in Panel 3's detail header for every potential.
+
+### Setup
+- **One-time**: run `python setup_twilio.py` to create API Key + TwiML App programmatically (no Twilio Console access needed). Outputs `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_TWIML_APP_SID` to add to `.env`.
+- **Dev environment**: requires ngrok for Twilio webhooks to reach localhost. Set `BASE_URL` to the ngrok URL before running the setup script.
+- **Dependencies**: `twilio>=9.0.0` (backend), `@twilio/voice-sdk` (frontend)
+
+### Call flow
+1. User clicks "Call" in Panel 3 header → `CallDialog` opens
+2. Contacts loaded from `GET /twilio/contacts/{potential_id}` (primary contact first, then account contacts with phones)
+3. User selects contact, optionally edits phone number, clicks "Call"
+4. Frontend fetches Twilio Access Token → initializes Voice SDK `Device` → `device.connect({To: phone})`
+5. Twilio calls `POST /twilio/voice` → backend returns TwiML: `<Dial record="record-from-answer-dual" callerId="{TWILIO_NUMBER}"><Number>{phone}</Number></Dial>`
+6. Browser WebRTC ↔ PSTN bridges → call connects
+7. **At call start**: `CXCallLog` row is created immediately with `status="in-progress"` so the recording webhook can find it later (fixes race condition where webhook arrives before user clicks "Save & Close")
+8. Live status events in dialog: connecting → ringing → in-progress (with duration timer)
+9. Mute toggle available during call
+10. User hangs up → post-call screen: optional notes + "Save & Close"
+11. "Save & Close" **updates** the existing `CXCallLog` row (matched by `twilio_call_sid`) with final duration, status, notes
+
+### Post-call logging
+- **Timeline**: `CXActivity` with `activity_type="call_logged"` — description includes contact name, duration, status + call notes if provided
+- **Notes tab**: auto-creates a `CXNote` with call summary + notes (only if user typed notes)
+- **Files tab**: recording appears as MP3 file (uploaded to GCS by the recording webhook)
+
+### Recording pipeline
+1. Twilio processes recording (~5-10s after call ends)
+2. `POST /twilio/recording-status` webhook fires
+3. Backend responds 200 immediately, then in the same request:
+   - Downloads MP3 from Twilio (authenticated)
+   - Uploads to GCS as `call_recording_{call_sid}.mp3`
+   - Creates `CXFile` row for the recording
+   - Updates `CXCallLog.recording_url` + `recording_file_id`
+4. Recording appears in the potential's Files tab
+
+### Call log upsert pattern
+`create_call_log()` in `twilio_service.py` is called TWICE per call:
+- **At call start**: `status="in-progress"`, `duration=0`, no notes → INSERT new row
+- **At "Save & Close"**: `status="completed"`, final duration, notes → UPDATE existing row (matched by `twilio_call_sid`)
+Timeline activity is only logged on the final save (not at call start) to avoid duplicates.
+
+### Per-potential AI chat context
+`build_context_prompt()` in `chat_service.py` now includes:
+- **RECENT ACTIVITY** (latest 30 `CXActivity` entries) — captures calls, stage changes, notes, todos, emails, field updates
+- **CALL HISTORY** (latest 10 `CXCallLog` entries) — includes contact, duration, status, call notes, transcript (when available)
+This means the per-potential "Ask AI" and the global chat's `get_potential_full_context` tool both see call activity immediately.
+
+### Twilio env vars
+```
+TWILIO_ACCOUNT_SID=ACxxxxx
+TWILIO_AUTH_TOKEN=xxxxx
+TWILIO_CALLING_NUMBER=+1234567890
+TWILIO_API_KEY=SKxxxxx           # Created by setup_twilio.py
+TWILIO_API_SECRET=xxxxx          # Created by setup_twilio.py (save immediately, shown once)
+TWILIO_TWIML_APP_SID=APxxxxx    # Created by setup_twilio.py
+BASE_URL=https://xxx.ngrok-free.app  # Public URL for webhooks (ngrok in dev, real domain in prod)
+```
+
+---
+
 ## What Is NOT Yet Built
 
-- Dialer modal
 - Mobile responsive polish (basic breakpoints exist, overlay panels not done)
 - RAG for uploaded files (files are stored in GCS; vector indexing + pgvector search deferred to future)
+- Meeting brief agent on the agentflow side (backend trigger + webhook receive are ready; agent logic TBD)
+- Out-of-app notifications (Slack DM, email digest) for meeting briefs
+- Polling safety net: stale `pending` meeting briefs not yet auto-failed after N minutes
+- Full email conversation table integration for chat context (currently uses `CX_SentEmails`; awaiting new table details)
+- `account` dimension for `pipeline_summary` group_by (needed for "which account has the most open deals" questions)
+- Call transcription: recording pipeline is built (MP3 → GCS → Files tab), but automatic speech-to-text is not yet wired. Options explored: Twilio Media Streams (server-side real-time), Deepgram/AssemblyAI (post-call or real-time browser SDK), Web Speech API (browser-side, rep's mic only). Deferred to future.
+- Twilio webhook request signature validation (currently open endpoints; should add `RequestValidator` for production)

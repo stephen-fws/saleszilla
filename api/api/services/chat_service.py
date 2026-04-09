@@ -11,8 +11,8 @@ from sqlalchemy import select
 import core.config as config
 from core.database import get_session
 from core.models import (
-    Account, Contact, CXAgentInsight, CXAgentTypeConfig,
-    CXChatMessage, CXNote, CXSentEmail, CXTodo,
+    Account, Contact, CXActivity, CXAgentInsight, CXAgentTypeConfig,
+    CXCallLog, CXChatMessage, CXNote, CXSentEmail, CXTodo,
     Potential,
 )
 from core.schemas import ChatMessageItem
@@ -235,6 +235,46 @@ def build_context_prompt(potential_id: str) -> str:
             for insight, cfg in insights:
                 lines.append(f"\n### {cfg.agent_name} ({cfg.tab_type})")
                 lines.append(insight.content or "No content")
+            lines.append("")
+
+        # ── Recent Activity (timeline) ────────────────────────────────────
+        activities = session.execute(
+            select(CXActivity)
+            .where(CXActivity.potential_id == potential_id, CXActivity.is_active == True)
+            .order_by(CXActivity.created_time.desc())
+            .limit(30)
+        ).scalars().all()
+
+        if activities:
+            lines.append("## RECENT ACTIVITY (latest 30)")
+            for act in reversed(activities):
+                ts = act.created_time.strftime("%Y-%m-%d %H:%M") if act.created_time else "—"
+                lines.append(f"[{ts}] {act.activity_type}: {act.description or '—'}")
+            lines.append("")
+
+        # ── Call Logs ─────────────────────────────────────────────────────
+        calls = session.execute(
+            select(CXCallLog)
+            .where(CXCallLog.potential_id == potential_id, CXCallLog.is_active == True)
+            .order_by(CXCallLog.created_time.desc())
+            .limit(10)
+        ).scalars().all()
+
+        if calls:
+            lines.append("## CALL HISTORY (latest 10)")
+            for call in reversed(calls):
+                ts = call.created_time.strftime("%Y-%m-%d %H:%M") if call.created_time else "—"
+                dur_min = call.duration // 60
+                dur_sec = call.duration % 60
+                dur_label = f"{dur_min}:{dur_sec:02d}" if dur_min > 0 else f"{dur_sec}s"
+                lines.append(f"\n[{ts}] Call to {call.contact_name or call.phone_number} — {call.status} ({dur_label})")
+                if call.notes:
+                    lines.append(f"Notes: {call.notes}")
+                if call.transcript:
+                    transcript_preview = call.transcript[:1000]
+                    if len(call.transcript) > 1000:
+                        transcript_preview += "... [truncated]"
+                    lines.append(f"Transcript: {transcript_preview}")
             lines.append("")
 
     return "\n".join(lines)

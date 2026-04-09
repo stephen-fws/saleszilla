@@ -169,6 +169,12 @@ CREATE TABLE CX_GlobalChatMessages (
     IsActive        BIT             NOT NULL DEFAULT 1
 );
 
+-- Migration: add Twilio columns to CX_CallLogs
+-- ALTER TABLE CX_CallLogs ADD TwilioCallSid VARCHAR(64) NULL;
+-- ALTER TABLE CX_CallLogs ADD RecordingUrl NVARCHAR(512) NULL;
+-- ALTER TABLE CX_CallLogs ADD RecordingFileId INT NULL;
+-- ALTER TABLE CX_CallLogs ADD Transcript NVARCHAR(MAX) NULL;
+
 -- 10c. CX_GlobalChatConversations — one row per chat thread per user
 CREATE TABLE CX_GlobalChatConversations (
     Id              INT IDENTITY(1,1) PRIMARY KEY,

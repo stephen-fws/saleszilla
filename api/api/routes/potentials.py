@@ -21,6 +21,7 @@ def get_potentials(
     search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
+    include_team: bool = Query(default=False, description="Include direct reports' potentials"),
 ) -> ResponseModel[PotentialListResponse]:
     stages_list = [s.strip() for s in stages.split(",") if s.strip()] if stages else None
     services_list = [s.strip() for s in services.split(",") if s.strip()] if services else None
@@ -34,6 +35,7 @@ def get_potentials(
         page=page,
         page_size=page_size,
         owner_user_id=user.user_id,
+        include_team=include_team,
     )
     return ResponseModel(data=result)
 

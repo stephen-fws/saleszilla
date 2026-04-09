@@ -329,7 +329,7 @@ class CXFile(Base):
 
 
 class CXCallLog(Base):
-    """Phone call records."""
+    """Phone call records — linked to Twilio calls for recording + transcript."""
 
     __tablename__ = "CX_CallLogs"
 
@@ -343,6 +343,10 @@ class CXCallLog(Base):
     status: Mapped[str] = mapped_column("Status", String(16), nullable=False, default="completed")
     notes: Mapped[str | None] = mapped_column("Notes", UnicodeText, nullable=True)
     called_by_user_id: Mapped[str | None] = mapped_column("CalledByUserId", String(32), nullable=True)
+    twilio_call_sid: Mapped[str | None] = mapped_column("TwilioCallSid", String(64), nullable=True)
+    recording_url: Mapped[str | None] = mapped_column("RecordingUrl", Unicode(512), nullable=True)
+    recording_file_id: Mapped[int | None] = mapped_column("RecordingFileId", Integer, nullable=True)
+    transcript: Mapped[str | None] = mapped_column("Transcript", UnicodeText, nullable=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)

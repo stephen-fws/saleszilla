@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Loader2, Star, ArrowRightLeft, Pencil, StickyNote, CheckSquare,
-  Paperclip, Mail, Trash2, Clock,
+  Paperclip, Mail, Trash2, Clock, Phone,
 } from "lucide-react";
 import { getActivities } from "@/lib/api";
 import type { ActivityEntry } from "@/lib/api";
@@ -28,6 +28,7 @@ const ACTIVITY_CONFIG: Record<string, ActivityConfig> = {
   file_uploaded:     { icon: Paperclip,      iconBg: "bg-indigo-100",  iconColor: "text-indigo-600", label: "File Uploaded" },
   file_deleted:      { icon: Trash2,         iconBg: "bg-red-100",     iconColor: "text-red-500",    label: "File Deleted" },
   email_sent:        { icon: Mail,           iconBg: "bg-sky-100",     iconColor: "text-sky-600",    label: "Email Sent" },
+  call_logged:       { icon: Phone,          iconBg: "bg-green-100",   iconColor: "text-green-600",  label: "Call" },
 };
 
 const DEFAULT_CONFIG: ActivityConfig = {
@@ -64,7 +65,7 @@ function formatFullDate(isoString: string | null): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function TimelineTab({ dealId }: { dealId: string }) {
+export default function TimelineTab({ dealId, refreshKey }: { dealId: string; refreshKey?: number }) {
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +79,7 @@ export default function TimelineTab({ dealId }: { dealId: string }) {
       .catch(() => { if (!cancelled) setError("Failed to load timeline"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [dealId]);
+  }, [dealId, refreshKey]);
 
   if (loading) {
     return (

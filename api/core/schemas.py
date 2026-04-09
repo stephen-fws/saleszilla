@@ -341,11 +341,16 @@ class FileItem(BaseModel):
 class CallLogItem(BaseModel):
     id: int
     potential_id: str
+    contact_id: Optional[str] = None
     contact_name: Optional[str] = None
     phone_number: Optional[str] = None
     duration: int = 0
     status: str = "completed"
     notes: Optional[str] = None
+    twilio_call_sid: Optional[str] = None
+    recording_url: Optional[str] = None
+    recording_file_id: Optional[int] = None
+    transcript: Optional[str] = None
     created_time: Optional[datetime] = None
 
 

@@ -52,3 +52,12 @@ ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
 AGENTFLOW_BASE_URL: str = os.getenv("AGENTFLOW_BASE_URL", "https://agentflow-platform-api-prod-367713726367.us-central1.run.app")
 AGENTFLOW_API_KEY: str = os.getenv("AGENTFLOW_API_KEY", "QmLpT2nVjYc")
 AGENTFLOW_TRIGGER_CATEGORY: str = os.getenv("AGENTFLOW_TRIGGER_CATEGORY", "newEnquiry")
+
+# ── Twilio (calling) ─────────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_CALLING_NUMBER: str = os.getenv("TWILIO_CALLING_NUMBER", "")
+TWILIO_API_KEY: str = os.getenv("TWILIO_API_KEY", "")         # API Key SID for Access Token generation
+TWILIO_API_SECRET: str = os.getenv("TWILIO_API_SECRET", "")   # API Key Secret
+TWILIO_TWIML_APP_SID: str = os.getenv("TWILIO_TWIML_APP_SID", "")  # TwiML App for Client SDK routing
+BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")  # Public URL for Twilio webhooks

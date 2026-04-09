@@ -36,6 +36,9 @@ requests>=2.31.0
 pypdf>=4.0.0
 python-docx>=1.1.0
 
+# Twilio (browser-based calling via Client SDK)
+twilio>=9.0.0
+
 # IANA tz database for zoneinfo on Windows (Python's stdlib zoneinfo has no
 # bundled data on Windows; this pure-Python package provides it). Used by the
 # calendar route's MS Graph timezone conversion.

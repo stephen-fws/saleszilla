@@ -95,7 +95,7 @@ export async function skipQueueItem(itemId: string): Promise<void> {
 
 // ── Potentials ──────────────────────────────────────────────────────────────
 
-export async function getPotentials(filters: Partial<PotentialFilters>): Promise<{
+export async function getPotentials(filters: Partial<PotentialFilters> & { includeTeam?: boolean }): Promise<{
   deals: PotentialDeal[];
   filterOptions: { owners: string[]; services: string[]; stages: string[] };
 }> {
@@ -104,6 +104,7 @@ export async function getPotentials(filters: Partial<PotentialFilters>): Promise
   if (filters.services?.length) params.set("services", filters.services.join(","));
   if (filters.owners?.length) params.set("owners", filters.owners.join(","));
   if (filters.search) params.set("search", filters.search);
+  if (filters.includeTeam) params.set("include_team", "true");
   const res = await protectedApi.get(`/potentials?${params}`);
   // Backend: ResponseModel<PotentialListResponse> → data.potentials, data.filter_options
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1094,6 +1095,47 @@ export interface MeetingBriefBody {
 export interface MeetingBriefItem {
   skeleton: MeetingBriefSkeleton;
   brief: MeetingBriefBody;
+}
+
+// ── Twilio calling ───────────────────────────────────────────────────────────
+
+export async function getTwilioToken(): Promise<{ token: string; identity: string }> {
+  const res = await protectedApi.post<{ data: { token: string; identity: string } }>("/twilio/token");
+  return res.data.data;
+}
+
+export async function getContactsForCall(potentialId: string): Promise<Array<{
+  contactId: string; name: string; title: string | null; email: string | null;
+  phone: string | null; mobile: string | null; isPrimary: boolean;
+}>> {
+  const res = await protectedApi.get<{ data: Array<Record<string, unknown>> }>(`/twilio/contacts/${potentialId}`);
+  return (res.data.data ?? []).map((c) => ({
+    contactId: c.contact_id as string,
+    name: c.name as string,
+    title: (c.title as string) ?? null,
+    email: (c.email as string) ?? null,
+    phone: (c.phone as string) ?? null,
+    mobile: (c.mobile as string) ?? null,
+    isPrimary: Boolean(c.is_primary),
+  }));
+}
+
+export async function createCallLog(data: {
+  potentialId: string; contactId?: string | null; contactName?: string | null;
+  phoneNumber: string; duration: number; status: string;
+  twilioCallSid?: string | null; notes?: string | null;
+}): Promise<{ id: number; status: string; duration: number }> {
+  const res = await protectedApi.post<{ data: { id: number; status: string; duration: number } }>("/twilio/call-log", {
+    potential_id: data.potentialId,
+    contact_id: data.contactId ?? null,
+    contact_name: data.contactName ?? null,
+    phone_number: data.phoneNumber,
+    duration: data.duration,
+    status: data.status,
+    twilio_call_sid: data.twilioCallSid ?? null,
+    notes: data.notes ?? null,
+  });
+  return res.data.data;
 }
 
 export async function resolveMeetingBrief(msEventId: string, action: "done" | "skip"): Promise<void> {
