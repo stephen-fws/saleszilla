@@ -176,13 +176,15 @@ export default function LoginPage() {
 
                 <button
                   type="submit"
-                  disabled={loading || !email.trim()}
+                  disabled
+                  title="OTP login is disabled — use Microsoft SSO below"
                   className="w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-medium
-                             hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed
+                             disabled:opacity-30 disabled:cursor-not-allowed
                              transition-colors flex items-center justify-center gap-2"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Login Code"}
+                  Send Login Code
                 </button>
+                <p className="text-[10px] text-slate-400 text-center mt-1.5">OTP login disabled — use Microsoft sign-in below</p>
               </form>
             </>
           )}
