@@ -146,7 +146,7 @@ interface NewPotentialModalProps {
 }
 
 export default function NewPotentialModal({
-  isOpen, onClose, onCreated, availableStages, availableServices,
+  isOpen, onClose, onCreated, availableStages,
 }: NewPotentialModalProps) {
   const stages = availableStages?.length ? availableStages : Object.keys(STAGE_PROBABILITY);
   const services = Object.keys(SUB_SERVICES); // Always use hardcoded list; will point to service table later
