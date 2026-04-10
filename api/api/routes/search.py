@@ -87,11 +87,23 @@ def global_search(
             for p, a in pot_rows
         ]
 
-        # ── Accounts (owned by user + team) ───────────────────────────────────
+        # ── Accounts (owned by user/team OR user/team has potentials on them) ─
+        potential_acc_ids = [r[0] for r in session.execute(
+            select(Potential.account_id).where(
+                Potential.potential_owner_id.in_(all_owner_ids),
+                Potential.account_id.isnot(None),
+            ).distinct()
+        ).all()]
+        all_acc_owner_ids = list(set(
+            [r[0] for r in session.execute(
+                select(Account.account_id).where(Account.account_owner_id.in_(all_owner_ids))
+            ).all()] + potential_acc_ids
+        ))
+
         acc_rows = session.execute(
             select(Account)
             .where(
-                Account.account_owner_id.in_(all_owner_ids),
+                Account.account_id.in_(all_acc_owner_ids) if all_acc_owner_ids else False,
                 Account.account_name.ilike(term),
             )
             .limit(LIMIT)
@@ -106,18 +118,24 @@ def global_search(
             for a in acc_rows
         ]
 
-        # ── Contacts (owned by user/team OR on an account owned by user/team) ─
-        # Find account IDs the user/team owns — contacts on those accounts are visible
-        owned_account_ids = [r[0] for r in session.execute(
+        # ── Contacts (owned by user/team OR on accounts user/team owns or has potentials on)
+        direct_account_ids = [r[0] for r in session.execute(
             select(Account.account_id).where(Account.account_owner_id.in_(all_owner_ids))
         ).all()]
+        potential_account_ids = [r[0] for r in session.execute(
+            select(Potential.account_id).where(
+                Potential.potential_owner_id.in_(all_owner_ids),
+                Potential.account_id.isnot(None),
+            ).distinct()
+        ).all()]
+        all_accessible_account_ids = list(set(direct_account_ids + potential_account_ids))
 
         con_rows = session.execute(
             select(Contact)
             .where(
                 or_(
                     Contact.contact_owner_id.in_(all_owner_ids),
-                    Contact.account_id.in_(owned_account_ids) if owned_account_ids else False,
+                    Contact.account_id.in_(all_accessible_account_ids) if all_accessible_account_ids else False,
                 ),
                 or_(
                     Contact.full_name.ilike(term),

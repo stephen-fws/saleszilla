@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from core.auth import get_current_active_user
 from core.database import get_session
 from core.exceptions import BotApiException
-from core.models import Account, Contact, User
+from core.models import Account, Contact, Potential, User
 from core.schemas import AccountDetailContact, ContactSearchItem, ResponseModel, UpdateContactRequest
 from api.services.access_control import require_contact_owner
 
@@ -23,20 +23,33 @@ def search_contacts(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[ContactSearchItem]]:
     with get_session() as session:
-        # Include contacts the user owns directly OR on accounts the user/team owns
+        # Include contacts the user owns directly OR on accounts the user/team
+        # owns OR on accounts where the user/team owns a potential
         from api.services.potential_service import get_team_user_ids
         team_ids = get_team_user_ids(user.user_id)
         all_ids = [user.user_id] + team_ids
-        owned_account_ids = [r[0] for r in session.execute(
+
+        # Accounts directly owned by user/team
+        direct_account_ids = [r[0] for r in session.execute(
             select(Account.account_id).where(Account.account_owner_id.in_(all_ids))
         ).all()]
+
+        # Accounts where user/team owns a potential
+        potential_account_ids = [r[0] for r in session.execute(
+            select(Potential.account_id).where(
+                Potential.potential_owner_id.in_(all_ids),
+                Potential.account_id.isnot(None),
+            ).distinct()
+        ).all()]
+
+        all_account_ids = list(set(direct_account_ids + potential_account_ids))
 
         stmt = (
             select(Contact, Account)
             .outerjoin(Account, Contact.account_id == Account.account_id)
             .where(or_(
                 Contact.contact_owner_id.in_(all_ids),
-                Contact.account_id.in_(owned_account_ids) if owned_account_ids else False,
+                Contact.account_id.in_(all_account_ids) if all_account_ids else False,
             ))
         )
         if account_id:
