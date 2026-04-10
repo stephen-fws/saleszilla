@@ -23,6 +23,7 @@ import EmailsTab from "./EmailsTab";
 import ChatTab from "./ChatTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 import CallDialog from "./CallDialog";
+import NextActionTab from "./NextActionTab";
 
 interface DetailPanelProps {
   queueItemId: string | null;
@@ -266,7 +267,7 @@ export default function DetailPanel({
         {activeTab === "notes" && dealId && <NotesTab dealId={dealId} />}
         {activeTab === "todos" && dealId && <TodosTab dealId={dealId} />}
 
-        {activeTab === "action" && dealId && <AgentResultTab dealId={dealId} tabType="next_action" hideControls emptyLabel="Waiting for next action" emptyDescription="The agent will automatically generate an FRE draft or meeting prep based on the potential" />}
+        {activeTab === "action" && dealId && <NextActionTab dealId={dealId} detail={detail} />}
         {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" />}
         {activeTab === "emails" && dealId && (
           <EmailsTab

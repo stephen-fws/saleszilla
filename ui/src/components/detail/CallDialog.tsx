@@ -164,6 +164,7 @@ export default function CallDialog({ potentialId, potentialName, onClose }: Call
   }, [muted]);
 
   const handleSaveAndClose = useCallback(async () => {
+    if (saving) return; // prevent double-invocation
     setSaving(true);
     let saved = false;
     try {
@@ -192,8 +193,19 @@ export default function CallDialog({ potentialId, potentialName, onClose }: Call
   const isActive = callState === "connecting" || callState === "ringing" || callState === "in-progress";
   const isPostCall = callState === "completed" || callState === "failed";
 
+  // Block backdrop click during/after call — force user to use Save & Close or hang up
+  const handleBackdropClick = useCallback(() => {
+    if (saving) return; // already saving — ignore duplicate clicks
+    if (isActive) return; // during call — ignore
+    if (isPostCall) {
+      handleSaveAndClose();
+      return;
+    }
+    onClose(false);
+  }, [saving, isActive, isPostCall, handleSaveAndClose, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => onClose(false)}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={handleBackdropClick}>
       <div className="absolute inset-0 bg-black/30" />
       <div
         className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden"
@@ -220,7 +232,7 @@ export default function CallDialog({ potentialId, potentialName, onClose }: Call
               </p>
             </div>
           </div>
-          {!isActive && (
+          {!isActive && !isPostCall && (
             <button onClick={() => onClose(false)} className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
               <X className="h-4 w-4" />
             </button>

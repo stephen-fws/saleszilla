@@ -7,7 +7,7 @@ from sqlalchemy import func, select, or_, text
 logger = logging.getLogger(__name__)
 
 from core.database import get_session
-from core.models import Account, Contact, Potential, User
+from core.models import Account, Contact, CXQueueItem, Potential, User
 from core.schemas import (
     AccountDetailPotential,
     CompanySummary,
@@ -418,6 +418,38 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
         account_id=account_id,
         contact_id=contact_id,
     )
+
+    # Add to "New Inquiries" queue folder so it appears in Panel 1 → Panel 2
+    from datetime import datetime as _dt, timezone as _tz
+    _now = _dt.now(_tz.utc)
+    with get_session() as session:
+        company_name = ""
+        if account_id:
+            acc = session.get(Account, account_id)
+            company_name = acc.account_name if acc else ""
+        contact_name = ""
+        if contact_id:
+            con = session.get(Contact, contact_id)
+            contact_name = con.full_name if con else ""
+
+        session.add(CXQueueItem(
+            potential_id=potential_id,
+            contact_id=contact_id,
+            account_id=account_id,
+            folder_type="new-inquiries",
+            title=data.potential_name or "New Potential",
+            subtitle=f"{company_name} · {contact_name}".strip(" ·") or None,
+            preview=data.description[:300] if data.description else None,
+            time_label=_now.strftime("%H:%M"),
+            priority=None,
+            status="pending",
+            assigned_to_user_id=user.user_id,
+            created_time=_now,
+            updated_time=_now,
+            is_active=True,
+        ))
+        session.flush()
+
     try:
         from api.services.agent_service import init_agents_for_potential
         init_agents_for_potential(potential_id, triggered_by="new_potential")

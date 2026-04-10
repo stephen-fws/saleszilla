@@ -23,10 +23,21 @@ def search_contacts(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[ContactSearchItem]]:
     with get_session() as session:
+        # Include contacts the user owns directly OR on accounts the user/team owns
+        from api.services.potential_service import get_team_user_ids
+        team_ids = get_team_user_ids(user.user_id)
+        all_ids = [user.user_id] + team_ids
+        owned_account_ids = [r[0] for r in session.execute(
+            select(Account.account_id).where(Account.account_owner_id.in_(all_ids))
+        ).all()]
+
         stmt = (
             select(Contact, Account)
             .outerjoin(Account, Contact.account_id == Account.account_id)
-            .where(Contact.contact_owner_id == user.user_id)
+            .where(or_(
+                Contact.contact_owner_id.in_(all_ids),
+                Contact.account_id.in_(owned_account_ids) if owned_account_ids else False,
+            ))
         )
         if account_id:
             stmt = stmt.where(Contact.account_id == account_id)

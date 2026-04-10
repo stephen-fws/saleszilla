@@ -106,11 +106,19 @@ def global_search(
             for a in acc_rows
         ]
 
-        # ── Contacts (owned by user + team) ───────────────────────────────────
+        # ── Contacts (owned by user/team OR on an account owned by user/team) ─
+        # Find account IDs the user/team owns — contacts on those accounts are visible
+        owned_account_ids = [r[0] for r in session.execute(
+            select(Account.account_id).where(Account.account_owner_id.in_(all_owner_ids))
+        ).all()]
+
         con_rows = session.execute(
             select(Contact)
             .where(
-                Contact.contact_owner_id.in_(all_owner_ids),
+                or_(
+                    Contact.contact_owner_id.in_(all_owner_ids),
+                    Contact.account_id.in_(owned_account_ids) if owned_account_ids else False,
+                ),
                 or_(
                     Contact.full_name.ilike(term),
                     Contact.email.ilike(term),

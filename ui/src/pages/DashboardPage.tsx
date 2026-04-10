@@ -143,16 +143,6 @@ export default function DashboardPage() {
     refreshMeetingBriefs();
   }, [refreshMeetingBriefs]);
 
-  // Refresh on tab focus (visibilitychange → visible)
-  useEffect(() => {
-    function onVisibility() {
-      if (document.visibilityState === "visible") {
-        refreshMeetingBriefs();
-      }
-    }
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [refreshMeetingBriefs]);
 
   // Poll every 30s while any brief is pending/running. Stops once all are completed.
   // Tab focus + dashboard mount + calendar close still fire instant refreshes,
@@ -225,23 +215,39 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDealId, selectedAccountId, selectedQueueItemId, viewMode]);
 
-  // Fetch folders on mount
+  // Fetch folders — on mount + refreshable
+  const refreshFolders = useCallback(async () => {
+    try {
+      const data = await getFolders();
+      const list = data.folders ?? [];
+      setFolders(list);
+      return list;
+    } catch {
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     async function load() {
-      try {
-        setLoadingFolders(true);
-        const data = await getFolders();
-        const list = data.folders ?? [];
-        setFolders(list);
-        if (list.length > 0) setSelectedFolderId(list[0].id);
-      } catch {
-        setError("Failed to load folders");
-      } finally {
-        setLoadingFolders(false);
-      }
+      setLoadingFolders(true);
+      const list = await refreshFolders();
+      if (list.length > 0 && !selectedFolderId) setSelectedFolderId(list[0].id);
+      setLoadingFolders(false);
     }
     load();
-  }, []);
+  }, [refreshFolders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh folders + meeting briefs on tab focus (visibilitychange → visible)
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        refreshMeetingBriefs();
+        refreshFolders();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [refreshMeetingBriefs, refreshFolders]);
 
   // Fetch queue items when folder changes
   useEffect(() => {
@@ -384,13 +390,10 @@ export default function DashboardPage() {
         )
       );
     }
-    // If the resolved item happened to be the currently selected one,
-    // clear selection so the right panel doesn't show stale state
     if (selectedQueueItemId === itemId) {
       setSelectedQueueItemId(null);
       if (isMobile) setMobileShowDetail(false);
     }
-    // Fire the API call (fire-and-forget; on failure the user can refresh)
     try {
       if (action === "done") {
         await completeQueueItem(itemId);
@@ -400,7 +403,9 @@ export default function DashboardPage() {
     } catch {
       // ignore — optimistic UX
     }
-  }, [selectedFolderId, selectedQueueItemId, isMobile]);
+    // Refresh real folder counts from backend (optimistic decrement may drift)
+    refreshFolders();
+  }, [selectedFolderId, selectedQueueItemId, isMobile, refreshFolders]);
 
   const handleMobileBack = useCallback(() => {
     setMobileShowDetail(false);
@@ -433,7 +438,9 @@ export default function DashboardPage() {
     setNewDealInitialTab("action");
     if (isMobile) setMobileShowDetail(true);
     setPotentialFilters((prev) => ({ ...prev }));
-  }, [isMobile]);
+    // Refresh folder counts — new potential was added to "new-inquiries" queue
+    refreshFolders();
+  }, [isMobile, refreshFolders]);
 
   const handleSearchNavigate = useCallback((payload: { type: string; id?: string; accountId?: string; potentialId?: string }) => {
     if (payload.type === "potential" && payload.id) {
@@ -784,7 +791,7 @@ export default function DashboardPage() {
               }}
               availableStages={filterOptions.stages}
               availableServices={filterOptions.services}
-              initialTab={newDealInitialTab}
+              initialTab={viewMode === "queue" ? "action" : newDealInitialTab}
             />
           )}
         </div>
