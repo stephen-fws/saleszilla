@@ -19,7 +19,7 @@ load_dotenv()
 
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+BASE_URL = os.getenv("BASE_URL", "")
 
 if not ACCOUNT_SID or not AUTH_TOKEN:
     print("ERROR: Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env first.")
@@ -29,13 +29,17 @@ from twilio.rest import Client
 
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
+app_name = input("Enter app name (e.g. Salezilla Beta, Salezilla Prod) [Salezilla]: ").strip() or "Salezilla"
+base_url = input(f"Enter BASE_URL (public API URL for webhooks) [{BASE_URL or 'http://localhost:8000'}]: ").strip() or BASE_URL or "http://localhost:8000"
+BASE_URL = base_url
+
 print("=" * 60)
-print("Twilio Setup for Salezilla")
+print(f"Twilio Setup for {app_name}")
 print("=" * 60)
 
 # 1. Create API Key (needed for Access Token generation)
 print("\n1. Creating API Key...")
-api_key = client.new_keys.create(friendly_name="Salezilla Voice SDK")
+api_key = client.new_keys.create(friendly_name=f"{app_name} Voice SDK")
 print(f"   TWILIO_API_KEY={api_key.sid}")
 print(f"   TWILIO_API_SECRET={api_key.secret}")
 print(f"   ⚠ Save the secret NOW — it won't be shown again!")
@@ -45,7 +49,7 @@ voice_url = f"{BASE_URL}/twilio/voice"
 status_url = f"{BASE_URL}/twilio/status"
 print(f"\n2. Creating TwiML App (Voice URL: {voice_url})...")
 twiml_app = client.applications.create(
-    friendly_name="Salezilla Voice",
+    friendly_name=f"{app_name} Voice",
     voice_url=voice_url,
     voice_method="POST",
     status_callback=status_url,

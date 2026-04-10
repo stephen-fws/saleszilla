@@ -23,6 +23,12 @@ env/
 *.swp
 *.swo
 
+# Vite cache
+ui/.vite/
+
+# Node
+node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

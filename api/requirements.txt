@@ -32,6 +32,9 @@ anthropic>=0.40.0
 # HTTP requests (agentflow triggers)
 requests>=2.31.0
 
+# Google Cloud Storage (file uploads)
+google-cloud-storage>=2.14.0
+
 # Chat file attachments — PDF and DOCX text extraction
 pypdf>=4.0.0
 python-docx>=1.1.0
