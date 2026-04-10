@@ -35,19 +35,35 @@ def user_owns_potential(user_id: str, potential_id: str) -> bool:
 
 
 def user_owns_account(user_id: str, account_id: str) -> bool:
+    """A user can access an account if EITHER:
+      - They (or a direct report) are the account_owner_id, OR
+      - They (or a direct report) own a Potential linked to this account
+    The second rule ensures accounts found via the potentials list are also
+    accessible in the detail view."""
+    allowed = _get_allowed_owner_ids(user_id)
     with get_session() as session:
+        # Check direct account ownership
         owner = session.execute(
             select(Account.account_owner_id).where(Account.account_id == account_id)
         ).scalar_one_or_none()
-    return owner is not None and owner in _get_allowed_owner_ids(user_id)
+        if owner and owner in allowed:
+            return True
+        # Check if user/team owns any potential on this account
+        has_potential = session.execute(
+            select(Potential.potential_id).where(
+                Potential.account_id == account_id,
+                Potential.potential_owner_id.in_(list(allowed)),
+            ).limit(1)
+        ).scalar_one_or_none()
+        return has_potential is not None
 
 
 def user_owns_contact(user_id: str, contact_id: str) -> bool:
     """A user can access a contact if EITHER:
       - They (or a direct report) are the contact_owner_id, OR
-      - They (or a direct report) own the Account the contact belongs to
-    The second rule lets account owners edit any contact on their accounts even
-    if a different rep is the named contact owner."""
+      - They can access the Account the contact belongs to (via user_owns_account,
+        which includes both direct account ownership AND owning a potential on it)
+    """
     allowed = _get_allowed_owner_ids(user_id)
     with get_session() as session:
         row = session.execute(
@@ -60,11 +76,7 @@ def user_owns_contact(user_id: str, contact_id: str) -> bool:
         if contact_owner_id in allowed:
             return True
         if account_id:
-            account_owner_id = session.execute(
-                select(Account.account_owner_id).where(Account.account_id == account_id)
-            ).scalar_one_or_none()
-            if account_owner_id and account_owner_id in allowed:
-                return True
+            return user_owns_account(user_id, account_id)
     return False
 
 

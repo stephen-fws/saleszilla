@@ -9,6 +9,7 @@ from core.auth import get_current_active_user
 from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import AgentResultItem, AgentWebhookPayload, ResponseModel
+from api.services.access_control import require_potential_owner
 from api.services.agent_service import (
     get_all_insights,
     get_insights_for_tab,
@@ -62,6 +63,7 @@ def run_agents(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
     """Trigger all agents for a potential. Called by the UI for old potentials."""
+    require_potential_owner(user.user_id, potential_id)
     init_agents_for_potential(potential_id, triggered_by="user")
     return ResponseModel(message_code="MSG_AGENTS_TRIGGERED", data={"ok": True})
 
@@ -75,6 +77,7 @@ def get_agent_results(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[AgentResultItem]]:
     """Get agent results for a potential, optionally filtered by tab_type."""
+    require_potential_owner(user.user_id, potential_id)
     if tab_type:
         return ResponseModel(data=get_insights_for_tab(potential_id, tab_type))
     return ResponseModel(data=get_all_insights(potential_id))
@@ -87,6 +90,7 @@ def trigger_agent(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[AgentResultItem | None]:
     """Manually trigger a single agent for a potential."""
+    require_potential_owner(user.user_id, potential_id)
     result = trigger_single_agent(potential_id, agent_id, triggered_by="user")
     if result is None:
         raise BotApiException(404, "ERR_NOT_FOUND", "Agent not found in config.")
@@ -100,4 +104,5 @@ def get_agents_legacy(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[AgentResultItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=get_all_insights(potential_id))

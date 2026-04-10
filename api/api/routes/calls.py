@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends
 from core.auth import get_current_active_user
 from core.models import User
 from core.schemas import CallLogItem, CreateCallLogRequest, ResponseModel
+from api.services.access_control import require_potential_owner
 from api.services.call_service import create_call, list_calls
 
 router = APIRouter(prefix="/potentials/{potential_id}/calls", tags=["calls"])
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/potentials/{potential_id}/calls", tags=["calls"])
 
 @router.get("")
 def get_calls(potential_id: str, user: User = Depends(get_current_active_user)) -> ResponseModel[list[CallLogItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_calls(potential_id))
 
 
@@ -21,6 +23,7 @@ def post_call(
     data: CreateCallLogRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[CallLogItem]:
+    require_potential_owner(user.user_id, potential_id)
     result = create_call(
         potential_id=potential_id,
         phone_number=data.phone_number,

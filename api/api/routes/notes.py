@@ -8,12 +8,14 @@ from core.models import User
 from core.schemas import CreateNoteRequest, NoteItem, ResponseModel, UpdateNoteRequest
 from api.services.note_service import create_note, delete_note, list_notes, update_note
 from api.services.activity_service import log_activity
+from api.services.access_control import require_potential_owner
 
 router = APIRouter(prefix="/potentials/{potential_id}/notes", tags=["notes"])
 
 
 @router.get("")
 def get_notes(potential_id: str, user: User = Depends(get_current_active_user)) -> ResponseModel[list[NoteItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_notes(potential_id))
 
 
@@ -23,6 +25,7 @@ def post_note(
     data: CreateNoteRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[NoteItem]:
+    require_potential_owner(user.user_id, potential_id)
     if not data.content.strip():
         raise BotApiException(400, "ERR_VALIDATION", "Content cannot be empty.")
     result = create_note(potential_id, data.content, user.user_id)
@@ -38,6 +41,7 @@ def patch_note(
     data: UpdateNoteRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[NoteItem]:
+    require_potential_owner(user.user_id, potential_id)
     if not data.content.strip():
         raise BotApiException(400, "ERR_VALIDATION", "Content cannot be empty.")
     updated = update_note(note_id, data.content)
@@ -62,6 +66,7 @@ def remove_note(
     note_id: int,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
+    require_potential_owner(user.user_id, potential_id)
     preview = delete_note(note_id)
     if preview is None:
         raise BotApiException(404, "ERR_NOT_FOUND", "Note not found.")

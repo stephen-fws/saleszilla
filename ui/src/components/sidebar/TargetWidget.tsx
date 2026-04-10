@@ -104,11 +104,12 @@ export default function TargetWidget() {
   }, []);
 
   if (err) {
-    // 404 = no data for this user — hide widget silently
-    if (err.includes("404") || err.toLowerCase().includes("no target")) return null;
     return (
-      <div className="px-3 py-2 border-t border-slate-100 text-[10px] text-red-400">
-        Target: {err}
+      <div className="w-full px-3 py-3 border-t border-slate-100 bg-white">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Monthly Target</span>
+        </div>
+        <p className="text-[11px] text-slate-400">No target data available for your account.</p>
       </div>
     );
   }

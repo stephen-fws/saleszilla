@@ -1,0 +1,85 @@
+# Cloud Build — builds and deploys both API and UI to Cloud Run.
+#
+# Usage:
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_API_IMAGE=gcr.io/YOUR_PROJECT/salezilla-api,_UI_IMAGE=gcr.io/YOUR_PROJECT/salezilla-ui,_API_SERVICE=salezilla-api,_UI_SERVICE=salezilla-ui,_REGION=us-central1,_VITE_API_BASE_URL=https://salezilla-api-XXXXX.run.app
+
+substitutions:
+  _API_IMAGE: 'gcr.io/${PROJECT_ID}/salezilla-api'
+  _UI_IMAGE: 'gcr.io/${PROJECT_ID}/salezilla-ui'
+  _API_SERVICE: 'salezilla-api'
+  _UI_SERVICE: 'salezilla-ui'
+  _REGION: 'us-central1'
+  _VITE_API_BASE_URL: ''
+
+steps:
+  # Build API image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_API_IMAGE}:${SHORT_SHA}', '-t', '${_API_IMAGE}:latest', '-f', 'api/Dockerfile', 'api']
+
+  # Build UI image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_UI_IMAGE}:${SHORT_SHA}'
+      - '-t'
+      - '${_UI_IMAGE}:latest'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}'
+      - '-f'
+      - 'ui/Dockerfile'
+      - 'ui'
+
+  # Push API image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_API_IMAGE}:${SHORT_SHA}']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_API_IMAGE}:latest']
+
+  # Push UI image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_UI_IMAGE}:${SHORT_SHA}']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_UI_IMAGE}:latest']
+
+  # Deploy API to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_API_SERVICE}'
+      - '--image=${_API_IMAGE}:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8000'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--timeout=300'
+
+  # Deploy UI to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_UI_SERVICE}'
+      - '--image=${_UI_IMAGE}:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=256Mi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=2'
+
+images:
+  - '${_API_IMAGE}:${SHORT_SHA}'
+  - '${_API_IMAGE}:latest'
+  - '${_UI_IMAGE}:${SHORT_SHA}'
+  - '${_UI_IMAGE}:latest'

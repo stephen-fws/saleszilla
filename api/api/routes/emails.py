@@ -17,6 +17,7 @@ from api.services.user_draft_service import (
     list_drafts, create_draft, update_draft, delete_draft,
     mark_draft_sent, get_signature, save_signature,
 )
+from api.services.access_control import require_potential_owner
 from api.services.user_service import load_user_tokens
 from api.services.activity_service import log_activity
 
@@ -30,6 +31,7 @@ def get_drafts(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[UserEmailDraftItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_drafts(potential_id, user.user_id))
 
 
@@ -39,6 +41,7 @@ def post_draft(
     data: CreateDraftRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[UserEmailDraftItem]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=create_draft(potential_id, data, user.user_id))
 
 
@@ -49,6 +52,7 @@ def patch_draft(
     data: UpdateDraftRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[UserEmailDraftItem]:
+    require_potential_owner(user.user_id, potential_id)
     result = update_draft(draft_id, data, user.user_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Draft not found.")
@@ -61,6 +65,7 @@ def remove_draft(
     draft_id: int,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
+    require_potential_owner(user.user_id, potential_id)
     if not delete_draft(draft_id, user.user_id):
         raise BotApiException(404, "ERR_NOT_FOUND", "Draft not found.")
     return ResponseModel(data={"ok": True})
@@ -93,6 +98,7 @@ async def send_email(
     data: SendEmailRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[SentEmailResponse]:
+    require_potential_owner(user.user_id, potential_id)
     ms_token = await get_valid_ms_token(user.user_id)
     tokens = load_user_tokens(user.user_id)
     from_email = tokens.ms_email or user.email if tokens else user.email
@@ -153,5 +159,6 @@ def get_draft_legacy(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[EmailDraftResponse | None]:
+    require_potential_owner(user.user_id, potential_id)
     draft = get_email_draft(potential_id)
     return ResponseModel(data=draft)

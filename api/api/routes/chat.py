@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from core.auth import get_current_active_user
 from core.models import User
 from core.schemas import ChatMessageItem, ResponseModel, SendChatRequest
+from api.services.access_control import require_potential_owner
 from api.services.chat_service import clear_history, generate_suggestions, list_messages, save_message, stream_chat
 
 router = APIRouter(tags=["chat"])
@@ -16,6 +17,7 @@ def get_chat_history(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[ChatMessageItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_messages(user.user_id, potential_id))
 
 
@@ -26,6 +28,7 @@ def post_chat(
     user: User = Depends(get_current_active_user),
 ):
     """Stream Claude response as SSE. Saves both user + assistant messages."""
+    require_potential_owner(user.user_id, potential_id)
     history = list_messages(user.user_id, potential_id)
 
     return StreamingResponse(
@@ -45,6 +48,7 @@ def get_chat_suggestions(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[str]]:
     """Return 5 AI-generated suggested questions based on current deal state."""
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=generate_suggestions(potential_id))
 
 
@@ -53,5 +57,6 @@ def delete_chat_history(
     potential_id: str,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
+    require_potential_owner(user.user_id, potential_id)
     count = clear_history(user.user_id, potential_id)
     return ResponseModel(data={"deleted": count})

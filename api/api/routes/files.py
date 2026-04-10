@@ -8,6 +8,7 @@ from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import FileItem, ResponseModel
 from api.services.file_service import delete_file, get_download_url, get_file_content, list_files, save_file, MAX_FILE_SIZE
+from api.services.access_control import require_potential_owner
 from api.services.activity_service import log_activity
 
 router = APIRouter(prefix="/potentials/{potential_id}/files", tags=["files"])
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/potentials/{potential_id}/files", tags=["files"])
 
 @router.get("")
 def get_files(potential_id: str, user: User = Depends(get_current_active_user)) -> ResponseModel[list[FileItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_files(potential_id))
 
 
@@ -24,6 +26,7 @@ async def upload_file(
     file: UploadFile = FastAPIFile(...),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[FileItem]:
+    require_potential_owner(user.user_id, potential_id)
     if not file.filename:
         raise BotApiException(400, "ERR_VALIDATION", "No file provided.")
 
@@ -69,6 +72,7 @@ def remove_file(
     file_id: int,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
+    require_potential_owner(user.user_id, potential_id)
     file_name = delete_file(file_id)
     if file_name is None:
         raise BotApiException(404, "ERR_NOT_FOUND", "File not found.")

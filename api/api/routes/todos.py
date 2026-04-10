@@ -8,6 +8,7 @@ from core.models import User
 from core.schemas import CreateTodoRequest, ResponseModel, TodoItem, TODO_STATUSES, UpdateTodoRequest
 from api.services.todo_service import create_todo, delete_todo, list_todos, update_todo
 from api.services.activity_service import log_activity
+from api.services.access_control import require_potential_owner
 
 router = APIRouter(prefix="/potentials/{potential_id}/todos", tags=["todos"])
 
@@ -21,6 +22,7 @@ _STATUS_LABELS = {
 
 @router.get("")
 def get_todos(potential_id: str, user: User = Depends(get_current_active_user)) -> ResponseModel[list[TodoItem]]:
+    require_potential_owner(user.user_id, potential_id)
     return ResponseModel(data=list_todos(potential_id))
 
 
@@ -30,6 +32,7 @@ def post_todo(
     data: CreateTodoRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[TodoItem]:
+    require_potential_owner(user.user_id, potential_id)
     if not data.text.strip():
         raise BotApiException(400, "ERR_VALIDATION", "Text cannot be empty.")
     result = create_todo(potential_id, data.text, user.user_id)
@@ -44,6 +47,7 @@ def patch_todo(
     data: UpdateTodoRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[TodoItem]:
+    require_potential_owner(user.user_id, potential_id)
     if data.status is not None and data.status not in TODO_STATUSES:
         raise BotApiException(400, "ERR_VALIDATION", f"Invalid status. Must be one of: {', '.join(TODO_STATUSES)}.")
     if data.text is not None and not data.text.strip():
@@ -67,6 +71,7 @@ def remove_todo(
     todo_id: int,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
+    require_potential_owner(user.user_id, potential_id)
     text = delete_todo(todo_id)
     if text is None:
         raise BotApiException(404, "ERR_NOT_FOUND", "Todo not found.")
