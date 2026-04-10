@@ -46,13 +46,15 @@ async def upload_file(
 
 
 @router.get("/{file_id}/download")
-def download_file(file_id: int, user: User = Depends(get_current_active_user)):
-    """Redirect to a short-lived GCS signed URL."""
-    result = get_download_url(file_id)
+def download_file(potential_id: str, file_id: int, user: User = Depends(get_current_active_user)):
+    """Stream file from GCS as a download (no signed URLs needed)."""
+    require_potential_owner(user.user_id, potential_id)
+    result = get_file_content(file_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "File not found.")
-    signed_url, _ = result
-    return RedirectResponse(url=signed_url)
+    content, file_name, mime_type = result
+    headers = {"Content-Disposition": f'attachment; filename="{file_name}"'}
+    return Response(content=content, media_type=mime_type or "application/octet-stream", headers=headers)
 
 
 @router.get("/{file_id}/content")

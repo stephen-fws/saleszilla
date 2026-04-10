@@ -143,12 +143,7 @@ async def send_email(
     if data.draft_id:
         mark_draft_sent(data.draft_id)
 
-    log_activity(
-        potential_id=potential_id,
-        activity_type="email_sent",
-        description=f"Email sent to {data.to_email}: \"{data.subject}\"",
-        user_id=user.user_id,
-    )
+    # Activity is already logged inside email_service.send_email()
     return ResponseModel(message_code="MSG_EMAIL_SENT", data=result)
 
 

@@ -112,11 +112,10 @@ def save_file(
         session.refresh(db_file)
         session.expunge(db_file)
 
-    url = _signed_url(blob, file_name)
     return FileItem(
         id=db_file.id, potential_id=db_file.potential_id, file_name=db_file.file_name,
         mime_type=db_file.mime_type, file_size=db_file.file_size,
-        created_time=db_file.created_time, download_url=url,
+        created_time=db_file.created_time, download_url=None,
     )
 
 
