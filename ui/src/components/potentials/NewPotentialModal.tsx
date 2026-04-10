@@ -149,7 +149,7 @@ export default function NewPotentialModal({
   isOpen, onClose, onCreated, availableStages, availableServices,
 }: NewPotentialModalProps) {
   const stages = availableStages?.length ? availableStages : Object.keys(STAGE_PROBABILITY);
-  const services = availableServices?.length ? availableServices : Object.keys(SUB_SERVICES);
+  const services = Object.keys(SUB_SERVICES); // Always use hardcoded list; will point to service table later
 
   // ── Account ────────────────────────────────────────────────────────────────
   const [accountQuery, setAccountQuery] = useState("");

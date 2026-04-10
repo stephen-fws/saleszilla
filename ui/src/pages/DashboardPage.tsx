@@ -29,6 +29,7 @@ import type {
   AccountSummary,
   AccountFilters,
 } from "@/types";
+import { SERVICES } from "@/types";
 import { DEAL_STAGES } from "@/types";
 import FolderPanel from "@/components/sidebar/FolderPanel";
 import QueuePanel from "@/components/queue/QueuePanel";
@@ -790,7 +791,7 @@ export default function DashboardPage() {
                 setSelectedDealId(dealId);
               }}
               availableStages={filterOptions.stages}
-              availableServices={filterOptions.services}
+              availableServices={SERVICES}
               initialTab={viewMode === "queue" ? "action" : newDealInitialTab}
             />
           )}
@@ -802,7 +803,7 @@ export default function DashboardPage() {
         onClose={() => setNewPotentialOpen(false)}
         onCreated={handlePotentialCreated}
         availableStages={filterOptions.stages}
-        availableServices={filterOptions.services}
+        availableServices={SERVICES}
       />
 
       {calendarOpen && (

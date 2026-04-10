@@ -328,6 +328,19 @@ export interface GlobalSearchResults {
   contacts: GlobalSearchContact[];
 }
 
+// ── Hardcoded service list (will point to service table later) ────────────────
+
+export const SERVICES = [
+  "Data Entry",
+  "Finance & Accounting",
+  "Healthcare BPO",
+  "Customer Support",
+  "IT Services",
+  "Digital Marketing",
+  "Legal Process Outsourcing",
+  "Research & Analytics",
+];
+
 // ── Twilio calling ────────────────────────────────────────────────────────────
 
 export interface ContactForCall {
