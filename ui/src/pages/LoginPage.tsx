@@ -120,19 +120,19 @@ export default function LoginPage() {
                 <div className="flex-1 h-px bg-slate-200" />
               </div>
 
-              {/* OTP */}
+              {/* OTP — disabled */}
               <button
-                onClick={() => setStep("email")}
+                disabled
                 className="w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-medium
-                           hover:bg-slate-800 transition-colors
+                           disabled:opacity-30 disabled:cursor-not-allowed
                            flex items-center justify-center gap-2"
               >
                 <Mail className="w-4 h-4" />
                 Sign in with Email Code
               </button>
 
-              <p className="text-[11px] text-slate-400 text-center mt-3">
-                Email login is available for @flatworldsolutions.com and @botworkflat.onmicrosoft.com
+              <p className="text-[10px] text-slate-400 text-center mt-2">
+                OTP login disabled — use Microsoft sign-in above
               </p>
             </>
           )}
