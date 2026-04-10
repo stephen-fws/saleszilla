@@ -144,13 +144,17 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
   if (composerOpen && draftFromAgent) {
     const initialDraft: EmailDraft = {
       id: 0,
+      potentialId: dealId,
       toEmail: contactEmail ?? "",
       toName: contactName ?? "",
       ccEmails: [],
       bccEmails: [],
       subject: draftFromAgent.subject,
       body: draftFromAgent.body,
+      replyToThreadId: null,
+      replyToMessageId: null,
       status: "draft",
+      createdTime: new Date().toISOString(),
       updatedTime: new Date().toISOString(),
     };
 

@@ -60,7 +60,7 @@ export default function DashboardPage() {
   // Meeting briefs (Panel 1 section + right-panel overlay)
   const [meetingBriefs, setMeetingBriefs] = useState<MeetingBriefItem[]>([]);
   const [meetingBriefsLoading, setMeetingBriefsLoading] = useState(false);
-  const [meetingBriefsError, setMeetingBriefsError] = useState<string | null>(null);
+  const [, setMeetingBriefsError] = useState<string | null>(null);
   const [activeBrief, setActiveBrief] = useState<MeetingBriefItem | null>(null);
   const meetingBriefsAbortRef = useRef<AbortController | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);

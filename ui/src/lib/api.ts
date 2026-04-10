@@ -314,6 +314,8 @@ export async function createPotential(payload: CreatePotentialPayload): Promise<
   const p = d.potential ?? {};
   return {
     id: p.id ?? "",
+    potentialNumber: p.potential_number ?? null,
+    category: p.category ?? null,
     title: p.title ?? null,
     value: p.value ?? null,
     stage: p.stage ?? null,
