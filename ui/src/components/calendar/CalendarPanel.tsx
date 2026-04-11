@@ -74,10 +74,15 @@ const EVENT_COLORS: Record<
   rose:    { bg: "bg-rose-500/15",    border: "border-rose-500/30",    text: "text-rose-700",    dot: "bg-rose-500" },
 };
 
-function colorForId(id: string): EventColor {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffffff;
-  return COLOR_NAMES[Math.abs(h) % COLOR_NAMES.length];
+const PAST_COLORS = { bg: "bg-slate-100", border: "border-slate-200", text: "text-slate-400", dot: "bg-slate-300" };
+
+function colorForId(_id: string): EventColor {
+  return "blue"; // Outlook-style: all events use the same blue
+}
+
+function getEventColors(ev: UIEvent) {
+  if (ev.endAt < new Date()) return PAST_COLORS;
+  return EVENT_COLORS[ev.color];
 }
 
 // ── API → UI event mapping ────────────────────────────────────────────────────
@@ -186,7 +191,7 @@ function EventDetailCard({
   onEdit: (e: UIEvent) => void;
   onDelete: (id: string) => void;
 }) {
-  const c = EVENT_COLORS[event.color];
+  const c = getEventColors(event);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -263,22 +268,45 @@ function EventDetailCard({
             </div>
           )}
 
-          {event.attendees.length > 0 && (
-            <div className="flex items-start gap-2">
-              <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <div className="flex flex-wrap gap-1">
-                {event.attendees.map((a) => (
-                  <span
-                    key={a.email}
-                    title={a.email}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600"
-                  >
-                    {a.name || a.email}
-                  </span>
-                ))}
+          {event.attendees.length > 0 && (() => {
+            const accepted = event.attendees.filter((a) => a.response === "accepted").length;
+            const declined = event.attendees.filter((a) => a.response === "declined").length;
+            const tentative = event.attendees.filter((a) => a.response === "tentativelyAccepted").length;
+            const pending = event.attendees.length - accepted - declined - tentative;
+            return (
+              <div className="flex items-start gap-2">
+                <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <div>
+                  {/* Response summary */}
+                  <div className="flex items-center gap-2 mb-1.5 text-[10px]">
+                    <span className="text-slate-500">{event.attendees.length} invited</span>
+                    {accepted > 0 && <span className="text-emerald-600">{accepted} accepted</span>}
+                    {declined > 0 && <span className="text-red-500">{declined} declined</span>}
+                    {tentative > 0 && <span className="text-amber-600">{tentative} tentative</span>}
+                    {pending > 0 && <span className="text-slate-400">{pending} pending</span>}
+                  </div>
+                  {/* Attendee list */}
+                  <div className="flex flex-wrap gap-1">
+                    {event.attendees.map((a) => {
+                      const responseColor = a.response === "accepted" ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                        : a.response === "declined" ? "border-red-300 bg-red-50 text-red-600 line-through"
+                        : a.response === "tentativelyAccepted" ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600";
+                      return (
+                        <span
+                          key={a.email}
+                          title={`${a.email} — ${a.response === "tentativelyAccepted" ? "tentative" : a.response === "notResponded" ? "pending" : a.response}`}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] ${responseColor}`}
+                        >
+                          {a.name || a.email}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-3">
@@ -374,7 +402,7 @@ function TimeGrid({
           {allDayRows.map((dayEvts, i) => (
             <div key={i} className="border-r border-slate-100 last:border-r-0 py-0.5 px-0.5 min-h-[26px]">
               {dayEvts.map((ev) => {
-                const c = EVENT_COLORS[ev.color];
+                const c = getEventColors(ev);
                 return (
                   <button
                     key={ev.id}
@@ -468,7 +496,7 @@ function TimeGrid({
 
                 {/* Events */}
                 {!isLoading && positioned.map((ev) => {
-                  const c = EVENT_COLORS[ev.color];
+                  const c = getEventColors(ev);
                   const top = eventTop(ev.startAt);
                   const height = eventHeight(ev.startAt, ev.endAt);
                   return (
@@ -564,7 +592,7 @@ function MonthView({
               </button>
 
               {dayEvts.slice(0, maxShow).map((ev) => {
-                const c = EVENT_COLORS[ev.color];
+                const c = getEventColors(ev);
                 return (
                   <button
                     key={ev.id}
@@ -622,7 +650,7 @@ function UpcomingSidebar({
     .slice(0, 8);
 
   function EventRow({ ev }: { ev: UIEvent }) {
-    const c = EVENT_COLORS[ev.color];
+    const c = getEventColors(ev);
     const isPast = ev.endAt < now;
     return (
       <button

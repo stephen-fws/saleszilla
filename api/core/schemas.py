@@ -548,6 +548,7 @@ class CalendarAttendeeResponse(BaseModel):
     email: str
     name: Optional[str] = None
     type: str = "required"  # "required" | "optional"
+    response: str = "none"  # "none" | "accepted" | "declined" | "tentativelyAccepted" | "notResponded"
 
 
 class CalendarEventResponse(BaseModel):

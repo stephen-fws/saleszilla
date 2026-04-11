@@ -457,12 +457,38 @@ export default function EventFormModal({ defaults, onClose, onSaved }: EventForm
 
           {/* Body / description */}
           <textarea
-            placeholder="Add description (optional)"
+            placeholder="Add description or agenda (optional)"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            rows={3}
-            className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:outline-none resize-none"
+            rows={5}
+            className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:outline-none resize-y min-h-[100px] max-h-[300px]"
           />
+          {/* Detected links — clickable below the textarea */}
+          {(() => {
+            const urls = body.match(/https?:\/\/[^\s]+/g);
+            if (!urls || urls.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {[...new Set(urls)].map((url, i) => {
+                  const label = url.includes("teams.microsoft.com") ? "Teams Meeting"
+                    : url.includes("zoom.us") ? "Zoom Meeting"
+                    : url.includes("meet.google.com") ? "Google Meet"
+                    : url.length > 50 ? url.slice(0, 47) + "…" : url;
+                  return (
+                    <a
+                      key={i}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 hover:underline bg-blue-50 border border-blue-200 rounded px-2 py-0.5"
+                    >
+                      🔗 {label}
+                    </a>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </form>

@@ -164,6 +164,7 @@ def _map_event(e: dict) -> CalendarEventResponse:
             email=a.get("emailAddress", {}).get("address", ""),
             name=a.get("emailAddress", {}).get("name") or None,
             type=a.get("type", "required"),
+            response=(a.get("status") or {}).get("response", "none"),
         )
         for a in raw_attendees
         if a.get("emailAddress", {}).get("address")

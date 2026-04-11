@@ -127,7 +127,11 @@ async def sso_connect(
     Redirects the browser to Microsoft's OAuth2 login page.
     After consent, Microsoft redirects back to /auth/sso/callback.
     """
-    redirect_uri = str(request.url_for("sso_callback")).replace("http://", "https://")
+    redirect_uri = str(request.url_for("sso_callback"))
+    # Force HTTPS on Cloud Run (load balancer terminates TLS, so request shows http://)
+    # but keep http:// for localhost development
+    if "localhost" not in redirect_uri and "127.0.0.1" not in redirect_uri:
+        redirect_uri = redirect_uri.replace("http://", "https://")
 
     state = json.dumps({
         "callback_url": callback_url,
@@ -189,7 +193,9 @@ async def sso_callback(
 
     try:
         # Step 1: Exchange code for tokens
-        redirect_uri = str(request.url_for("sso_callback")).replace("http://", "https://")
+        redirect_uri = str(request.url_for("sso_callback"))
+        if "localhost" not in redirect_uri and "127.0.0.1" not in redirect_uri:
+            redirect_uri = redirect_uri.replace("http://", "https://")
         token_data = await exchange_code_for_tokens(code, redirect_uri)
 
         ms_access_token = token_data["access_token"]

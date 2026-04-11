@@ -638,6 +638,7 @@ export interface CalendarAttendee {
   email: string;
   name: string | null;
   type: "required" | "optional";
+  response: "none" | "accepted" | "declined" | "tentativelyAccepted" | "notResponded";
 }
 
 export interface CalendarEvent {
@@ -696,6 +697,7 @@ function mapCalendarEvent(e: any): CalendarEvent {
       email: a.email ?? "",
       name: a.name ?? null,
       type: a.type === "optional" ? "optional" : "required",
+      response: a.response ?? "none",
     })),
   };
 }
