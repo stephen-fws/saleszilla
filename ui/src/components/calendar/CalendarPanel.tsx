@@ -61,7 +61,8 @@ type UIEvent = {
 
 // ── Color system (ported from copilot) ───────────────────────────────────────
 
-const COLOR_NAMES: EventColor[] = ["blue", "violet", "emerald", "amber", "rose"];
+// All events use blue (Outlook-style). Other colors kept in EVENT_COLORS for potential future use.
+// const COLOR_NAMES: EventColor[] = ["blue", "violet", "emerald", "amber", "rose"];
 
 const EVENT_COLORS: Record<
   EventColor,

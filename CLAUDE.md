@@ -92,7 +92,8 @@ saleszilla/
     │       │   ├── AgentResultTab.tsx  # Renders agent results (research/solution/next_action)
     │       │   ├── EmailsTab.tsx
     │       │   ├── ChatTab.tsx         # Per-potential AI chat with Claude streaming + web search
-    │       │   └── CallDialog.tsx      # Twilio browser calling modal (pre-call/in-call/post-call)
+    │       │   ├── CallDialog.tsx      # Twilio browser calling modal (pre-call/in-call/post-call)
+    │       │   └── NextActionTab.tsx   # FRE draft → email composer for new inquiries
     │       └── calendar/
     │           ├── CalendarPanel.tsx   # Full-screen calendar overlay (month/week/day views)
     │           └── EventFormModal.tsx  # Create/edit event modal (attendees persist on edit)
@@ -258,6 +259,10 @@ Three-panel responsive layout:
 - **After create/delete**: 2-second delay before refreshing next meeting (MS Graph propagation lag)
 - **Attendee search**: debounced 300ms, min 2 chars, keyboard navigation (↑↓ Enter Esc), gracefully handles 403 (People.Read not consented)
 - **Attendees persist on edit**: `openEditEvent` now passes `requiredAttendees` / `optionalAttendees` from `UIEvent` to `EventFormDefaults`. Previously attendees were dropped on edit.
+- **Attendee response status**: each attendee has a `response` field (`accepted`, `declined`, `tentativelyAccepted`, `notResponded`). Event detail popover shows a summary line ("5 invited · 3 accepted · 1 declined") and color-coded chips (green=accepted, red=declined+strikethrough, amber=tentative, gray=pending).
+- **Past events grayed out**: events where `endAt < now` render with `bg-slate-100 / text-slate-400` instead of their normal color. Applies to all calendar views (month/week/day).
+- **Outlook-style single blue color**: all events use blue — no per-event color rotation. `colorForId()` always returns `"blue"`.
+- **Description with clickable links**: `EventFormModal` textarea for description is resizable (`resize-y`, `min-h-[100px]`, `max-h-[300px]`). URLs in the description are detected live and rendered as clickable chips below the textarea (Teams → "Teams Meeting", Zoom → "Zoom Meeting", Google Meet → "Google Meet", others truncated).
 - **Timezone conversion for create/update responses**: `_graph_dt_to_utc_iso()` in `routes/calendar.py` handles Windows tz names (`"India Standard Time"`) and IANA names, converts to UTC explicitly. Includes a fallback fixed-offset table for Windows environments without `tzdata` installed. Install `tzdata` pip package for full DST support.
 
 ---
@@ -265,8 +270,14 @@ Three-panel responsive layout:
 ## Access Control & Team Hierarchy
 
 ### Ownership policy
-- **UI navigation** (search, detail GETs/PATCHes) is restricted to records the user OWNS or their **direct reports** own.
+- **UI navigation** (search, detail GETs/PATCHes) is restricted to records the user OWNS, their **direct reports** own, or **accounts where user/team owns a potential**.
 - **Global chat agent** has all-org access for aggregate analytics.
+
+### Access rules
+A user can access:
+- **Potential**: user/team is the `potential_owner_id`
+- **Account**: user/team is the `account_owner_id` OR user/team owns any potential on it
+- **Contact**: user/team is the `contact_owner_id` OR user/team can access the contact's account (above rule)
 
 ### Team hierarchy
 - `User.reporting_to` stores the **manager's email** (not user_id)
@@ -276,14 +287,23 @@ Three-panel responsive layout:
 ### Enforcement points
 | Layer | Scope |
 |---|---|
-| `GET /search` | Potentials/accounts/contacts owned by user + team |
+| `GET /search` | Potentials/accounts/contacts accessible to user + team (includes potential-on-account rule) |
 | `GET /potentials` | `?include_team=true` includes direct reports' deals |
 | `GET /potentials/{id}` | `require_potential_owner` (user + team) |
 | `PATCH /potentials/{id}` | Same |
-| `GET /accounts/{id}` | `require_account_owner` (user + team) |
+| `GET /accounts/{id}` | `require_account_owner` (user + team + owns-potential-on-account) |
 | `PATCH /accounts/{id}` | Same |
-| `PATCH /contacts/{id}` | `require_contact_owner` (user + team + account-owner fallback) |
-| `GET /contacts` | Scoped by `contact_owner_id` |
+| `PATCH /contacts/{id}` | `require_contact_owner` (user + team + account-access fallback) |
+| `GET /contacts` | Contacts owned by user/team OR on accounts where user/team owns a potential |
+| `GET/POST/PATCH/DELETE /potentials/{id}/notes` | `require_potential_owner` |
+| `GET/POST/PATCH/DELETE /potentials/{id}/todos` | `require_potential_owner` |
+| `GET/POST/DELETE /potentials/{id}/files` | `require_potential_owner` |
+| `GET/POST /potentials/{id}/calls` | `require_potential_owner` |
+| `GET /potentials/{id}/activities` | `require_potential_owner` |
+| `POST/GET /potentials/{id}/agents/*` | `require_potential_owner` (user-triggered only; webhook uses API key) |
+| `GET/POST/DELETE /potentials/{id}/chat/*` | `require_potential_owner` |
+| `GET/POST/PATCH/DELETE /potentials/{id}/drafts/*` | `require_potential_owner` |
+| `POST /potentials/{id}/send-email` | `require_potential_owner` |
 
 ### "Include My Team" toggle (Panel 1, Potentials view)
 - Toggle in the Potentials filter sidebar (between search and sort)
@@ -611,12 +631,23 @@ WEBHOOK_API_KEY     # validates incoming webhook + init calls — must be set in
 3. Assigns `potential_number` = next 7-digit number
 4. Commits to DB
 5. Logs activity
-6. Calls `init_agents_for_potential` → triggers agentflow
-7. Returns full `PotentialDetailResponse`
+6. Creates `CXQueueItem` in "new-inquiries" folder (title, subtitle=company·contact, preview=description)
+7. Calls `init_agents_for_potential` → triggers agentflow
+8. Returns full `PotentialDetailResponse`
 
-After creation: UI auto-selects the new deal and opens the Next Action tab.
+After creation: UI auto-selects the new deal and opens the Next Action tab. Folder counts refresh via `refreshFolders()`.
 
 **Default stage**: `Pre Qualified` (set in both initial state and useEffect reset in `NewPotentialModal`)
+
+**Service list**: hardcoded in `SERVICES` constant (`types/index.ts`) — always shows the same 8 services regardless of existing data. Sub-services auto-populate from `SUB_SERVICES` map in `NewPotentialModal.tsx`.
+
+**Next Action tab for new inquiries**: `NextActionTab.tsx` wraps the agent result for `tab_type="next_action"`:
+- While agent is running: "Preparing FRE Draft" loading state
+- When complete: shows the FRE draft as an email preview (To, Subject, Body) with an "Open in Composer" button
+- Composer: opens the full `EmailComposer` (TipTap rich text) pre-filled with the agent's subject + body, contact email, send + save-draft buttons
+- Subject/body parsed from agent content via `parseFREDraft()` which detects `Subject:` prefix
+
+**Queue view default tab**: when in Queue view mode, clicking any item opens Panel 3 with Next Action as the default tab (`initialTab="action"`).
 
 ---
 
@@ -803,6 +834,22 @@ BASE_URL=https://xxx.ngrok-free.app  # Public URL for webhooks (ngrok in dev, re
 
 ---
 
+## Deployment
+
+- **Dockerfiles**: `api/Dockerfile` (Python 3.12 + ODBC Driver 17 + uvicorn) and `ui/Dockerfile` (Node 20 build → nginx 1.27 serve)
+- **Cloud Build**: `cloudbuild.yaml` for automated builds; inline YAML triggers per service
+- **Deploy script**: `deploy.sh` for manual CLI deployment
+- **UI build arg**: `VITE_API_BASE_URL` must be passed at build time (`--build-arg`) — baked into the JS bundle
+- **API port**: 8000; UI port: 8080
+- **File downloads**: proxy through API (no signed URLs) — avoids `serviceAccountTokenCreator` IAM requirement
+- **GCS**: Cloud Run service account needs `Storage Object Admin` on the bucket; no key file needed
+- **SSO redirect URI**: `https://{API_URL}/auth/sso/callback` — forced `https://` on Cloud Run, kept `http://` for localhost
+- **SQL migration**: `migrate_cx_tables.sql` — idempotent, covers all 18 CX_ tables
+- **Twilio setup**: `python setup_twilio.py` — prompts for app name + BASE_URL, creates API Key + TwiML App programmatically
+- **Service list**: hardcoded in `types/index.ts` (`SERVICES` constant) — used in NewPotentialModal and DetailsTab; will point to service table later
+
+---
+
 ## What Is NOT Yet Built
 
 - Mobile responsive polish (basic breakpoints exist, overlay panels not done)
@@ -814,3 +861,4 @@ BASE_URL=https://xxx.ngrok-free.app  # Public URL for webhooks (ngrok in dev, re
 - `account` dimension for `pipeline_summary` group_by (needed for "which account has the most open deals" questions)
 - Call transcription: recording pipeline is built (MP3 → GCS → Files tab), but automatic speech-to-text is not yet wired. Options explored: Twilio Media Streams (server-side real-time), Deepgram/AssemblyAI (post-call or real-time browser SDK), Web Speech API (browser-side, rep's mic only). Deferred to future.
 - Twilio webhook request signature validation (currently open endpoints; should add `RequestValidator` for production)
+- Service/sub-service master table (currently hardcoded list in frontend)
