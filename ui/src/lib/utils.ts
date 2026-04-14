@@ -20,3 +20,59 @@ export function formatDate(date: string | null | undefined): string {
     year: "numeric",
   });
 }
+
+/**
+ * Outlook-style date bucket for a given date — "Today", "Yesterday",
+ * "This Week", "Last Week", "This Month", "Last Month", or a "MMM YYYY" label.
+ */
+export function dateBucket(date: string | null | undefined): string {
+  if (!date) return "No Date";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "No Date";
+
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const today = startOfDay(now);
+  const target = startOfDay(d);
+  const diffDays = Math.floor((today.getTime() - target.getTime()) / 86400000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+
+  // This week = Sun-based week containing today
+  const dayOfWeek = today.getDay();
+  const startOfThisWeek = new Date(today);
+  startOfThisWeek.setDate(today.getDate() - dayOfWeek);
+  if (target >= startOfThisWeek && diffDays > 1) return "This Week";
+
+  const startOfLastWeek = new Date(startOfThisWeek);
+  startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+  if (target >= startOfLastWeek) return "Last Week";
+
+  const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  if (target >= startOfThisMonth) return "This Month";
+
+  const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  if (target >= startOfLastMonth) return "Last Month";
+
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+/**
+ * Group items into ordered date buckets preserving the input order within each bucket.
+ * Returns an array of { label, items } in the order buckets first appear.
+ */
+export function groupByDateBucket<T>(items: T[], getDate: (item: T) => string | null | undefined): { label: string; items: T[] }[] {
+  const groups: { label: string; items: T[] }[] = [];
+  const index: Record<string, number> = {};
+  for (const item of items) {
+    const label = dateBucket(getDate(item));
+    if (index[label] === undefined) {
+      index[label] = groups.length;
+      groups.push({ label, items: [item] });
+    } else {
+      groups[index[label]].items.push(item);
+    }
+  }
+  return groups;
+}

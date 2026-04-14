@@ -721,7 +721,7 @@ ACTIVITY_CATEGORY = {
     "call_logged": "calls",
     "stage_changed": "stage_changes",
     "field_updated": "field_updates",
-    "potential_created": "deals_created",
+    "potential_created": "potentials_created",
 }
 
 
@@ -744,7 +744,7 @@ def recent_activity(
     Filters:
       - activity_types: exact list of raw types (e.g. ['note_added', 'email_sent'])
       - categories: broad categories ['notes','todos','files','emails','calls',
-        'stage_changes','field_updates','deals_created']
+        'stage_changes','field_updates','potentials_created']
       - performed_by_name_like: substring match on user name
       - potential_number_or_name: only activities for this potential
 
@@ -907,7 +907,7 @@ def get_potential_full_context(potential_number_or_name: str) -> dict[str, Any]:
     """Load the FULL rich context of a single potential — fields + contact + account
     + ALL notes + ALL open todos + last 10 sent emails + completed AI agent insights.
 
-    Use this whenever the user wants to deeply reason about a specific deal:
+    Use this whenever the user wants to deeply reason about a specific potential:
     drafting emails, deciding next steps, summarising the conversation history,
     risks, recommendations, etc. This is the same context the per-potential chat
     agent uses.
@@ -1003,8 +1003,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "search_potentials",
         "description": (
-            "Filter potentials (deals) by stage, service, owner, country, account name, "
-            "amount range, closing date range, creation date, flags (diamond/platinum), type, deal size. "
+            "Filter potentials by stage, service, owner, country, account name, "
+            "amount range, closing date range, creation date, flags (diamond/platinum), type, size. "
             "Returns up to 25 matching potentials with summary fields, plus a total match count."
         ),
         "input_schema": {
@@ -1023,7 +1023,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "has_next_step": {"type": "boolean"},
                 "is_diamond": {"type": "boolean", "description": "Diamond-tier potentials (Potential2Close = 1)"},
                 "is_platinum": {"type": "boolean", "description": "Platinum / hot potentials"},
-                "type": {"type": "string", "description": "Deal type, e.g. 'New Business', 'Existing Business'"},
+                "type": {"type": "string", "description": "Potential type, e.g. 'New Business', 'Existing Business'"},
                 "deal_size": {"type": "string", "description": "e.g. 'Small', 'Medium', 'Large'"},
                 "sort_by": {"type": "string", "enum": ["modified_desc", "amount_desc", "amount_asc", "closing_asc", "created_desc"], "default": "modified_desc"},
                 "limit": {"type": "integer", "default": 25, "maximum": 50},
@@ -1047,10 +1047,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "Load the FULL deep context for a single potential — all fields, contact, account, "
             "ALL notes (full content), open todos, last 10 sent emails (with bodies), and completed "
             "AI agent insights (research, solution brief, next-action recommendations). "
-            "**Use this whenever the user wants to deeply reason about a specific deal**: drafting "
-            "follow-up emails, deciding next steps, summarising the deal history, identifying risks, "
+            "**Use this whenever the user wants to deeply reason about a specific potential**: drafting "
+            "follow-up emails, deciding next steps, summarising the potential history, identifying risks, "
             "checking what's been discussed in emails, what notes were added, what the AI research "
-            "found, or any question that requires more than just basic deal fields. "
+            "found, or any question that requires more than just basic potential fields. "
             "Prefer this over `get_potential_details` when the question needs context, judgement, "
             "or content from notes/emails/AI insights."
         ),
@@ -1128,7 +1128,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "group_by": {"type": "string", "enum": ["stage", "service", "sub_service", "owner", "country", "lead_source", "type", "deal_size"], "default": "stage"},
                 "services": {"type": "array", "items": {"type": "string"}},
                 "owner_name_like": {"type": "string"},
-                "only_open": {"type": "boolean", "default": True, "description": "If True, excludes closed/lost/disqualified deals"},
+                "only_open": {"type": "boolean", "default": True, "description": "If True, excludes closed/lost/disqualified potentials"},
             },
         },
     },
@@ -1186,12 +1186,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": (
             "**Source of truth for 'action / activity / touched / worked on / what did the team do' questions.** "
             "Queries the CX_Activities audit log which captures EVERY user action: notes added, todos created/updated, "
-            "files uploaded, emails sent, stage changes, field updates, deals created. "
+            "files uploaded, emails sent, stage changes, field updates, potentials created. "
             "Use this — NOT `time_based_query(modified_in_*)` — whenever the user asks about activity or actions, "
             "because `modified_in_*` only catches direct field edits on the potential row and misses notes/todos/emails. "
             "\n\nDefault window is last 24 hours if neither `hours` nor `days` is given.\n"
             "Returns: total count + per-category breakdown + per-user breakdown + top potentials by activity count + recent items.\n\n"
-            "Categories: notes, todos, files, emails, calls, stage_changes, field_updates, deals_created. "
+            "Categories: notes, todos, files, emails, calls, stage_changes, field_updates, potentials_created. "
             "Use the `categories` filter for broad questions; use `activity_types` for specific raw types."
         ),
         "input_schema": {
@@ -1201,7 +1201,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "days": {"type": "integer", "description": "Time window in days. Use this for 'last week', 'last 3 days' style questions."},
                 "categories": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["notes", "todos", "files", "emails", "calls", "stage_changes", "field_updates", "deals_created"]},
+                    "items": {"type": "string", "enum": ["notes", "todos", "files", "emails", "calls", "stage_changes", "field_updates", "potentials_created"]},
                     "description": "Broad activity categories. Omit to include all.",
                 },
                 "activity_types": {

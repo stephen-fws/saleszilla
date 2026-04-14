@@ -44,8 +44,44 @@ def list_drafts(potential_id: str, user_id: str) -> list[UserEmailDraftItem]:
 
 
 def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str) -> UserEmailDraftItem:
+    """Create a new draft, or update the existing one if this user already has a
+    draft for this potential. Enforces one-draft-per-potential-per-user so the
+    Emails tab never shows duplicates from repeated Save Draft clicks."""
     now = datetime.now(timezone.utc)
     with get_session() as session:
+        # Check for an existing active draft for this user + potential
+        existing = session.execute(
+            select(CXUserEmailDraft)
+            .where(
+                CXUserEmailDraft.potential_id == potential_id,
+                CXUserEmailDraft.created_by_user_id == user_id,
+                CXUserEmailDraft.status == "draft",
+                CXUserEmailDraft.is_active == True,
+            )
+            .order_by(CXUserEmailDraft.updated_time.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if existing:
+            # Update in place rather than creating a duplicate
+            if data.to_email is not None:
+                existing.to_email = data.to_email
+            if data.to_name is not None:
+                existing.to_name = data.to_name
+            if data.cc_emails is not None:
+                existing.cc_emails = json.dumps(data.cc_emails)
+            if data.bcc_emails is not None:
+                existing.bcc_emails = json.dumps(data.bcc_emails)
+            if data.subject is not None:
+                existing.subject = data.subject
+            if data.body is not None:
+                existing.body = data.body
+            existing.updated_time = now
+            session.add(existing)
+            session.flush()
+            session.refresh(existing)
+            return _to_item(existing)
+
         draft = CXUserEmailDraft(
             potential_id=potential_id,
             to_email=data.to_email,

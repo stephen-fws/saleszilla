@@ -333,7 +333,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about this deal… (Enter to send, Shift+Enter for newline)"
+            placeholder="Ask about this potential… (Enter to send, Shift+Enter for newline)"
             rows={1}
             disabled={loading || sending || loadingSuggestions}
             className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition-colors disabled:opacity-50 max-h-32 overflow-y-auto"
@@ -362,7 +362,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
             </button>
           )}
         </div>
-        <p className="text-[9px] text-slate-300 mt-1 px-1">Context: deal · contact · account · notes · todos · emails · AI insights</p>
+        <p className="text-[9px] text-slate-300 mt-1 px-1">Context: potential · contact · account · notes · todos · emails · AI insights</p>
       </div>
     </div>
   );

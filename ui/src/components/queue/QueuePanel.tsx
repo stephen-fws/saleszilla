@@ -1,5 +1,20 @@
-import { Building2, Video, Clock, Check, X } from "lucide-react";
+import { Briefcase, Building2, Video, Clock, Check, X } from "lucide-react";
 import type { QueueItem } from "@/types";
+import { groupByDateBucket } from "@/lib/utils";
+
+const STAGE_COLORS: Record<string, string> = {
+  Prospects: "bg-slate-100 text-slate-600",
+  "Pre Qualified": "bg-blue-100 text-blue-700",
+  "Requirements Capture": "bg-indigo-100 text-indigo-700",
+  Proposal: "bg-amber-100 text-amber-700",
+  Contracting: "bg-orange-100 text-orange-700",
+  Closed: "bg-emerald-100 text-emerald-700",
+  "Contact Later": "bg-slate-100 text-slate-500",
+  Sleeping: "bg-slate-100 text-slate-500",
+  "Low Value": "bg-slate-100 text-slate-500",
+  Disqualified: "bg-red-100 text-red-600",
+  Lost: "bg-red-100 text-red-700",
+};
 
 function formatTime24to12(time24: string): string {
   if (!time24 || !time24.includes(":")) return time24 || "";
@@ -31,18 +46,6 @@ function parseDuration(preview: string): string | null {
   return match ? match[1] : null;
 }
 
-function SentByBadge({ sentBy }: { sentBy: string }) {
-  const isAI = sentBy.toLowerCase() === "ai";
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-        isAI ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
-      }`}
-    >
-      {isAI ? "Sent by AI" : "Edited by Human"}
-    </span>
-  );
-}
 
 interface QueuePanelProps {
   items: QueueItem[];
@@ -88,8 +91,10 @@ export default function QueuePanel({
   loading = false,
   onResolveItem,
 }: QueuePanelProps) {
-  const isEmailsSent = folderType === "emails-sent";
   const isMeetingBriefs = folderType === "meeting-briefs";
+  // Actions are hidden for "emails-sent" — the user already acted on the potential
+  // (sent the email) when it moved into this folder.
+  const showActions = folderType !== "emails-sent";
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -123,8 +128,14 @@ export default function QueuePanel({
             <p className="text-sm text-slate-500">No items in this folder</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {items.map((item) => {
+          <div>
+            {groupByDateBucket(items, (i) => i.createdAt).map((group) => (
+              <div key={group.label}>
+                <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm px-3 py-1.5 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                  {group.label}
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {group.items.map((item) => {
               const isSelected = item.id === selectedItemId;
 
               if (isMeetingBriefs) {
@@ -173,11 +184,19 @@ export default function QueuePanel({
                           {agendaText}
                         </p>
                       </div>
-                      {onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
+                      {showActions && onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
                     </div>
                   </div>
                 );
               }
+
+              const [company, contact] = (item.subtitle ?? "").split(" · ");
+              const stageColor = STAGE_COLORS[item.stage ?? ""] ?? "bg-slate-100 text-slate-600";
+              const formattedValue = item.value
+                ? item.value >= 1000
+                  ? `$${(item.value / 1000).toFixed(0)}k`
+                  : `$${item.value.toFixed(0)}`
+                : null;
 
               return (
                 <div
@@ -190,12 +209,8 @@ export default function QueuePanel({
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div
-                      className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${
-                        isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      <Building2 className="h-4 w-4" />
+                    <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"}`}>
+                      <Briefcase className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
@@ -203,22 +218,32 @@ export default function QueuePanel({
                           {item.title}
                         </span>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
-                          <span className="text-xs text-slate-400">{item.timeLabel}</span>
+                          {showActions && onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
+                          {formattedValue && (
+                            <span className="text-xs font-semibold text-emerald-600">{formattedValue}</span>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-slate-500 truncate">{item.subtitle}</span>
-                        {isEmailsSent && item.sentBy && <SentByBadge sentBy={item.sentBy} />}
+                      {company && <span className="text-xs text-slate-500 truncate block mt-0.5">{company}</span>}
+                      {contact && <span className="text-xs text-slate-400 truncate block">{contact}</span>}
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        {item.stage && (
+                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${stageColor}`}>
+                            {item.stage}
+                          </span>
+                        )}
+                        {item.category === "Diamond" && <span title="Diamond" className="text-base leading-none">💎</span>}
+                        {item.category === "Platinum" && <span title="Platinum" className="text-base leading-none">🏆</span>}
+                        {item.service && <span className="text-[10px] text-slate-400 truncate">{item.service}</span>}
                       </div>
-                      <p className={`mt-1 text-xs line-clamp-2 ${isSelected ? "text-blue-700" : "text-slate-400"}`}>
-                        {item.preview}
-                      </p>
                     </div>
                   </div>
                 </div>
               );
-            })}
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

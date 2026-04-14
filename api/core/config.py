@@ -26,9 +26,11 @@ AZURE_INTEGRATION_CLIENT_ID: str = os.getenv("AZURE_INTEGRATION_CLIENT_ID", "")
 AZURE_INTEGRATION_CLIENT_SECRET: str = os.getenv("AZURE_INTEGRATION_CLIENT_SECRET", "")
 AZURE_INTEGRATION_TENANT_ID: str = os.getenv("AZURE_INTEGRATION_TENANT_ID", "common")
 
-# ── SendGrid (OTP emails) ────────────────────────────────────────────────────
+# ── SendGrid (OTP emails + support emails) ───────────────────────────────────
 SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
 SENDGRID_FROM_EMAIL: str = os.getenv("SENDGRID_FROM_EMAIL", "noreply@botatwork.com")
+# Comma-separated list of support recipients
+SUPPORT_EMAIL_TO: list[str] = [e.strip() for e in os.getenv("SUPPORT_EMAIL_TO", "").split(",") if e.strip()]
 
 # ── OTP ──────────────────────────────────────────────────────────────────────
 OTP_LENGTH: int = int(os.getenv("OTP_LENGTH", "6"))
@@ -49,9 +51,11 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
 
 # ── AgentFlow ─────────────────────────────────────────────────────────────────
-AGENTFLOW_BASE_URL: str = os.getenv("AGENTFLOW_BASE_URL", "https://agentflow-platform-api-prod-367713726367.us-central1.run.app")
-AGENTFLOW_API_KEY: str = os.getenv("AGENTFLOW_API_KEY", "QmLpT2nVjYc")
-AGENTFLOW_TRIGGER_CATEGORY: str = os.getenv("AGENTFLOW_TRIGGER_CATEGORY", "newEnquiry")
+AGENTFLOW_BASE_URL: str = os.getenv("AGENTFLOW_BASE_URL", "http://localhost:8003")
+AGENTFLOW_API_KEY: str = os.getenv("AGENTFLOW_API_KEY", "")
+AGENTFLOW_CALLBACK_CONNECTION: str = os.getenv("AGENTFLOW_CALLBACK_CONNECTION", "salezilla_webhook")
+AGENTFLOW_GRAPH_NEW_POTENTIAL: str = os.getenv("AGENTFLOW_GRAPH_NEW_POTENTIAL", "")
+AGENTFLOW_GRAPH_MEETING_BRIEF: str = os.getenv("AGENTFLOW_GRAPH_MEETING_BRIEF", "")
 
 # ── Twilio (calling) ─────────────────────────────────────────────────────────
 TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")

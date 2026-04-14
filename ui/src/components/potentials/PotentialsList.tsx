@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Briefcase, Building2, X, Plus, ChevronDown, Loader2, Users } from "lucide-react";
 import type { PotentialDeal } from "@/types";
+import { groupByDateBucket } from "@/lib/utils";
 
 const STAGE_COLORS: Record<string, string> = {
   // Real DB stage names
@@ -218,8 +219,14 @@ export default function PotentialsList({
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {deals.map((deal) => {
+          <div>
+            {groupByDateBucket(deals, (d) => d.createdAt).map((group) => (
+              <div key={group.label}>
+                <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm px-3 py-1.5 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                  {group.label}
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {group.items.map((deal) => {
               const isSelected = deal.id === selectedDealId;
               return (
                 <button
@@ -287,7 +294,10 @@ export default function PotentialsList({
                   </div>
                 </button>
               );
-            })}
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

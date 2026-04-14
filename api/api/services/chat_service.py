@@ -115,7 +115,7 @@ def build_context_prompt(potential_id: str) -> str:
     lines.append(
         "You are an expert sales assistant AI embedded in Salezilla, an AI-powered CRM.\n"
         "You have full context about the sales potential below. Use it to help the salesperson "
-        "with insights, drafting emails, strategising next steps, answering questions about the deal, "
+        "with insights, drafting emails, strategising next steps, answering questions about the potential, "
         "and anything else they need.\n"
         "Be concise, specific, and actionable. Always reference actual data from the context.\n"
     )
@@ -144,8 +144,8 @@ def build_context_prompt(potential_id: str) -> str:
         lines.append(f"- Service: {p.service or '—'}")
         lines.append(f"- Sub-service: {p.sub_service or '—'}")
         lines.append(f"- Lead Source: {p.lead_source or '—'}")
-        lines.append(f"- Deal Type: {p.type or '—'}")
-        lines.append(f"- Deal Size: {p.deal_size or '—'}")
+        lines.append(f"- Potential Type: {p.type or '—'}")
+        lines.append(f"- Potential Size: {p.deal_size or '—'}")
         lines.append(f"- Closing Date: {_fmt_date(p.closing_date)}")
         lines.append(f"- Next Step: {p.next_step or '—'}")
         lines.append(f"- Description / Requirements: {p.description or '—'}")
@@ -283,7 +283,7 @@ def build_context_prompt(potential_id: str) -> str:
 # ── Suggested questions ───────────────────────────────────────────────────────
 
 def generate_suggestions(potential_id: str) -> list[str]:
-    """Ask Claude to generate 5 context-aware questions a salesperson would ask about this deal."""
+    """Ask Claude to generate 5 context-aware questions a salesperson would ask about this potential."""
     try:
         context = build_context_prompt(potential_id)
     except Exception as e:
@@ -292,7 +292,7 @@ def generate_suggestions(potential_id: str) -> list[str]:
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     prompt = (
-        "Based on the deal context below, generate exactly 5 short questions that a salesperson "
+        "Based on the potential context below, generate exactly 5 short questions that a salesperson "
         "would most likely want to ask right now — focused on the current stage, recent activity, "
         "risks, and next steps. Return only a JSON array of 5 strings, no explanation, no markdown.\n\n"
         f"{context}"

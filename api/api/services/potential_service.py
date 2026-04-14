@@ -260,7 +260,7 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
         "sub_service": "Sub-service",
         "lead_source": "Lead Source",
         "deal_type": "Type",
-        "deal_size": "Deal Size",
+        "deal_size": "Size",
     }
 
     changes: list[tuple[str, str, str]] = []  # (label, old, new)

@@ -1,87 +1,54 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, RefreshCw, AlertCircle, Bot, Play } from "lucide-react";
+import { Loader2, RefreshCw, AlertCircle, Bot, Play, ChevronDown, LifeBuoy, Clock } from "lucide-react";
 import { getAgentResults, runAllAgents } from "@/lib/api";
 import type { AgentResult } from "@/types";
+import MarkdownBlock from "@/components/chat/MarkdownBlock";
 
-// ── Simple markdown renderer ──────────────────────────────────────────────────
+/**
+ * Some agents emit bullet lists smushed onto one line:
+ *   "*   Item A   *   Item B   *   Item C   *"
+ *   "Item A   *   Item B   *   Item C   *"   ← first item has no leading marker
+ *
+ * Step 1: inject newlines before each mid-line "* " (or "- ") bullet marker.
+ * Step 2: if the first non-empty line is plain text but subsequent lines ARE
+ *   bullets (result of step 1), promote the first line to a bullet item too —
+ *   some agents omit the leading marker on the very first item.
+ */
+function splitInlineBullets(raw: string): string {
+  // Step 1 — split mid-line markers
+  const split = raw.replace(/(\S)\s{2,}([*-])\s+/g, "$1\n$2 ");
 
-const URL_RE = /https?:\/\/[^\s\)>'"]+/g;
-
-function renderInline(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  let remaining = text;
-  let key = 0;
-
-  while (remaining.length > 0) {
-    const boldIdx = remaining.indexOf("**");
-    const urlMatch = URL_RE.exec(remaining);
-    URL_RE.lastIndex = 0;
-
-    const nextBold = boldIdx === -1 ? Infinity : boldIdx;
-    const nextUrl = urlMatch ? urlMatch.index : Infinity;
-
-    if (nextBold === Infinity && nextUrl === Infinity) {
-      nodes.push(remaining);
-      break;
-    }
-
-    if (nextBold <= nextUrl) {
-      if (boldIdx > 0) nodes.push(remaining.slice(0, boldIdx));
-      const endBold = remaining.indexOf("**", boldIdx + 2);
-      if (endBold === -1) { nodes.push(remaining); break; }
-      nodes.push(<strong key={key++}>{remaining.slice(boldIdx + 2, endBold)}</strong>);
-      remaining = remaining.slice(endBold + 2);
-    } else {
-      if (urlMatch!.index > 0) nodes.push(remaining.slice(0, urlMatch!.index));
-      const url = urlMatch![0];
-      nodes.push(
-        <a key={key++} href={url} target="_blank" rel="noopener noreferrer"
-          className="text-blue-600 hover:underline break-all">{url}</a>
-      );
-      remaining = remaining.slice(urlMatch!.index + url.length);
+  // Step 2 — promote an un-bulleted first line when the rest are bullets
+  const lines = split.split("\n");
+  const firstIdx = lines.findIndex((l) => l.trim().length > 0);
+  if (firstIdx >= 0 && !/^\s*[-*]\s/.test(lines[firstIdx])) {
+    const hasBulletAfter = lines.slice(firstIdx + 1).some((l) => /^\s*[-*]\s/.test(l));
+    if (hasBulletAfter) {
+      lines[firstIdx] = "* " + lines[firstIdx].trimStart();
+      return lines.join("\n");
     }
   }
-  return nodes;
-}
-
-function MarkdownBlock({ content }: { content: string }) {
-  const paragraphs = content.split(/\n{2,}/);
-  return (
-    <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
-      {paragraphs.map((para, i) => {
-        const lines = para.split("\n").filter(Boolean);
-        if (lines.length === 0) return null;
-        const isListBlock = lines.every((l) => l.trimStart().startsWith("- ") || l.trimStart().startsWith("* "));
-        if (isListBlock) {
-          return (
-            <ul key={i} className="list-disc list-inside space-y-1">
-              {lines.map((l, j) => (
-                <li key={j}>{renderInline(l.replace(/^[\s\-\*]+/, ""))}</li>
-              ))}
-            </ul>
-          );
-        }
-        return (
-          <p key={i}>
-            {lines.flatMap((line, j) => [
-              ...renderInline(line),
-              j < lines.length - 1 ? <br key={`br-${j}`} /> : null,
-            ]).filter(Boolean)}
-          </p>
-        );
-      })}
-    </div>
-  );
+  return split;
 }
 
 // ── Agent result card ─────────────────────────────────────────────────────────
 
 function AgentCard({ result }: { result: AgentResult }) {
+  const [expanded, setExpanded] = useState(true);
+
   return (
     <div className="rounded-lg border border-slate-200 overflow-hidden">
-      {/* Card header */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+      {/* Card header — click to toggle */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 transition-colors text-left"
+        aria-expanded={expanded}
+      >
         <div className="flex items-center gap-1.5 min-w-0">
+          <ChevronDown
+            className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`}
+          />
           <Bot className="h-3.5 w-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-medium text-slate-600 truncate">{result.agentName}</span>
         </div>
@@ -91,33 +58,35 @@ function AgentCard({ result }: { result: AgentResult }) {
               .toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </span>
         )}
-      </div>
+      </button>
 
-      {/* Card body */}
-      <div className="px-3 py-3">
-        {result.status === "pending" || result.status === "running" ? (
-          <div className="flex items-center gap-2 text-slate-400 py-2">
-            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-            <span className="text-xs">Agent is running…</span>
-          </div>
-        ) : result.status === "error" ? (
-          <div className="flex items-start gap-2 text-red-500 py-1">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span className="text-xs">{result.errorMessage || "Agent run failed"}</span>
-          </div>
-        ) : result.content ? (
-          result.contentType === "html" ? (
-            <div
-              className="prose prose-sm max-w-none text-slate-700"
-              dangerouslySetInnerHTML={{ __html: result.content }}
-            />
+      {/* Card body — hidden when collapsed */}
+      {expanded && (
+        <div className="px-3 py-3">
+          {result.status === "pending" || result.status === "running" ? (
+            <div className="flex items-center gap-2 text-slate-400 py-2">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span className="text-xs">Agent is running…</span>
+            </div>
+          ) : result.status === "error" ? (
+            <div className="flex items-start gap-2 text-red-500 py-1">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="text-xs">{result.errorMessage || "Agent run failed"}</span>
+            </div>
+          ) : result.content ? (
+            result.contentType === "html" ? (
+              <div
+                className="prose prose-sm max-w-none text-slate-700"
+                dangerouslySetInnerHTML={{ __html: result.content }}
+              />
+            ) : (
+              <MarkdownBlock content={splitInlineBullets(result.content)} compact />
+            )
           ) : (
-            <MarkdownBlock content={result.content} />
-          )
-        ) : (
-          <p className="text-xs text-slate-400 py-1">No content available.</p>
-        )}
-      </div>
+            <p className="text-xs text-slate-400 py-1">No content available.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -130,9 +99,26 @@ interface AgentResultTabProps {
   emptyLabel?: string;
   emptyDescription?: string;
   hideControls?: boolean;
+  onRequestSupport?: (category?: string) => void;
 }
 
-export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescription, hideControls = false }: AgentResultTabProps) {
+// Stop polling and flag as stuck if any pending agent has been running for this long.
+const STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function isPendingStuck(results: AgentResult[]): boolean {
+  const pendings = results.filter((r) => r.status === "pending" || r.status === "running");
+  if (pendings.length === 0) return false;
+  const now = Date.now();
+  return pendings.every((r) => {
+    const ts = r.triggeredAt;
+    if (!ts) return false;
+    const started = new Date(ts.endsWith("Z") ? ts : ts + "Z").getTime();
+    if (isNaN(started)) return false;
+    return now - started > STUCK_THRESHOLD_MS;
+  });
+}
+
+export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescription, hideControls = false, onRequestSupport }: AgentResultTabProps) {
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +126,7 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
+  const stuck = hasPending && isPendingStuck(results);
 
   const load = useCallback(async () => {
     try {
@@ -161,11 +148,12 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
-    if (hasPending) {
+    // Stop polling once agents have been pending > 2hrs — they're stuck.
+    if (hasPending && !stuck) {
       pollRef.current = setInterval(load, 5000);
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [hasPending, load]);
+  }, [hasPending, stuck, load]);
 
   async function handleRunAll() {
     setRunning(true);
@@ -226,7 +214,7 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
         {!hideControls && (
           <button
             onClick={handleRunAll}
-            disabled={running || hasPending}
+            disabled={running || (hasPending && !stuck)}
             title="Re-run all agents"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 transition-colors"
           >
@@ -235,9 +223,39 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
           </button>
         )}
       </div>
+
+      {stuck && (
+        <StuckBanner onRequestSupport={onRequestSupport} />
+      )}
+
       {results.map((result) => (
         <AgentCard key={result.agentId} result={result} />
       ))}
+    </div>
+  );
+}
+
+function StuckBanner({ onRequestSupport }: { onRequestSupport?: (category?: string) => void }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+      <div className="flex items-start gap-2">
+        <Clock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-amber-900">This is taking longer than usual</p>
+          <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+            The agent hasn't returned results in over 2 hours. It may be stuck. Please contact support for help.
+          </p>
+          {onRequestSupport && (
+            <button
+              onClick={() => onRequestSupport("agent_stuck")}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 transition-colors"
+            >
+              <LifeBuoy className="h-3 w-3" />
+              Contact Support
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

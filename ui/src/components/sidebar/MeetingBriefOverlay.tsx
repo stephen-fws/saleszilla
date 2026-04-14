@@ -68,7 +68,7 @@ export default function MeetingBriefOverlay({ item, onClose, onOpenDeal }: Meeti
               title="Open the linked potential"
             >
               <ExternalLink className="h-3 w-3" />
-              View deal
+              View potential
             </button>
           )}
           <button
@@ -92,7 +92,7 @@ export default function MeetingBriefOverlay({ item, onClose, onOpenDeal }: Meeti
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                <h3 className="text-[11px] uppercase font-semibold text-slate-500 tracking-wider">Deal</h3>
+                <h3 className="text-[11px] uppercase font-semibold text-slate-500 tracking-wider">Potential</h3>
               </div>
               <p className="text-sm font-semibold text-slate-900">{sk.potential.name || "(Unnamed)"}</p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">

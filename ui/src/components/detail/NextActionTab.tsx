@@ -7,42 +7,54 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail } from "lucide-react";
-import { getAgentResults } from "@/lib/api";
-import type { AgentResult, PotentialDetail } from "@/types";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy } from "lucide-react";
+import { getAgentResults, getEmailDrafts, deleteEmailDraft } from "@/lib/api";
+import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";
 import EmailComposer from "./EmailComposer";
-import type { EmailDraft } from "@/types";
 
 interface NextActionTabProps {
   dealId: string;
   detail: PotentialDetail | null;
+  onEmailSent?: () => void;
+  onRequestSupport?: (category?: string) => void;
 }
+
+const STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 /**
  * Parse the FRE agent content to extract subject + body.
  *
- * The agent typically outputs markdown like:
- *   Subject: Re: Your Inquiry about Video Editing
+ * Handles variants like:
+ *   Subject: Re: Your Inquiry
+ *   **Subject:** Re: Your Inquiry
+ *   ### Subject: Re: Your Inquiry
+ *   Subject Line: Re: Your Inquiry
  *
- *   Dear John,
- *
- *   Thank you for ...
- *
- * We extract the subject line and treat the rest as the email body.
- * If no "Subject:" prefix is found, the first line becomes the subject.
+ * If no "Subject:" prefix is found, the first non-empty line becomes the subject.
  */
 function parseFREDraft(content: string): { subject: string; body: string } {
   if (!content) return { subject: "", body: "" };
+
+  // Strip markdown wrappers (bold, heading, blockquote) from the start of a line
+  // so "**Subject:** Foo" or "### Subject: Foo" still matches.
+  const stripPrefix = (s: string) => s
+    .replace(/^[>\s]*#{1,6}\s*/, "")   // heading
+    .replace(/^\*{1,3}/, "")            // bold/italic open
+    .trimStart();
+
+  const stripTrailingMd = (s: string) => s
+    .replace(/\*{1,3}$/, "")            // bold/italic close
+    .trim();
 
   const lines = content.split("\n");
   let subject = "";
   let bodyStart = 0;
 
-  // Look for "Subject:" line (case-insensitive)
-  for (let i = 0; i < Math.min(lines.length, 5); i++) {
-    const match = lines[i].match(/^(?:subject|sub|re)\s*:\s*(.+)/i);
+  for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    const stripped = stripPrefix(lines[i]);
+    const match = stripped.match(/^subject(?:\s*line)?\s*:\s*\**\s*(.+)/i);
     if (match) {
-      subject = match[1].trim();
+      subject = stripTrailingMd(match[1]);
       bodyStart = i + 1;
       // Skip blank lines after subject
       while (bodyStart < lines.length && !lines[bodyStart].trim()) bodyStart++;
@@ -54,7 +66,7 @@ function parseFREDraft(content: string): { subject: string; body: string } {
   if (!subject) {
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].trim()) {
-        subject = lines[i].trim().replace(/^#+\s*/, ""); // strip markdown heading
+        subject = stripTrailingMd(stripPrefix(lines[i]));
         bodyStart = i + 1;
         break;
       }
@@ -80,16 +92,29 @@ function parseFREDraft(content: string): { subject: string; body: string } {
   return { subject, body: htmlBody };
 }
 
-export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
+export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSupport }: NextActionTabProps) {
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
   const [draftFromAgent, setDraftFromAgent] = useState<{ subject: string; body: string } | null>(null);
+  // savedDraft: the most recently saved draft for this potential (from DB).
+  // When set, the composer opens with this instead of the raw agent content.
+  const [savedDraft, setSavedDraft] = useState<EmailDraft | null>(null);
+  // emailSent: set to the sent subject after the FRE is successfully sent
+  const [emailSent, setEmailSent] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
   const completedResult = results.find((r) => r.status === "completed" && r.content);
   const errorResult = results.find((r) => r.status === "error");
+  const stuck = hasPending && results
+    .filter((r) => r.status === "pending" || r.status === "running")
+    .every((r) => {
+      if (!r.triggeredAt) return false;
+      const started = new Date(r.triggeredAt.endsWith("Z") ? r.triggeredAt : r.triggeredAt + "Z").getTime();
+      if (isNaN(started)) return false;
+      return Date.now() - started > STUCK_THRESHOLD_MS;
+    });
 
   const load = useCallback(async () => {
     try {
@@ -107,15 +132,15 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [load]);
 
-  // Poll while pending
+  // Poll while pending, but stop once we detect the agent is stuck (>2hrs)
   useEffect(() => {
-    if (hasPending) {
+    if (hasPending && !stuck) {
       pollRef.current = setInterval(load, 5000);
     } else {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [hasPending, load]);
+  }, [hasPending, stuck, load]);
 
   // When agent completes, parse the FRE draft
   useEffect(() => {
@@ -123,6 +148,21 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
       setDraftFromAgent(parseFREDraft(completedResult.content));
     }
   }, [completedResult]);
+
+  // On mount, check if user already saved a draft for this potential.
+  // If so, that takes precedence over the raw agent content when opening composer.
+  // If multiple drafts exist (from before the upsert fix), keep only the newest
+  // and soft-delete the rest so the Emails tab doesn't show duplicates.
+  useEffect(() => {
+    getEmailDrafts(dealId)
+      .then((drafts) => {
+        if (drafts.length === 0) return;
+        setSavedDraft(drafts[0]); // most recently updated
+        // Prune stale duplicates silently
+        drafts.slice(1).forEach((d) => deleteEmailDraft(dealId, d.id).catch(() => {}));
+      })
+      .catch(() => {});
+  }, [dealId]);
 
   // Build the EmailDraft-like object for the composer
   const contactEmail = detail?.contact?.email ?? null;
@@ -141,16 +181,17 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
   }
 
   // Composer mode — full email editor
-  if (composerOpen && draftFromAgent) {
-    const initialDraft: EmailDraft = {
-      id: 0,
+  if (composerOpen && (savedDraft || draftFromAgent)) {
+    // Prefer the user's saved draft over the raw agent content
+    const initialDraft: EmailDraft = savedDraft ?? {
+      id: 0, // sentinel: not yet persisted; EmailComposer treats 0 as null
       potentialId: dealId,
       toEmail: contactEmail ?? "",
       toName: contactName ?? "",
       ccEmails: [],
       bccEmails: [],
-      subject: draftFromAgent.subject,
-      body: draftFromAgent.body,
+      subject: draftFromAgent!.subject,
+      body: draftFromAgent!.body,
       replyToThreadId: null,
       replyToMessageId: null,
       status: "draft",
@@ -167,9 +208,39 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
           contactName={contactName}
           signature={null}
           onClose={() => setComposerOpen(false)}
-          onSent={() => setComposerOpen(false)}
-          onDraftSaved={() => {}}
+          onSent={() => {
+            setComposerOpen(false);
+            setEmailSent(initialDraft.subject ?? "Email");
+            setSavedDraft(null);
+            onEmailSent?.();
+          }}
+          onDraftSaved={(draft) => setSavedDraft(draft)}
         />
+      </div>
+    );
+  }
+
+  // Agent appears stuck — has been pending > 2hrs
+  if (stuck) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
+        <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mb-4">
+          <Clock className="h-7 w-7 text-amber-500" />
+        </div>
+        <p className="text-sm font-semibold text-slate-700 mb-1">This is taking longer than usual</p>
+        <p className="text-xs text-slate-500 max-w-sm">
+          The AI agent hasn't returned a result in over 2 hours. It may be stuck.
+          Please contact support so we can investigate.
+        </p>
+        {onRequestSupport && (
+          <button
+            onClick={() => onRequestSupport("agent_stuck")}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition-colors"
+          >
+            <LifeBuoy className="h-3.5 w-3.5" />
+            Contact Support
+          </button>
+        )}
       </div>
     );
   }
@@ -193,6 +264,41 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
     );
   }
 
+  // Email sent in this session — show confirmation
+  if (emailSent) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-8">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+        </div>
+        <p className="text-sm font-semibold text-slate-700 mb-1">Action Completed</p>
+        <p className="text-xs text-slate-500 max-w-sm">
+          <span className="font-medium text-slate-600">"{emailSent}"</span> was delivered to{" "}
+          {contactEmail || "the contact"}.
+        </p>
+        <p className="text-xs text-slate-400 mt-3">
+          The inquiry has been moved out of New Inquiries.
+        </p>
+      </div>
+    );
+  }
+
+  // No active next action (backend returned empty — insight is "actioned" or none exists).
+  // This is the persisted state across refreshes — don't show the draft preview here.
+  if (results.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+        </div>
+        <p className="text-sm font-semibold text-slate-700 mb-1">No Active Next Action</p>
+        <p className="text-xs text-slate-400 mt-1 max-w-xs">
+          The action for this potential has been completed or no next action has been assigned yet.
+        </p>
+      </div>
+    );
+  }
+
   // Error
   if (errorResult) {
     return (
@@ -208,8 +314,12 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
     );
   }
 
-  // Agent completed — show the draft preview + "Open in Email Composer" button
-  if (draftFromAgent) {
+  // Agent completed (or a saved draft exists) — show preview + "Open in Composer"
+  const previewDraft = savedDraft
+    ? { subject: savedDraft.subject ?? "", body: savedDraft.body ?? "" }
+    : draftFromAgent;
+
+  if (previewDraft) {
     return (
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="px-4 py-4 space-y-4">
@@ -219,6 +329,11 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
               <div className="flex items-center gap-2">
                 <Mail className="h-3.5 w-3.5 text-slate-400" />
                 <span className="text-xs font-semibold text-slate-600">FRE Draft — Ready to Send</span>
+                {savedDraft && (
+                  <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
+                    Saved
+                  </span>
+                )}
               </div>
               <button
                 onClick={handleOpenComposer}
@@ -239,14 +354,14 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
               {/* Subject */}
               <div className="flex items-start gap-2">
                 <span className="text-[10px] font-semibold text-slate-400 uppercase w-12 shrink-0 pt-0.5">Subject</span>
-                <span className="text-xs font-medium text-slate-800">{draftFromAgent.subject || "—"}</span>
+                <span className="text-xs font-medium text-slate-800">{previewDraft.subject || "—"}</span>
               </div>
 
               {/* Body preview */}
               <div className="border-t border-slate-100 pt-3">
                 <div
                   className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: draftFromAgent.body }}
+                  dangerouslySetInnerHTML={{ __html: previewDraft.body }}
                 />
               </div>
             </div>
@@ -256,14 +371,10 @@ export default function NextActionTab({ dealId, detail }: NextActionTabProps) {
     );
   }
 
-  // No results at all
+  // Fallback — results exist but content not yet parsed
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
-      <Bot className="h-8 w-8 text-slate-300 mb-2" />
-      <p className="text-sm text-slate-500">Waiting for next action</p>
-      <p className="text-xs text-slate-400 mt-1 max-w-xs">
-        The agent will automatically generate an FRE draft or meeting prep based on the potential.
-      </p>
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
     </div>
   );
 }

@@ -526,7 +526,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
         <div className="rounded-lg border border-slate-200 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
             <Briefcase className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-800">Deal / Opportunity</h3>
+            <h3 className="text-sm font-semibold text-slate-800">Potential</h3>
             <span className="ml-1 text-[11px] font-mono font-semibold text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">
               {detail.potentialNumber ? `#${detail.potentialNumber}` : "—"}
             </span>
@@ -588,7 +588,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 onSave={(v) => onFieldSave("deal_type", v)}
               />
               <EditableField
-                label="Deal Size"
+                label="Size"
                 value={detail.dealSize}
                 onSave={(v) => onFieldSave("deal_size", v)}
               />

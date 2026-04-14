@@ -21,7 +21,7 @@ def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentRes
         id=insight.id,
         potential_id=insight.potential_id,
         agent_id=insight.agent_id or cfg.agent_id,
-        agent_name=insight.agent_name or cfg.agent_name,
+        agent_name=cfg.agent_name,  # Always from CX_AgentTypeConfig — source of truth
         tab_type=cfg.tab_type,
         content_type=insight.content_type or cfg.content_type,
         content=insight.content,
@@ -32,6 +32,30 @@ def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentRes
         completed_at=insight.completed_time,
         error_message=insight.error_message,
     )
+
+
+# ── ID resolver ───────────────────────────────────────────────────────────────
+
+def _resolve_potential_number(identifier: str) -> str:
+    """
+    CX_AgentInsights keys on the 7-digit potential_number (business key), not
+    the UUID primary key. Routes receive the UUID from the UI, so resolve it
+    before reading/writing insights. Returns the identifier unchanged if it
+    already looks like a potential_number.
+    """
+    if not identifier:
+        return identifier
+    # Potential_number is a zero-padded 7-digit string
+    if identifier.isdigit() and len(identifier) <= 10:
+        return identifier
+    with get_session() as session:
+        row = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == identifier)
+        ).first()
+        if row and row[0]:
+            return row[0]
+        logger.warning("_resolve_potential_number: no potential_number for id=%s, using raw", identifier)
+        return identifier
 
 
 # ── Config queries ────────────────────────────────────────────────────────────
@@ -54,6 +78,7 @@ def get_agent_config(agent_id: str) -> CXAgentTypeConfig | None:
 # ── Result queries ────────────────────────────────────────────────────────────
 
 def get_insights_for_tab(potential_id: str, tab_type: str) -> list[AgentResultItem]:
+    potential_id = _resolve_potential_number(potential_id)
     with get_session() as session:
         stmt = (
             select(CXAgentInsight, CXAgentTypeConfig)
@@ -61,6 +86,7 @@ def get_insights_for_tab(potential_id: str, tab_type: str) -> list[AgentResultIt
             .where(
                 CXAgentInsight.potential_id == potential_id,
                 CXAgentInsight.is_active == True,
+                CXAgentInsight.status != "actioned",
                 CXAgentTypeConfig.tab_type == tab_type,
             )
             .order_by(CXAgentTypeConfig.sort_order)
@@ -70,6 +96,7 @@ def get_insights_for_tab(potential_id: str, tab_type: str) -> list[AgentResultIt
 
 
 def get_all_insights(potential_id: str) -> list[AgentResultItem]:
+    potential_id = _resolve_potential_number(potential_id)
     with get_session() as session:
         stmt = (
             select(CXAgentInsight, CXAgentTypeConfig)
@@ -150,44 +177,46 @@ def _upsert_insight(
 def _trigger_agentflow(
     potential_id: str,
     potential_data: dict,
-    category: str | None = None,
-    extra_data: dict | None = None,
+    graph_id: str,
+    extra_attrs: dict | None = None,
 ) -> None:
-    """POST to agentflow webhook to kick off agent execution. Fire-and-forget.
+    """POST to agentflow /external/execute to kick off a graph. Fire-and-forget."""
+    if not graph_id:
+        logger.warning("Skipping agentflow trigger: no graph_id provided (potential=%s)", potential_id)
+        return
 
-    If `category` is provided (e.g. "meeting-prep"), it's added to the payload's
-    data block as an orchestration hint for agentflow.
-    `extra_data` is merged into the payload's data block.
-    """
-    url = f"{config.AGENTFLOW_BASE_URL}/webhooks/crm"
+    url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
     potential_number = potential_data.get("potential_number") or potential_id
-    data_block = {
-        "potential_id": potential_number,
-        "company_name": potential_data.get("company_name", ""),
-        "company_website": potential_data.get("company_website", ""),
+    attributes = {
+        "customer_name": potential_data.get("customer_name", ""),
         "contact_email": potential_data.get("contact_email", ""),
         "contact_phone": potential_data.get("contact_phone", ""),
-        "customer_name": potential_data.get("customer_name", ""),
+        "company_name": potential_data.get("company_name", ""),
+        "company_website": potential_data.get("company_website", ""),
+        "customer_country": potential_data.get("customer_country", ""),
         "service": potential_data.get("service", ""),
         "sub_service": potential_data.get("sub_service", ""),
-        "lead_source": potential_data.get("lead_source", ""),
         "customer_requirements": potential_data.get("description", ""),
+        "lead_source": potential_data.get("lead_source", ""),
+        "potential_id": potential_number,
+        "entity_owner_email": potential_data.get("owner_email", ""),
     }
-    if category:
-        data_block["category"] = category
-    if extra_data:
-        data_block.update(extra_data)
+    if extra_attrs:
+        attributes.update(extra_attrs)
 
     payload = {
-        "event_source": "crm",
-        "action": "create",
-        "entity_type": "sales_lead",
-        "entity_id": potential_number,
-        "data": data_block,
+        "graph_id": graph_id,
+        "entity": {
+            "entity_type": "sales_lead",
+            "external_id": potential_number,
+            "attributes": attributes,
+        },
+        "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+        "callback_mode": "per_agent",
     }
     logger.info("Triggering agentflow: POST %s | payload=%s", url, payload)
     try:
-        resp = requests.post(url, json=payload, headers={"x-api-key": config.AGENTFLOW_API_KEY}, timeout=10)
+        resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
         logger.info("Agentflow response: status=%s body=%s", resp.status_code, resp.text)
     except Exception as e:
         logger.error("Failed to trigger agentflow for %s: %s", potential_id, e)
@@ -226,48 +255,63 @@ def _load_potential_data(potential_id: str) -> dict:
 
 def process_webhook(payload_data: dict) -> None:
     """
-    Process incoming agentflow webhook notification.
-    Content is delivered inline in the payload — no secondary fetch needed.
+    Process incoming agentflow per-agent callback.
 
-    For meeting briefs, the payload includes `ms_event_id` so the result lands
-    in the correct per-meeting row (instead of a generic per-potential row).
+    Event types:
+      - agent.completed  → status=completed, content from output.answer
+      - agent.skipped    → status=completed (cached re-use of prior output)
+      - agent.failed     → status=error, error message from `error`
     """
+    event = payload_data.get("event", "")
     agent_id = payload_data.get("agent_id", "")
-    agent_name = payload_data.get("agent_name", "")
-    external_id = payload_data.get("external_id", "")  # = potential_id
-    execution_id = payload_data.get("execution_id")
-    run_id = payload_data.get("run_id")
-    status = payload_data.get("status", "")
-    content = payload_data.get("content")
-    content_type_override = payload_data.get("content_type")
-    ms_event_id = payload_data.get("ms_event_id")  # only set for meeting_brief results
+    agent_name = payload_data.get("agent_name") or ""
+    external_id = payload_data.get("external_entity_id", "")  # potential_number
+    graph_execution_id = payload_data.get("graph_execution_id")
+    agent_execution_id = payload_data.get("agent_execution_id")
+    output = payload_data.get("output") or {}
+    error = payload_data.get("error")
 
     cfg = get_agent_config(agent_id)
     if not cfg:
         logger.info("Ignoring webhook for unknown agent_id=%s", agent_id)
         return
 
-    if status == "completed":
+    if event in ("agent.completed", "agent.skipped"):
         final_status = "completed"
+        content = output.get("answer") if isinstance(output, dict) else None
         error_message = None
-    else:
+    else:  # agent.failed or anything else
         final_status = "error"
         content = None
-        error_message = f"Agent execution status: {status}"
+        error_message = error or f"Agent event: {event}"
 
-    _upsert_insight(
-        potential_id=external_id,
-        agent_id=agent_id,
-        agent_name=agent_name,
-        tab_type=cfg.tab_type,
-        content=content,
-        content_type=content_type_override or cfg.content_type,
-        status=final_status,
-        execution_id=execution_id,
-        run_id=run_id,
-        error_message=error_message,
-        ms_event_id=ms_event_id,
-    )
+    # Update-only: pending row must already exist (created by init_agents_for_potential).
+    # If missing, log and drop — callback is an anomaly (stale execution, wrong id, etc).
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        existing = session.execute(
+            select(CXAgentInsight).where(
+                CXAgentInsight.potential_id == external_id,
+                CXAgentInsight.agent_id == agent_id,
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            logger.warning(
+                "Webhook drop: no pending row for potential=%s agent_id=%s event=%s",
+                external_id, agent_id, event,
+            )
+            return
+        existing.agent_name = agent_name or existing.agent_name
+        existing.content = content
+        existing.content_type = cfg.content_type
+        existing.status = final_status
+        existing.execution_id = graph_execution_id
+        existing.run_id = agent_execution_id
+        existing.error_message = error_message
+        existing.completed_time = now if final_status == "completed" else existing.completed_time
+        existing.updated_time = now
+        existing.is_active = True
+        session.add(existing)
 
 
 def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:
@@ -280,7 +324,10 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
     # Always fire the agentflow trigger — independent of whether config rows exist
     potential_data = _load_potential_data(potential_id)
     logger.info("Loaded potential data: %s", potential_data)
-    _trigger_agentflow(potential_id, potential_data)
+    _trigger_agentflow(potential_id, potential_data, graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL)
+
+    # DB insights are keyed on potential_number (7-digit business key), not UUID
+    pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
 
     # If agent configs exist, upsert pending insight rows so the UI shows spinners
     configs = list_active_configs()
@@ -292,7 +339,7 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
         for cfg in configs:
             existing = session.execute(
                 select(CXAgentInsight).where(
-                    CXAgentInsight.potential_id == potential_id,
+                    CXAgentInsight.potential_id == pn,
                     CXAgentInsight.agent_id == cfg.agent_id,
                 )
             ).scalar_one_or_none()
@@ -309,7 +356,7 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
                 session.add(existing)
             else:
                 session.add(CXAgentInsight(
-                    potential_id=potential_id,
+                    potential_id=pn,
                     agent_type=cfg.tab_type,
                     agent_id=cfg.agent_id,
                     agent_name=cfg.agent_name,
@@ -332,9 +379,11 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
     if not cfg:
         return None
 
-    now = datetime.now(timezone.utc)
+    potential_data = _load_potential_data(potential_id)
+    pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
+
     _upsert_insight(
-        potential_id=potential_id,
+        potential_id=pn,
         agent_id=agent_id,
         agent_name=cfg.agent_name,
         tab_type=cfg.tab_type,
@@ -344,11 +393,10 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
         triggered_by=triggered_by,
     )
 
-    potential_data = _load_potential_data(potential_id)
-    _trigger_agentflow(potential_id, potential_data)
+    _trigger_agentflow(potential_id, potential_data, graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL)
 
     # Return the pending row
-    results = get_insights_for_tab(potential_id, cfg.tab_type)
+    results = get_insights_for_tab(pn, cfg.tab_type)
     return next((r for r in results if r.agent_id == agent_id), None)
 
 
@@ -456,21 +504,15 @@ def fire_meeting_brief(
         session.refresh(row)
         insight_to_return = row
 
-    # Decide category based on base research completion:
-    #   - Base research complete → "meeting-brief-only" (agentflow runs just the brief agent)
-    #   - Base research missing  → "meeting-prep" (agentflow runs the full chain)
-    base_complete = has_all_base_research_completed(potential_id)
-    category = "meeting-brief-only" if base_complete else "meeting-prep"
-
     potential_data = _load_potential_data(potential_id)
-    extra_data = {
-        "meeting_info": meeting_info,
-    }
-    logger.info(
-        "fire_meeting_brief: potential=%s ms_event_id=%s category=%s base_research_complete=%s",
-        potential_id, ms_event_id, category, base_complete,
+    extra_attrs = {"meeting_info": meeting_info}
+    logger.info("fire_meeting_brief: potential=%s ms_event_id=%s", potential_id, ms_event_id)
+    _trigger_agentflow(
+        potential_id,
+        potential_data,
+        graph_id=config.AGENTFLOW_GRAPH_MEETING_BRIEF,
+        extra_attrs=extra_attrs,
     )
-    _trigger_agentflow(potential_id, potential_data, category=category, extra_data=extra_data)
 
     return insight_to_return
 

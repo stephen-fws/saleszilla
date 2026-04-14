@@ -81,6 +81,10 @@ export async function getQueue(folderType: string): Promise<{ items: QueueItem[]
     contactId: r.contact_id ?? "",
     dealId: r.potential_id ?? null,
     createdAt: r.created_time ?? "",
+    stage: r.stage ?? null,
+    value: r.value ?? null,
+    service: r.service ?? null,
+    category: r.category ?? null,
   }));
   return { items };
 }
@@ -120,6 +124,7 @@ export async function getPotentials(filters: Partial<PotentialFilters> & { inclu
     ownerName: r.owner_name ?? null,
     closingDate: r.closing_date ?? null,
     category: r.category ?? null,
+    createdAt: r.created_time ?? null,
     company: {
       id: r.company?.id ?? "",
       name: r.company?.name ?? "",
@@ -1211,5 +1216,24 @@ export async function getUpcomingMeetingBriefs(hoursAhead = 24): Promise<Meeting
         completedAt: (br.completed_at as string) ?? null,
       },
     };
+  });
+}
+
+// ── Support email ─────────────────────────────────────────────────────────────
+
+export async function getSupportCategories(): Promise<Record<string, string>> {
+  const res = await protectedApi.get("/support/categories");
+  return res.data.data ?? {};
+}
+
+export async function sendSupportEmail(data: {
+  potentialId: string;
+  category: string;
+  message?: string;
+}): Promise<void> {
+  await protectedApi.post("/support/email", {
+    potential_id: data.potentialId,
+    category: data.category,
+    message: data.message ?? "",
   });
 }

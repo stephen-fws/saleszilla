@@ -31,8 +31,8 @@ const STARTERS: { icon: typeof Briefcase; label: string; question: string }[] = 
   { icon: DollarSign, label: "Revenue", question: "What's the total expected revenue of my pipeline this quarter?" },
   { icon: Clock, label: "Closing soon", question: "Which potentials are closing in the next 7 days?" },
   { icon: BarChart3, label: "Pipeline by stage", question: "Show me the breakdown of my pipeline by stage." },
-  { icon: Layers, label: "Stale deals", question: "Which of my deals have had no activity in the last 14 days?" },
-  { icon: Briefcase, label: "Hot deals", question: "List my Diamond and Platinum potentials with their stages and amounts." },
+  { icon: Layers, label: "Stale potentials", question: "Which of my potentials have had no activity in the last 14 days?" },
+  { icon: Briefcase, label: "Hot potentials", question: "List my Diamond and Platinum potentials with their stages and amounts." },
   { icon: Building2, label: "Top accounts", question: "Which accounts have the most open potentials right now?" },
 ];
 
@@ -40,8 +40,8 @@ const STARTERS: { icon: typeof Briefcase; label: string; question: string }[] = 
 
 const TOOL_LABELS: Record<string, { label: string; icon: typeof Search }> = {
   search_potentials: { label: "Searching potentials…", icon: Briefcase },
-  get_potential_details: { label: "Loading deal details…", icon: Briefcase },
-  get_potential_full_context: { label: "Loading full deal context…", icon: Briefcase },
+  get_potential_details: { label: "Loading potential details…", icon: Briefcase },
+  get_potential_full_context: { label: "Loading full potential context…", icon: Briefcase },
   search_accounts: { label: "Searching accounts…", icon: Building2 },
   get_account_360: { label: "Loading 360° view…", icon: Building2 },
   search_contacts: { label: "Searching contacts…", icon: Users },

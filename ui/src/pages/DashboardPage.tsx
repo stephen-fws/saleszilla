@@ -175,7 +175,7 @@ export default function DashboardPage() {
     services: [],
     owners: [],
     search: "",
-    sortBy: "value-desc",
+    sortBy: "created-desc",
   });
   const [filterOptions, setFilterOptions] = useState<{ owners: string[]; services: string[]; stages: string[] }>({
     owners: [],
@@ -483,6 +483,20 @@ export default function DashboardPage() {
   const sortedDeals = useMemo(() => {
     const sorted = [...potentialDeals];
     switch (potentialFilters.sortBy) {
+      case "created-desc":
+        return sorted.sort((a, b) => {
+          if (!a.createdAt && !b.createdAt) return 0;
+          if (!a.createdAt) return 1;
+          if (!b.createdAt) return -1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+      case "created-asc":
+        return sorted.sort((a, b) => {
+          if (!a.createdAt && !b.createdAt) return 0;
+          if (!a.createdAt) return 1;
+          if (!b.createdAt) return -1;
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
       case "value-desc": return sorted.sort((a, b) => b.value - a.value);
       case "value-asc": return sorted.sort((a, b) => a.value - b.value);
       case "closing-date":
@@ -786,13 +800,14 @@ export default function DashboardPage() {
               accountId={viewMode === "accounts" ? selectedAccountId : null}
               folderType={viewMode === "queue" ? currentFolderType : "all-potentials"}
               onComplete={handleComplete}
+              onEmailSent={refreshFolders}
               onPotentialNavigate={(dealId) => {
                 setViewMode("potentials");
                 setSelectedDealId(dealId);
               }}
               availableStages={filterOptions.stages}
               availableServices={SERVICES}
-              initialTab={viewMode === "queue" ? "action" : newDealInitialTab}
+              initialTab={viewMode === "queue" ? (currentFolderType === "emails-sent" ? "emails" : "action") : newDealInitialTab}
             />
           )}
         </div>

@@ -525,16 +525,16 @@ export default function NewPotentialModal({
             <div>
               <div className="flex items-center gap-1.5 mb-2.5">
                 <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Deal Details</span>
+                <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Potential Details</span>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="col-span-2">
-                  <input type="text" placeholder="Deal Title *" value={dealTitle}
+                  <input type="text" placeholder="Potential Title *" value={dealTitle}
                     onChange={(e) => { setDealTitle(e.target.value); setFieldErrors((p) => ({ ...p, dealTitle: false })); }}
                     className={inputCls("dealTitle")} />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Deal Value *</label>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Potential Value *</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
                     <input type="number" min="0" placeholder="0" value={dealValue}
@@ -620,20 +620,20 @@ export default function NewPotentialModal({
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Deal Type</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Potential Type</label>
                     <div className="relative">
                       <select value={dealType} onChange={(e) => setDealType(e.target.value)} className={selectCls()}>
-                        <option value="">Deal Type</option>
+                        <option value="">Potential Type</option>
                         {DEAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Deal Size</label>
+                    <label className="text-[10px] text-slate-400 mb-1 block">Potential Size</label>
                     <div className="relative">
                       <select value={dealSize} onChange={(e) => setDealSize(e.target.value)} className={selectCls()}>
-                        <option value="">Deal Size</option>
+                        <option value="">Potential Size</option>
                         {DEAL_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />

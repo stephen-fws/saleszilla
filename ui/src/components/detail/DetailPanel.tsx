@@ -8,6 +8,7 @@ import {
   Inbox,
   Bot,
   Phone,
+  LifeBuoy,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults } from "@/lib/api";
@@ -24,6 +25,7 @@ import ChatTab from "./ChatTab";
 import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 import CallDialog from "./CallDialog";
 import NextActionTab from "./NextActionTab";
+import SupportEmailModal from "@/components/support/SupportEmailModal";
 
 interface DetailPanelProps {
   queueItemId: string | null;
@@ -32,6 +34,7 @@ interface DetailPanelProps {
   folderType: string;
   onComplete?: () => void;
   onPotentialNavigate?: (dealId: string) => void;
+  onEmailSent?: () => void;
   availableStages?: string[];
   availableServices?: string[];
   initialTab?: DetailTab;
@@ -62,8 +65,10 @@ export default function DetailPanel({
   queueItemId,
   dealId,
   accountId,
+  folderType,
   onComplete,
   onPotentialNavigate,
+  onEmailSent,
   availableStages = [],
   availableServices = [],
   initialTab,
@@ -74,6 +79,13 @@ export default function DetailPanel({
   const [error, setError] = useState<string | null>(null);
   const [agentsRunning, setAgentsRunning] = useState(false);
   const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportCategory, setSupportCategory] = useState<string | undefined>(undefined);
+
+  const openSupport = useCallback((category?: string) => {
+    setSupportCategory(category);
+    setSupportOpen(true);
+  }, []);
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const agentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -108,14 +120,24 @@ export default function DetailPanel({
     return () => { cancelled = true; };
   }, [dealId, initialTab]);
 
-  // Poll all agent results to show global running indicator
+  // Poll all agent results to show global running indicator.
+  // Stop polling if the pending agents have been running > 2hrs — they're stuck.
+  const STUCK_MS = 2 * 60 * 60 * 1000;
   const checkAgentStatus = useCallback(async () => {
     if (!dealId) return;
     try {
       const results = await getAllAgentResults(dealId);
-      const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
-      setAgentsRunning(hasPending);
-      if (!hasPending && agentPollRef.current) {
+      const pendings = results.filter((r) => r.status === "pending" || r.status === "running");
+      const hasPending = pendings.length > 0;
+      const allStuck = hasPending && pendings.every((r) => {
+        if (!r.triggeredAt) return false;
+        const ts = r.triggeredAt.endsWith("Z") ? r.triggeredAt : r.triggeredAt + "Z";
+        const started = new Date(ts).getTime();
+        return !isNaN(started) && Date.now() - started > STUCK_MS;
+      });
+      // Hide the "Agents running" pill once stuck — no point signalling active work.
+      setAgentsRunning(hasPending && !allStuck);
+      if ((!hasPending || allStuck) && agentPollRef.current) {
         clearInterval(agentPollRef.current);
         agentPollRef.current = null;
       }
@@ -139,7 +161,7 @@ export default function DetailPanel({
           <Building2 className="h-8 w-8 text-slate-300" />
         </div>
         <p className="text-sm font-medium text-slate-500">Select an item to view details</p>
-        <p className="text-xs text-slate-400 mt-1">Choose a contact, deal, or account from the list</p>
+        <p className="text-xs text-slate-400 mt-1">Choose a contact, potential, or account from the list</p>
       </div>
     );
   }
@@ -229,8 +251,19 @@ export default function DetailPanel({
               </button>
             )}
 
-            {/* Complete button — queue mode only */}
-            {queueItemId && onComplete && (
+            {/* Support button */}
+            {dealId && (
+              <button
+                onClick={() => { setSupportCategory(undefined); setSupportOpen(true); }}
+                title="Contact support"
+                className="flex-shrink-0 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <LifeBuoy className="h-3.5 w-3.5" />
+              </button>
+            )}
+
+            {/* Complete button — queue mode only (not for emails-sent, action already taken) */}
+            {queueItemId && onComplete && folderType !== "emails-sent" && (
               <button
                 onClick={onComplete}
                 className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
@@ -267,8 +300,8 @@ export default function DetailPanel({
         {activeTab === "notes" && dealId && <NotesTab dealId={dealId} />}
         {activeTab === "todos" && dealId && <TodosTab dealId={dealId} />}
 
-        {activeTab === "action" && dealId && <NextActionTab dealId={dealId} detail={detail} />}
-        {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" />}
+        {activeTab === "action" && dealId && <NextActionTab dealId={dealId} detail={detail} onEmailSent={onEmailSent} onRequestSupport={openSupport} />}
+        {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" onRequestSupport={openSupport} />}
         {activeTab === "emails" && dealId && (
           <EmailsTab
             dealId={dealId}
@@ -277,12 +310,23 @@ export default function DetailPanel({
           />
         )}
         {activeTab === "emails" && !dealId && <StubTab label="Email Thread" icon={Inbox} />}
-        {activeTab === "solution" && dealId && <AgentResultTab dealId={dealId} tabType="solution_brief" emptyLabel="No solution brief yet" emptyDescription="The solution brief agent will generate content based on the potential details" />}
+        {activeTab === "solution" && dealId && <AgentResultTab dealId={dealId} tabType="solution_brief" emptyLabel="No solution brief yet" emptyDescription="The solution brief agent will generate content based on the potential details" onRequestSupport={openSupport} />}
         {activeTab === "files" && dealId && <FilesTab dealId={dealId} />}
         {activeTab === "files" && !dealId && <StubTab label="Files" icon={FolderOpen} />}
         {activeTab === "timeline" && dealId && <TimelineTab dealId={dealId} refreshKey={timelineRefreshKey} />}
         {activeTab === "chat" && dealId && <ChatTab dealId={dealId} />}
       </div>
+
+      {/* Support email modal */}
+      {dealId && (
+        <SupportEmailModal
+          isOpen={supportOpen}
+          onClose={() => setSupportOpen(false)}
+          dealId={dealId}
+          detail={detail}
+          defaultCategory={supportCategory}
+        />
+      )}
 
       {/* Call dialog */}
       {callDialogOpen && dealId && (

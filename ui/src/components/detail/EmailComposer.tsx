@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import {
-  X, Send, Save, Paperclip, Loader2,
+  X, Send, Save, Paperclip, Loader2, Check,
   Bold, Italic, Underline as UnderlineIcon, Link, List, ListOrdered,
   Quote, Undo2, Redo2, Unlink,
 } from "lucide-react";
@@ -278,7 +278,10 @@ export default function EmailComposer({
   dealId, initialDraft, contactEmail, contactName, signature,
   onClose, onSent, onDraftSaved,
 }: EmailComposerProps) {
-  const [draftId, setDraftId] = useState<number | null>(initialDraft?.id ?? null);
+  // id=0 is the "not yet persisted" sentinel from agent-generated drafts
+  const [draftId, setDraftId] = useState<number | null>(
+    initialDraft?.id ? initialDraft.id : null
+  );
   const [to, setTo] = useState<string[]>(
     initialDraft?.toEmail ? [initialDraft.toEmail] : contactEmail ? [contactEmail] : []
   );
@@ -291,6 +294,7 @@ export default function EmailComposer({
   const [showBcc, setShowBcc] = useState((initialDraft?.bccEmails?.length ?? 0) > 0);
   const [showSignature, setShowSignature] = useState(!!signature);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -324,6 +328,7 @@ export default function EmailComposer({
 
   async function handleSaveDraft() {
     setSaving(true);
+    setSaved(false);
     setError(null);
     try {
       const payload = {
@@ -342,7 +347,10 @@ export default function EmailComposer({
         setDraftId(created.id);
         onDraftSaved(created);
       }
-    } catch {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error("[EmailComposer] save draft failed:", err);
       setError("Failed to save draft");
     } finally {
       setSaving(false);
@@ -387,9 +395,9 @@ export default function EmailComposer({
             onClick={handleSaveDraft}
             disabled={saving}
             title="Save draft"
-            className="p-1.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+            className={`p-1.5 rounded transition-colors ${saved ? "text-emerald-500" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"}`}
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           </button>
           <button onClick={onClose} title="Close" className="p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
             <X className="h-4 w-4" />
@@ -465,6 +473,18 @@ export default function EmailComposer({
         >
           {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           {sending ? "Sending…" : "Send"}
+        </button>
+        <button
+          onClick={handleSaveDraft}
+          disabled={saving || sending}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+            saved
+              ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          {saving ? "Saving…" : saved ? "Saved" : "Save Draft"}
         </button>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
         <button

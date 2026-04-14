@@ -45,6 +45,11 @@ export interface QueueItem {
   contactId: string;
   dealId: string | null;
   createdAt: string;
+  // Potential fields — present for all non-meeting-briefs folders
+  stage: string | null;
+  value: number | null;
+  service: string | null;
+  category: string | null;
 }
 
 export interface PotentialDeal {
@@ -57,6 +62,7 @@ export interface PotentialDeal {
   ownerName: string | null;
   closingDate: string | null;
   category: string | null;
+  createdAt: string | null;
   company: { id: string; name: string; industry: string };
   contact: { id: string; name: string; title: string; email: string };
 }
@@ -170,6 +176,8 @@ export const FILTER_SERVICES = [
 ] as const;
 
 export const SORT_OPTIONS = [
+  { value: "created-desc", label: "Newest First" },
+  { value: "created-asc", label: "Oldest First" },
   { value: "value-desc", label: "Value (High \u2192 Low)" },
   { value: "value-asc", label: "Value (Low \u2192 High)" },
   { value: "closing-date", label: "Closing Date (Soonest)" },

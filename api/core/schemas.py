@@ -278,6 +278,11 @@ class QueueItemResponse(BaseModel):
     priority: Optional[str] = None
     status: str = "pending"
     created_time: Optional[datetime] = None
+    # Potential fields — populated for all non-meeting-briefs folders
+    stage: Optional[str] = None
+    value: Optional[float] = None
+    service: Optional[str] = None
+    category: Optional[str] = None
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -400,17 +405,22 @@ AgentInsightItem = AgentResultItem
 
 
 class AgentWebhookPayload(BaseModel):
-    event: str
+    """Per-agent callback from agentflow (POST /agents/webhook)."""
+    event: str  # "agent.completed" | "agent.skipped" | "agent.failed"
+    graph_execution_id: Optional[str] = None
+    agent_execution_id: Optional[str] = None
+    graph_name: Optional[str] = None
     agent_id: str
-    agent_name: str
-    execution_id: str
-    entity_id: str
-    external_id: str  # Salezilla potential_id
-    run_id: str
+    agent_name: Optional[str] = None
+    node_id: Optional[str] = None
+    entity_id: Optional[str] = None
+    external_entity_id: str  # Salezilla potential_number (7-digit)
+    status: Optional[str] = None
+    cached: Optional[bool] = None
     execution_time_ms: Optional[int] = None
-    status: str  # "completed" | "failed"
-    content: Optional[str] = None  # agent result content, delivered inline
-    content_type: Optional[str] = None  # "markdown" | "html" — overrides config default if provided
+    output: Optional[dict] = None  # {"answer": "..."}
+    token_usage: Optional[dict] = None
+    error: Optional[str] = None
 
 
 # Keep old name as alias

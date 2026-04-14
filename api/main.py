@@ -67,6 +67,7 @@ from api.routes.search import router as search_router
 from api.routes.global_chat import router as global_chat_router
 from api.routes.meeting_briefs import router as meeting_briefs_router
 from api.routes.twilio import router as twilio_router
+from api.routes.support import router as support_router
 
 app.include_router(auth_router)
 app.include_router(potentials_router)
@@ -87,6 +88,7 @@ app.include_router(search_router)
 app.include_router(global_chat_router)
 app.include_router(meeting_briefs_router)
 app.include_router(twilio_router)
+app.include_router(support_router)
 
 # ── Exception handlers ───────────────────────────────────────────────────────
 

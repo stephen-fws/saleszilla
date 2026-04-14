@@ -47,7 +47,12 @@ def list_accounts(
                 Potential.potential_owner_id == owner_user_id,
                 Potential.account_id.isnot(None),
             ).distinct()
-            stmt = stmt.where(Account.account_id.in_(owned_account_ids))
+            stmt = stmt.where(
+                or_(
+                    Account.account_owner_id == owner_user_id,
+                    Account.account_id.in_(owned_account_ids),
+                )
+            )
         if search:
             stmt = stmt.where(Account.account_name.ilike(f"%{search}%"))
         if industries:
