@@ -448,7 +448,7 @@ def pipeline_summary(
     owner_name_like: str | None = None,
     only_open: bool = True,
 ) -> dict[str, Any]:
-    """Aggregations grouped by stage / service / owner / country / lead_source / type / deal_size."""
+    """Aggregations grouped by stage / service / owner / country / lead_source / type / deal_size / account."""
     closed_stages = ["Closed", "Closed Won", "Closed Lost", "Lost", "Disqualified"]
 
     field_map = {
@@ -460,6 +460,7 @@ def pipeline_summary(
         "lead_source": Potential.lead_source,
         "type": Potential.type,
         "deal_size": Potential.deal_size,
+        "account": Account.account_name,
     }
     if group_by not in field_map:
         return {"error": f"Invalid group_by '{group_by}'. Allowed: {list(field_map.keys())}"}
@@ -1125,7 +1126,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "group_by": {"type": "string", "enum": ["stage", "service", "sub_service", "owner", "country", "lead_source", "type", "deal_size"], "default": "stage"},
+                "group_by": {"type": "string", "enum": ["stage", "service", "sub_service", "owner", "country", "lead_source", "type", "deal_size", "account"], "default": "stage"},
                 "services": {"type": "array", "items": {"type": "string"}},
                 "owner_name_like": {"type": "string"},
                 "only_open": {"type": "boolean", "default": True, "description": "If True, excludes closed/lost/disqualified potentials"},
