@@ -5,6 +5,52 @@ import type { AgentResult } from "@/types";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
 
 /**
+ * Strip ```html … ``` (or ```…```) code-fence wrappers that some agents emit
+ * around HTML output. Returns the raw HTML inside.
+ */
+function stripHtmlFence(content: string): string {
+  const trimmed = content.trim();
+  const fenced = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n?```$/i);
+  return fenced ? fenced[1].trim() : trimmed;
+}
+
+function looksLikeFullHtmlDoc(content: string): boolean {
+  const s = content.trim().toLowerCase();
+  return s.startsWith("<!doctype") || s.startsWith("<html");
+}
+
+/**
+ * Render untrusted HTML inside an isolated iframe using srcdoc. This prevents
+ * any <style>, <script>, or page-level markup (<html>/<body>) from leaking
+ * into and breaking the host app's layout. The iframe auto-sizes to content
+ * height on load.
+ */
+function IsolatedHtml({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const handleLoad = () => {
+    const f = iframeRef.current;
+    if (!f?.contentDocument) return;
+    const body = f.contentDocument.body;
+    const htmlEl = f.contentDocument.documentElement;
+    const h = Math.max(body?.scrollHeight ?? 0, htmlEl?.scrollHeight ?? 0);
+    if (h > 0) f.style.height = `${h + 16}px`;
+  };
+
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={html}
+      onLoad={handleLoad}
+      sandbox="allow-same-origin"
+      className="w-full border-0 bg-white"
+      style={{ height: 400, minHeight: 200 }}
+      title="Agent result"
+    />
+  );
+}
+
+/**
  * Some agents emit bullet lists smushed onto one line:
  *   "*   Item A   *   Item B   *   Item C   *"
  *   "Item A   *   Item B   *   Item C   *"   ← first item has no leading marker
@@ -74,14 +120,14 @@ function AgentCard({ result }: { result: AgentResult }) {
               <span className="text-xs">{result.errorMessage || "Agent run failed"}</span>
             </div>
           ) : result.content ? (
-            result.contentType === "html" ? (
-              <div
-                className="prose prose-sm max-w-none text-slate-700"
-                dangerouslySetInnerHTML={{ __html: result.content }}
-              />
-            ) : (
-              <MarkdownBlock content={splitInlineBullets(result.content)} compact />
-            )
+            (() => {
+              // Some agents emit HTML wrapped in ```html … ``` fences even when contentType is "markdown".
+              // Detect both cases and route to the isolated iframe.
+              const stripped = stripHtmlFence(result.content);
+              const isHtml = result.contentType === "html" || looksLikeFullHtmlDoc(stripped);
+              if (isHtml) return <IsolatedHtml html={stripped} />;
+              return <MarkdownBlock content={splitInlineBullets(result.content)} compact />;
+            })()
           ) : (
             <p className="text-xs text-slate-400 py-1">No content available.</p>
           )}
