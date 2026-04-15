@@ -958,7 +958,10 @@ def get_potential_full_context(potential_number_or_name: str) -> dict[str, Any]:
 # ── Tool 11: list_owners ─────────────────────────────────────────────────────
 
 def list_owners(name_like: str | None = None) -> dict[str, Any]:
-    """List active users (owners). Used to resolve 'who is X' or 'whose pipeline is biggest'."""
+    """List active users (owners). Used to resolve 'who is X', 'whose pipeline is
+    biggest', or 'who does X report to'. Includes reporting_to (manager's email)
+    and resolves the manager's display name when that email matches another user.
+    """
     with get_session() as session:
         stmt = select(User).where(User.is_active == True)
         if name_like:
@@ -967,6 +970,16 @@ def list_owners(name_like: str | None = None) -> dict[str, Any]:
                 User.email.ilike(f"%{name_like}%"),
             ))
         users = session.execute(stmt).scalars().all()
+
+        # Resolve manager names from their emails (reporting_to stores email)
+        manager_emails = {u.reporting_to for u in users if u.reporting_to}
+        manager_map: dict[str, str] = {}
+        if manager_emails:
+            mgr_rows = session.execute(
+                select(User.email, User.name).where(User.email.in_(manager_emails))
+            ).all()
+            manager_map = {e: n for e, n in mgr_rows if e}
+
         return {
             "items": [
                 {
@@ -974,6 +987,8 @@ def list_owners(name_like: str | None = None) -> dict[str, Any]:
                     "name": u.name,
                     "email": u.email,
                     "role": u.role,
+                    "reporting_to_email": u.reporting_to,
+                    "reporting_to_name": manager_map.get(u.reporting_to) if u.reporting_to else None,
                 }
                 for u in users
             ]
@@ -1218,7 +1233,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "list_owners",
-        "description": "List sales users / owners. Use for 'who is X' resolution or 'list all owners'.",
+        "description": "List sales users / owners. Returns name, email, role, and reporting manager (both email and resolved name). Use this for 'who is X', 'list all owners', or 'who does X report to' questions.",
         "input_schema": {
             "type": "object",
             "properties": {
