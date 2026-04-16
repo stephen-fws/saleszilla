@@ -32,8 +32,11 @@ const STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
  *
  * If no "Subject:" prefix is found, the first non-empty line becomes the subject.
  */
-function parseFREDraft(content: string): { subject: string; body: string } {
-  if (!content) return { subject: "", body: "" };
+function parseFREDraft(rawContent: string): { subject: string; body: string } {
+  if (!rawContent) return { subject: "", body: "" };
+  // Normalize line endings — agents may emit \r\n (Windows) or \r (legacy Mac).
+  // Without this the paragraph split below misses every break.
+  const content = rawContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   // Strip markdown wrappers (bold, heading, blockquote) from the start of a line
   // so "**Subject:** Foo" or "### Subject: Foo" still matches.
@@ -75,9 +78,12 @@ function parseFREDraft(content: string): { subject: string; body: string } {
 
   const body = lines.slice(bodyStart).join("\n").trim();
 
-  // Convert markdown body to simple HTML for the TipTap editor
+  // Convert markdown body to simple HTML for the TipTap editor.
+  // Split on 1+ blank lines so 2, 3, or more consecutive \n all create paragraph breaks.
   const htmlBody = body
-    .split("\n\n")
+    .split(/\n\s*\n/)
+    .map((para) => para.trim())
+    .filter((para) => para.length > 0)
     .map((para) => {
       const escaped = para
         .replace(/&/g, "&amp;")
