@@ -50,6 +50,9 @@ interface FolderPanelProps {
   onIncludeTeamChange?: (v: boolean) => void;
   // Current user name — used to make their owner filter entry non-uncheckable
   currentUserName?: string | null;
+  // Master lists from DB (via lookups endpoint)
+  masterStages?: string[];
+  masterServices?: string[];
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -84,6 +87,8 @@ export default function FolderPanel({
   includeTeam = false,
   onIncludeTeamChange,
   currentUserName = null,
+  masterStages,
+  masterServices,
 }: FolderPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
@@ -402,7 +407,7 @@ export default function FolderPanel({
                 Stage
               </label>
               <div className="space-y-0.5">
-                {FILTER_STAGES.map((stage) => {
+                {(masterStages?.length ? masterStages : FILTER_STAGES as unknown as string[]).map((stage) => {
                   const isChecked = filters?.stages.includes(stage) || false;
                   return (
                     <label
@@ -430,7 +435,7 @@ export default function FolderPanel({
                 Service
               </label>
               <div className="space-y-0.5">
-                {FILTER_SERVICES.map((service) => {
+                {(masterServices?.length ? masterServices : FILTER_SERVICES as unknown as string[]).map((service) => {
                   const isChecked = filters?.services.includes(service) || false;
                   return (
                     <label

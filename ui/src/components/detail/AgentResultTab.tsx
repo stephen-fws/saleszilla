@@ -79,8 +79,9 @@ function splitInlineBullets(raw: string): string {
 
 // ── Agent result card ─────────────────────────────────────────────────────────
 
-function AgentCard({ result }: { result: AgentResult }) {
+function AgentCard({ result, stuck = false }: { result: AgentResult; stuck?: boolean }) {
   const [expanded, setExpanded] = useState(true);
+  const isPending = result.status === "pending" || result.status === "running";
 
   return (
     <div className="rounded-lg border border-slate-200 overflow-hidden">
@@ -109,11 +110,18 @@ function AgentCard({ result }: { result: AgentResult }) {
       {/* Card body — hidden when collapsed */}
       {expanded && (
         <div className="px-3 py-3">
-          {result.status === "pending" || result.status === "running" ? (
-            <div className="flex items-center gap-2 text-slate-400 py-2">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              <span className="text-xs">Agent is running…</span>
-            </div>
+          {isPending ? (
+            stuck ? (
+              <div className="flex items-center gap-2 text-amber-600 py-2">
+                <Clock className="h-4 w-4 shrink-0" />
+                <span className="text-xs">Agent not responding</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-slate-400 py-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <span className="text-xs">Agent is running…</span>
+              </div>
+            )
           ) : result.status === "error" ? (
             <div className="flex items-start gap-2 text-red-500 py-1">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -275,7 +283,7 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
       )}
 
       {results.map((result) => (
-        <AgentCard key={result.agentId} result={result} />
+        <AgentCard key={result.agentId} result={result} stuck={stuck} />
       ))}
     </div>
   );

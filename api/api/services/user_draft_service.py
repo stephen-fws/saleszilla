@@ -28,7 +28,9 @@ def _to_item(d: CXUserEmailDraft) -> UserEmailDraftItem:
     )
 
 
-def list_drafts(potential_id: str, user_id: str) -> list[UserEmailDraftItem]:
+def list_drafts(potential_id: str, user_id: str, is_next_action: bool = False) -> list[UserEmailDraftItem]:
+    """List drafts. is_next_action=False (default) returns Email-tab drafts only.
+    is_next_action=True returns Next-Action drafts only."""
     with get_session() as session:
         stmt = (
             select(CXUserEmailDraft)
@@ -37,19 +39,18 @@ def list_drafts(potential_id: str, user_id: str) -> list[UserEmailDraftItem]:
                 CXUserEmailDraft.created_by_user_id == user_id,
                 CXUserEmailDraft.status == "draft",
                 CXUserEmailDraft.is_active == True,
+                CXUserEmailDraft.is_next_action == is_next_action,
             )
             .order_by(CXUserEmailDraft.updated_time.desc())
         )
         return [_to_item(d) for d in session.execute(stmt).scalars().all()]
 
 
-def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str) -> UserEmailDraftItem:
+def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str, is_next_action: bool = False) -> UserEmailDraftItem:
     """Create a new draft, or update the existing one if this user already has a
-    draft for this potential. Enforces one-draft-per-potential-per-user so the
-    Emails tab never shows duplicates from repeated Save Draft clicks."""
+    draft for this potential+source. Enforces one-draft-per-potential-per-user-per-source."""
     now = datetime.now(timezone.utc)
     with get_session() as session:
-        # Check for an existing active draft for this user + potential
         existing = session.execute(
             select(CXUserEmailDraft)
             .where(
@@ -57,13 +58,13 @@ def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str) -> U
                 CXUserEmailDraft.created_by_user_id == user_id,
                 CXUserEmailDraft.status == "draft",
                 CXUserEmailDraft.is_active == True,
+                CXUserEmailDraft.is_next_action == is_next_action,
             )
             .order_by(CXUserEmailDraft.updated_time.desc())
             .limit(1)
         ).scalar_one_or_none()
 
         if existing:
-            # Update in place rather than creating a duplicate
             if data.to_email is not None:
                 existing.to_email = data.to_email
             if data.to_name is not None:
@@ -97,6 +98,7 @@ def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str) -> U
             created_time=now,
             updated_time=now,
             is_active=True,
+            is_next_action=is_next_action,
         )
         session.add(draft)
         session.flush()

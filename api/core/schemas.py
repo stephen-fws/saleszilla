@@ -509,6 +509,65 @@ class SignatureRequest(BaseModel):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Email threads (from sync table)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class EmailMessageAttachment(BaseModel):
+    id: str = ""
+    name: str
+    content_type: str = "application/octet-stream"
+    size: int = 0
+
+
+class EmailMessage(BaseModel):
+    id: int
+    from_email: str
+    to_email: str
+    cc: Optional[str] = None
+    subject: str
+    body: Optional[str] = None
+    direction: str                       # "sent" | "received"
+    sent_time: Optional[datetime] = None
+    received_time: Optional[datetime] = None
+    internet_message_id: Optional[str] = None
+    thread_id: Optional[str] = None      # MS Graph conversationId (for reply threading)
+    graph_message_id: Optional[str] = None  # MS Graph internal message id (for attachment download)
+    has_attachments: bool = False
+    attachments: list[EmailMessageAttachment] = []
+
+
+class EmailThread(BaseModel):
+    thread_key: str                      # cleaned subject or conversation id
+    subject: str                         # display subject
+    messages: list[EmailMessage]
+    last_activity: Optional[datetime] = None
+    message_count: int = 0
+    reply_thread_id: Optional[str] = None       # conversationId for Graph reply threading
+    reply_to_message_id: Optional[str] = None   # internetMessageId of last message (for reply-to)
+    is_flat: bool = False                        # True = no Graph threading available (legacy data)
+
+
+class EmailThreadsResponse(BaseModel):
+    threads: list[EmailThread]           # grouped + threaded emails
+    total_messages: int = 0
+
+
+class UserSettingsResponse(BaseModel):
+    email_signature: Optional[str] = None
+    working_hours_start: Optional[str] = None   # "09:00"
+    working_hours_end: Optional[str] = None     # "18:00"
+    timezone: Optional[str] = None              # IANA, e.g. "Asia/Kolkata"
+
+
+class UserSettingsUpdateRequest(BaseModel):
+    email_signature: Optional[str] = None
+    working_hours_start: Optional[str] = None
+    working_hours_end: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Sales Targets
 # ═════════════════════════════════════════════════════════════════════════════
 

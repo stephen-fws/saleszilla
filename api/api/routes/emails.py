@@ -9,16 +9,21 @@ from core.models import User
 from core.ms_graph import get_valid_ms_token, send_mail_via_graph
 from core.schemas import (
     CreateDraftRequest, UpdateDraftRequest, UserEmailDraftItem,
-    EmailDraftResponse, ResponseModel, SendEmailRequest, SentEmailResponse,
-    SignatureRequest,
+    EmailDraftResponse, EmailThreadsResponse, ResponseModel, SendEmailRequest,
+    SentEmailResponse, SignatureRequest, UserSettingsResponse, UserSettingsUpdateRequest,
 )
 from api.services.email_service import get_email_draft, record_sent_email
 from api.services.user_draft_service import (
     list_drafts, create_draft, update_draft, delete_draft,
     mark_draft_sent, get_signature, save_signature,
 )
+from api.services.user_settings_service import (
+    get_settings as get_user_settings,
+    update_settings as update_user_settings,
+)
 from api.services.access_control import require_potential_owner
 from api.services.user_service import load_user_tokens
+from api.services.email_thread_service import get_email_threads
 from api.services.activity_service import log_activity
 
 router = APIRouter(tags=["emails"])
@@ -29,20 +34,22 @@ router = APIRouter(tags=["emails"])
 @router.get("/potentials/{potential_id}/drafts")
 def get_drafts(
     potential_id: str,
+    is_next_action: bool = False,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[UserEmailDraftItem]]:
     require_potential_owner(user.user_id, potential_id)
-    return ResponseModel(data=list_drafts(potential_id, user.user_id))
+    return ResponseModel(data=list_drafts(potential_id, user.user_id, is_next_action=is_next_action))
 
 
 @router.post("/potentials/{potential_id}/drafts")
 def post_draft(
     potential_id: str,
+    is_next_action: bool = False,
     data: CreateDraftRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[UserEmailDraftItem]:
     require_potential_owner(user.user_id, potential_id)
-    return ResponseModel(data=create_draft(potential_id, data, user.user_id))
+    return ResponseModel(data=create_draft(potential_id, data, user.user_id, is_next_action=is_next_action))
 
 
 @router.patch("/potentials/{potential_id}/drafts/{draft_id}")
@@ -90,6 +97,28 @@ def update_user_signature(
     return ResponseModel(data={"ok": True})
 
 
+# ── User settings (signature + working hours + timezone) ─────────────────────
+
+@router.get("/me/settings")
+def get_me_settings(
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[UserSettingsResponse]:
+    return ResponseModel(data=get_user_settings(user.user_id))
+
+
+@router.patch("/me/settings")
+def patch_me_settings(
+    data: UserSettingsUpdateRequest = Body(),
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[UserSettingsResponse]:
+    try:
+        updated = update_user_settings(user.user_id, data)
+    except ValueError as exc:
+        from core.exceptions import BotApiException
+        raise BotApiException(400, "ERR_INVALID_SETTINGS", str(exc))
+    return ResponseModel(data=updated)
+
+
 # ── Send email ────────────────────────────────────────────────────────────────
 
 @router.post("/potentials/{potential_id}/send-email")
@@ -112,7 +141,7 @@ async def send_email(
         ]
 
     try:
-        message_id, thread_id = await send_mail_via_graph(
+        message_id, thread_id, internet_message_id = await send_mail_via_graph(
             access_token=ms_token,
             to_address=data.to_email,
             subject=data.subject,
@@ -135,6 +164,7 @@ async def send_email(
         subject=data.subject,
         body=data.body,
         thread_id=thread_id,
+        internet_message_id=internet_message_id,
         draft_id=None,
         user_id=user.user_id,
     )
@@ -143,8 +173,239 @@ async def send_email(
     if data.draft_id:
         mark_draft_sent(data.draft_id)
 
+    # Proactively start the follow-up series — don't wait for the email sync
+    # service to echo this back. The idempotency check in start_new_series
+    # will absorb the later sync-service webhook harmlessly.
+    if internet_message_id:
+        try:
+            from datetime import datetime, timezone
+            from api.services.follow_up_service import OutboundEvent, start_new_series
+            from core.models import Potential
+            from core.database import get_session
+            from sqlalchemy import select
+            with get_session() as _s:
+                pn = _s.execute(
+                    select(Potential.potential_number).where(Potential.potential_id == potential_id)
+                ).scalar_one_or_none()
+            if pn:
+                start_new_series(OutboundEvent(
+                    potential_number=pn,
+                    internet_message_id=internet_message_id,
+                    sent_time=datetime.now(timezone.utc),
+                    from_email=from_email,
+                    to_email=data.to_email,
+                    subject=data.subject,
+                ))
+        except Exception:
+            # Non-fatal — sync service will re-trigger later
+            import logging
+            logging.getLogger(__name__).exception("follow_up: proactive start failed for potential=%s", potential_id)
+
     # Activity is already logged inside email_service.send_email()
     return ResponseModel(message_code="MSG_EMAIL_SENT", data=result)
+
+
+# ── Next Action resolve (skip / done) ────────────────────────────────────────
+
+@router.post("/potentials/{potential_id}/next-action/resolve")
+def resolve_next_action(
+    potential_id: str,
+    action: str = "done",
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Mark all active next_action insights as actioned. Called when user clicks
+    Skip or Done on the Next Action tab."""
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import CXAgentInsight, CXAgentTypeConfig, CXQueueItem, CXUserEmailDraft, Potential
+    from sqlalchemy import select
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        pn = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none() or potential_id
+
+        # Mark next_action insights as actioned
+        rows = session.execute(
+            select(CXAgentInsight)
+            .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+            .where(
+                CXAgentInsight.potential_id == pn,
+                CXAgentTypeConfig.tab_type == "next_action",
+                CXAgentInsight.status != "actioned",
+                CXAgentInsight.is_active == True,
+            )
+        ).scalars().all()
+        for r in rows:
+            r.status = "actioned"
+            r.updated_time = now
+            session.add(r)
+
+        # Soft-delete any next_action drafts
+        na_drafts = session.execute(
+            select(CXUserEmailDraft).where(
+                CXUserEmailDraft.potential_id == potential_id,
+                CXUserEmailDraft.is_next_action == True,
+                CXUserEmailDraft.status == "draft",
+                CXUserEmailDraft.is_active == True,
+            )
+        ).scalars().all()
+        for d in na_drafts:
+            d.is_active = False
+            d.updated_time = now
+            session.add(d)
+
+        # Complete any pending follow-up / new-inquiries queue items so the
+        # potential moves out of those folders (into Emails Sent via record_sent_email)
+        for folder in ("follow-up-active", "follow-up-inactive", "new-inquiries"):
+            qi = session.execute(
+                select(CXQueueItem).where(
+                    CXQueueItem.potential_id == potential_id,
+                    CXQueueItem.folder_type == folder,
+                    CXQueueItem.status == "pending",
+                    CXQueueItem.is_active == True,
+                )
+            ).scalar_one_or_none()
+            if qi:
+                qi.status = "completed"
+                qi.updated_time = now
+                session.add(qi)
+
+    return ResponseModel(data={"ok": True, "action": action, "resolved": len(rows)})
+
+
+# ── Attachment download (proxy through backend) ─────────────────────────────
+
+@router.get("/potentials/{potential_id}/email-attachment")
+async def download_email_attachment(
+    potential_id: str,
+    message_id: str,
+    attachment_id: str,
+    user: User = Depends(get_current_active_user),
+):
+    """Proxy-download an email attachment from MS Graph."""
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import Potential
+    from sqlalchemy import select
+    from fastapi.responses import Response
+    import requests as req
+
+    with get_session() as session:
+        owner_id = session.execute(
+            select(Potential.potential_owner_id).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none()
+
+    if not owner_id:
+        raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")
+
+    ms_token = await get_valid_ms_token(owner_id)
+    url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/attachments/{attachment_id}"
+    resp = req.get(url, headers={"Authorization": f"Bearer {ms_token}"}, timeout=30)
+    if resp.status_code != 200:
+        raise BotApiException(resp.status_code, "ERR_ATTACHMENT_FETCH", "Failed to fetch attachment.")
+
+    data = resp.json()
+    import base64
+    content_bytes = base64.b64decode(data.get("contentBytes", ""))
+    filename = data.get("name", "attachment")
+    content_type = data.get("contentType", "application/octet-stream")
+
+    return Response(
+        content=content_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Reply context (latest thread info for composing replies) ─────────────────
+
+@router.get("/potentials/{potential_id}/reply-context")
+def get_reply_context(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Return the thread_id + internet_message_id for composing a threaded reply.
+
+    Priority:
+      1. Active follow-up schedule → use its trigger_message_id to find the
+         exact CX_SentEmails row → return that row's thread_id. This ensures
+         the follow-up replies to the specific thread that started the series.
+      2. Fallback → most recent CX_SentEmails row with a thread_id.
+    """
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import CXSentEmail, CXFollowUpSchedule, Potential
+    from sqlalchemy import select
+
+    with get_session() as session:
+        # Try to anchor on the active FU schedule's trigger email
+        pn = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none()
+
+        if pn:
+            # Find the most recently FIRED schedule — that's the one whose FU
+            # agent result is currently showing in Next Action. Pending schedules
+            # from newer emails (e.g. a manual compose from Email tab) are excluded.
+            schedule = session.execute(
+                select(CXFollowUpSchedule).where(
+                    CXFollowUpSchedule.potential_number == pn,
+                    CXFollowUpSchedule.trigger_message_id.is_not(None),
+                    CXFollowUpSchedule.status == "fired",
+                ).order_by(CXFollowUpSchedule.fired_time.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if schedule and schedule.trigger_message_id:
+                sent_row = session.execute(
+                    select(CXSentEmail).where(
+                        CXSentEmail.potential_id == potential_id,
+                        CXSentEmail.internet_message_id == schedule.trigger_message_id,
+                        CXSentEmail.is_active == True,
+                    )
+                ).scalar_one_or_none()
+                if sent_row and sent_row.thread_id:
+                    return ResponseModel(data={
+                        "thread_id": sent_row.thread_id,
+                        "internet_message_id": sent_row.internet_message_id,
+                    })
+
+        # Fallback: most recent sent email with a thread_id
+        fallback = session.execute(
+            select(CXSentEmail).where(
+                CXSentEmail.potential_id == potential_id,
+                CXSentEmail.is_active == True,
+                CXSentEmail.thread_id.is_not(None),
+            ).order_by(CXSentEmail.sent_time.desc()).limit(1)
+        ).scalar_one_or_none()
+
+    if not fallback:
+        return ResponseModel(data={"thread_id": None, "internet_message_id": None})
+    return ResponseModel(data={
+        "thread_id": fallback.thread_id,
+        "internet_message_id": fallback.internet_message_id,
+    })
+
+
+# ── Email threads (from sync table) ──────────────────────────────────────────
+
+@router.get("/potentials/{potential_id}/email-threads")
+def get_potential_email_threads(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[EmailThreadsResponse]:
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import Potential
+    from sqlalchemy import select
+    with get_session() as session:
+        pn = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none()
+    if not pn:
+        return ResponseModel(data=EmailThreadsResponse(threads=[], total_messages=0))
+    return ResponseModel(data=get_email_threads(potential_id, pn))
 
 
 # ── Legacy endpoint ───────────────────────────────────────────────────────────

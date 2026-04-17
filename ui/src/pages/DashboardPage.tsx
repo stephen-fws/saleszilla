@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown, Sparkles } from "lucide-react";
+import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown, Sparkles, Settings } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import {
   getFolders,
@@ -12,12 +12,15 @@ import {
   updatePotential,
   getUpcomingMeetingBriefs,
   resolveMeetingBrief,
+  getLookups,
 } from "@/lib/api";
+import type { LookupData } from "@/lib/api";
 import NewPotentialModal from "@/components/potentials/NewPotentialModal";
 import GlobalSearch from "@/components/layout/GlobalSearch";
 import type { CalendarEvent, MeetingBriefItem } from "@/lib/api";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import GlobalChatPanel from "@/components/chat/GlobalChatPanel";
+import SettingsDrawer from "@/components/settings/SettingsDrawer";
 import MeetingBriefOverlay from "@/components/sidebar/MeetingBriefOverlay";
 import MeetingBriefsList from "@/components/sidebar/MeetingBriefsList";
 import type {
@@ -29,7 +32,6 @@ import type {
   AccountSummary,
   AccountFilters,
 } from "@/types";
-import { SERVICES } from "@/types";
 import { DEAL_STAGES } from "@/types";
 import FolderPanel from "@/components/sidebar/FolderPanel";
 import QueuePanel from "@/components/queue/QueuePanel";
@@ -65,6 +67,7 @@ export default function DashboardPage() {
   const [activeBrief, setActiveBrief] = useState<MeetingBriefItem | null>(null);
   const meetingBriefsAbortRef = useRef<AbortController | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -207,6 +210,7 @@ export default function DashboardPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [lookups, setLookups] = useState<LookupData>({ services: [], subServiceMap: {}, stages: [], industries: [] });
   const [newPotentialOpen, setNewPotentialOpen] = useState(false);
 
   // Auto-close the meeting brief overlay when the user navigates somewhere else.
@@ -231,7 +235,10 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       setLoadingFolders(true);
-      const list = await refreshFolders();
+      const [list] = await Promise.all([
+        refreshFolders(),
+        getLookups().then(setLookups).catch(() => {}),
+      ]);
       if (list.length > 0 && !selectedFolderId) setSelectedFolderId(list[0].id);
       setLoadingFolders(false);
     }
@@ -606,6 +613,14 @@ export default function DashboardPage() {
                   <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
                 </div>
                 <button
+                  onClick={() => { setUserMenuOpen(false); setSettingsOpen(true); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Settings
+                </button>
+                <div className="border-t border-slate-100" />
+                <button
                   onClick={() => { setUserMenuOpen(false); logout(); window.location.assign("/login"); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors"
                 >
@@ -654,6 +669,8 @@ export default function DashboardPage() {
               includeTeam={includeTeam}
               onIncludeTeamChange={setIncludeTeam}
               currentUserName={user?.name ?? null}
+              masterStages={lookups.stages}
+              masterServices={lookups.services.map((s) => s.name)}
             />
           </div>
         </>
@@ -688,6 +705,8 @@ export default function DashboardPage() {
               includeTeam={includeTeam}
               onIncludeTeamChange={setIncludeTeam}
               currentUserName={user?.name ?? null}
+              masterStages={lookups.stages}
+              masterServices={lookups.services.map((s) => s.name)}
             />
           </div>
         )}
@@ -805,8 +824,8 @@ export default function DashboardPage() {
                 setViewMode("potentials");
                 setSelectedDealId(dealId);
               }}
-              availableStages={filterOptions.stages}
-              availableServices={SERVICES}
+              availableStages={lookups.stages}
+              availableServices={lookups.services.map((s) => s.name)}
               initialTab={viewMode === "queue" ? (currentFolderType === "emails-sent" ? "emails" : "action") : newDealInitialTab}
             />
           )}
@@ -817,9 +836,13 @@ export default function DashboardPage() {
         isOpen={newPotentialOpen}
         onClose={() => setNewPotentialOpen(false)}
         onCreated={handlePotentialCreated}
-        availableStages={filterOptions.stages}
-        availableServices={SERVICES}
+        availableStages={lookups.stages}
+        availableServices={lookups.services.map((s) => s.name)}
+        subServiceMap={lookups.subServiceMap}
+        industries={lookups.industries}
       />
+
+      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {calendarOpen && (
         <CalendarPanel onClose={() => {

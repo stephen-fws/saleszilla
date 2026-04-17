@@ -56,6 +56,7 @@ AGENTFLOW_API_KEY: str = os.getenv("AGENTFLOW_API_KEY", "")
 AGENTFLOW_CALLBACK_CONNECTION: str = os.getenv("AGENTFLOW_CALLBACK_CONNECTION", "salezilla_webhook")
 AGENTFLOW_GRAPH_NEW_POTENTIAL: str = os.getenv("AGENTFLOW_GRAPH_NEW_POTENTIAL", "")
 AGENTFLOW_GRAPH_MEETING_BRIEF: str = os.getenv("AGENTFLOW_GRAPH_MEETING_BRIEF", "")
+AGENTFLOW_GRAPH_FOLLOW_UP: str = os.getenv("AGENTFLOW_GRAPH_FOLLOW_UP", "")
 
 # ── Twilio (calling) ─────────────────────────────────────────────────────────
 TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")

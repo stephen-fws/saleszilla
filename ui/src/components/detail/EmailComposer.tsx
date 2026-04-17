@@ -269,6 +269,7 @@ interface EmailComposerProps {
   contactEmail?: string | null;
   contactName?: string | null;
   signature?: string | null;
+  isNextAction?: boolean;
   onClose: () => void;
   onSent: () => void;
   onDraftSaved: (draft: EmailDraft) => void;
@@ -276,6 +277,7 @@ interface EmailComposerProps {
 
 export default function EmailComposer({
   dealId, initialDraft, contactEmail, contactName, signature,
+  isNextAction = false,
   onClose, onSent, onDraftSaved,
 }: EmailComposerProps) {
   // id=0 is the "not yet persisted" sentinel from agent-generated drafts
@@ -288,24 +290,30 @@ export default function EmailComposer({
   const [cc, setCc] = useState<string[]>(initialDraft?.ccEmails ?? []);
   const [bcc, setBcc] = useState<string[]>(initialDraft?.bccEmails ?? []);
   const [subject, setSubject] = useState(initialDraft?.subject ?? "");
-  const [body, setBody] = useState(initialDraft?.body ?? "");
+  // Body starts with the signature appended (if available and not already present)
+  // so the user can see and edit it directly inside the editor.
+  const computeInitialBody = (): string => {
+    const raw = initialDraft?.body ?? "";
+    if (!signature) return raw;
+    // Avoid double-adding when the draft was already saved with a signature
+    if (raw.includes("-- <br/>") || raw.includes("-- <br />") || raw.includes("-- <br>")) return raw;
+    const sigHtml = `<br/><br/>-- <br/>${signature.replace(/\n/g, "<br/>")}`;
+    return raw + sigHtml;
+  };
+  const [body, setBody] = useState(computeInitialBody);
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [showCc, setShowCc] = useState((initialDraft?.ccEmails?.length ?? 0) > 0);
   const [showBcc, setShowBcc] = useState((initialDraft?.bccEmails?.length ?? 0) > 0);
-  const [showSignature, setShowSignature] = useState(!!signature);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-append signature when toggled on
-  const signatureHtml = signature
-    ? `<br/><br/>-- <br/>${signature.replace(/\n/g, "<br/>")}`
-    : "";
-
+  // The editor holds the entire email content (including signature). Send/save
+  // use `body` as-is — no post-hoc signature appending.
   function getFullBody() {
-    return showSignature ? body + signatureHtml : body;
+    return body;
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -343,7 +351,7 @@ export default function EmailComposer({
         const updated = await updateEmailDraft(dealId, draftId, payload);
         onDraftSaved(updated);
       } else {
-        const created = await createEmailDraft(dealId, payload);
+        const created = await createEmailDraft(dealId, payload, isNextAction);
         setDraftId(created.id);
         onDraftSaved(created);
       }
@@ -419,15 +427,6 @@ export default function EmailComposer({
           {!showBcc && (
             <button type="button" onClick={() => setShowBcc(true)} className="text-[11px] text-blue-500 hover:text-blue-700">+ BCC</button>
           )}
-          {signature && (
-            <button
-              type="button"
-              onClick={() => setShowSignature((v) => !v)}
-              className={`text-[11px] ml-auto ${showSignature ? "text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
-            >
-              {showSignature ? "Signature ✓" : "Add signature"}
-            </button>
-          )}
         </div>
 
         {/* Subject */}
@@ -443,7 +442,7 @@ export default function EmailComposer({
         </div>
       </div>
 
-      {/* Body */}
+      {/* Body — signature is part of the editable content, inserted at mount */}
       <div className="flex-1 min-h-0 flex flex-col">
         <RichEditor initialValue={body} onChange={setBody} placeholder="Write your email…" />
       </div>

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from core.database import get_session
-from core.models import Account, CXAgentInsight, CXAgentTypeConfig, CXEmailDraft, CXSentEmail, CXActivity, CXQueueItem, Contact, Potential
+from core.models import Account, CXEmailDraft, CXSentEmail, CXActivity, CXQueueItem, Contact, Potential
 from core.schemas import EmailDraftResponse, SentEmailResponse
 
 
@@ -64,6 +64,7 @@ def record_sent_email(
     subject: str,
     body: str,
     thread_id: str | None = None,
+    internet_message_id: str | None = None,
     draft_id: int | None = None,
     contact_id: str | None = None,
     account_id: str | None = None,
@@ -76,7 +77,8 @@ def record_sent_email(
             potential_id=potential_id, contact_id=contact_id, account_id=account_id,
             draft_id=draft_id, from_email=from_email, from_name=from_name,
             to_email=to_email, to_name=to_name, subject=subject, body=body,
-            thread_id=thread_id, sent_by_user_id=user_id, sent_time=now,
+            thread_id=thread_id, internet_message_id=internet_message_id,
+            sent_by_user_id=user_id, sent_time=now,
             created_time=now, updated_time=now, is_active=True,
         )
         session.add(sent)
@@ -98,41 +100,56 @@ def record_sent_email(
         )
         session.add(activity)
 
-        # Add to "Emails Sent" queue folder — display like a deal card (deal name / company · contact)
-        potential_row = session.execute(
-            select(Potential, Account, Contact)
-            .outerjoin(Account, Potential.account_id == Account.account_id)
-            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
-            .where(Potential.potential_id == potential_id)
-        ).first()
-        if potential_row:
-            p, a, c = potential_row
-            deal_title = p.potential_name or "(untitled)"
-            company = a.account_name if a else None
-            contact_name = c.full_name if c else None
-            parts = [x for x in [company, contact_name] if x]
-            deal_subtitle = " · ".join(parts) if parts else to_email
-        else:
-            deal_title = subject[:200] if subject else "(no subject)"
-            deal_subtitle = to_email
+        # Add to "Emails Sent" queue folder — upsert so one potential appears at most once.
+        # If a pending row already exists for this potential, just bump its timestamp.
+        existing_sent_item = session.execute(
+            select(CXQueueItem).where(
+                CXQueueItem.potential_id == potential_id,
+                CXQueueItem.folder_type == "emails-sent",
+                CXQueueItem.status == "pending",
+                CXQueueItem.is_active == True,
+            ).limit(1)
+        ).scalar_one_or_none()
 
-        queue_item = CXQueueItem(
-            potential_id=potential_id,
-            contact_id=contact_id,
-            account_id=account_id,
-            folder_type="emails-sent",
-            title=deal_title,
-            subtitle=deal_subtitle,
-            preview=subject[:200] if subject else None,
-            time_label=now.strftime("%Y-%m-%d"),
-            priority="normal",
-            status="pending",
-            assigned_to_user_id=user_id,
-            created_time=now,
-            updated_time=now,
-            is_active=True,
-        )
-        session.add(queue_item)
+        if existing_sent_item:
+            existing_sent_item.preview = subject[:200] if subject else existing_sent_item.preview
+            existing_sent_item.time_label = now.strftime("%Y-%m-%d")
+            existing_sent_item.updated_time = now
+            session.add(existing_sent_item)
+        else:
+            potential_row = session.execute(
+                select(Potential, Account, Contact)
+                .outerjoin(Account, Potential.account_id == Account.account_id)
+                .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+                .where(Potential.potential_id == potential_id)
+            ).first()
+            if potential_row:
+                p, a, c = potential_row
+                deal_title = p.potential_name or "(untitled)"
+                company = a.account_name if a else None
+                contact_name = c.full_name if c else None
+                parts = [x for x in [company, contact_name] if x]
+                deal_subtitle = " · ".join(parts) if parts else to_email
+            else:
+                deal_title = subject[:200] if subject else "(no subject)"
+                deal_subtitle = to_email
+
+            session.add(CXQueueItem(
+                potential_id=potential_id,
+                contact_id=contact_id,
+                account_id=account_id,
+                folder_type="emails-sent",
+                title=deal_title,
+                subtitle=deal_subtitle,
+                preview=subject[:200] if subject else None,
+                time_label=now.strftime("%Y-%m-%d"),
+                priority="normal",
+                status="pending",
+                assigned_to_user_id=user_id,
+                created_time=now,
+                updated_time=now,
+                is_active=True,
+            ))
 
         # Complete any pending "new-inquiries" queue item for this potential
         # — sending the FRE means the inquiry has been handled
@@ -149,28 +166,9 @@ def record_sent_email(
             new_inquiry.updated_time = now
             session.add(new_inquiry)
 
-        # Mark ALL "next_action" agent insights for this potential as actioned so
-        # the Next Action tab knows this suggested action has been completed.
-        # CXAgentInsights are keyed on potential_number (7-digit), not UUID.
-        # Join with CXAgentTypeConfig.tab_type (the source of truth) rather than
-        # relying on CXAgentInsight.agent_type which may drift.
-        potential_number = session.execute(
-            select(Potential.potential_number).where(Potential.potential_id == potential_id)
-        ).scalar_one_or_none() or potential_id
-        next_action_insights = session.execute(
-            select(CXAgentInsight)
-            .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
-            .where(
-                CXAgentInsight.potential_id == potential_number,
-                CXAgentTypeConfig.tab_type == "next_action",
-                CXAgentInsight.status != "actioned",
-                CXAgentInsight.is_active == True,
-            )
-        ).scalars().all()
-        for insight in next_action_insights:
-            insight.status = "actioned"
-            insight.updated_time = now
-            session.add(insight)
+        # Next Action insights are NOT marked actioned here — email sends from the
+        # Email tab are independent of the AI-suggested next action. The user clears
+        # Next Action explicitly via Skip/Done buttons on the Next Action tab.
 
         session.flush()
         session.refresh(sent)

@@ -124,14 +124,17 @@ async def send_mail_via_graph(
     attachments: Optional[list[dict]] = None,
     thread_id: Optional[str] = None,
     reply_to_message_id: Optional[str] = None,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     """
     Send email via Microsoft Graph on behalf of the authenticated user.
 
     New email: draft -> send (two-step).
     Reply: find local message by conversationId -> createReply -> send.
 
-    Returns (provider_message_id, provider_thread_id).
+    Returns (provider_message_id, provider_thread_id, internet_message_id).
+    The internetMessageId is the RFC 5322 Message-ID header and is the key we
+    use to thread with the email sync service and to fetch the conversation
+    from Graph on a follow-up tick.
     """
 
     def _recipient(email: str) -> dict:
@@ -164,15 +167,8 @@ async def send_mail_via_graph(
             local_message_id: str | None = None
 
             if thread_id:
-                search_resp = await client.get(
-                    GRAPH_MESSAGES_URL,
-                    params={
-                        "$filter": f"conversationId eq '{thread_id}'",
-                        "$top": "1",
-                        "$select": "id",
-                    },
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
+                search_url = f"{GRAPH_MESSAGES_URL}?$filter=conversationId eq '{_odata_encode(thread_id)}'&$top=1&$select=id"
+                search_resp = await client.get(search_url, headers={"Authorization": f"Bearer {access_token}"})
                 if search_resp.status_code == 200:
                     msgs = search_resp.json().get("value", [])
                     if msgs:
@@ -234,7 +230,149 @@ async def send_mail_via_graph(
             )
             send_resp.raise_for_status()
 
-    return message_id, conversation_id
+        # Fetch the sent message to read its RFC InternetMessageId header.
+        # The message lives in the user's Sent Items after send completes.
+        internet_message_id: str | None = None
+        if message_id:
+            try:
+                meta_resp = await client.get(
+                    f"{GRAPH_MESSAGES_URL}/{message_id}",
+                    params={"$select": "internetMessageId,conversationId"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if meta_resp.status_code == 200:
+                    meta = meta_resp.json()
+                    internet_message_id = meta.get("internetMessageId")
+                    # Prefer the post-send conversationId if different from the draft's
+                    conversation_id = meta.get("conversationId") or conversation_id
+            except Exception:
+                # Non-fatal — send already succeeded; we just won't have the internetMessageId
+                pass
+
+    return message_id, conversation_id, internet_message_id
+
+
+def fetch_thread_by_message_id(
+    access_token: str,
+    internet_message_id: str,
+    limit: int = 20,
+) -> list[dict]:
+    """Fetch the full email conversation for a given RFC internetMessageId.
+
+    Two-step: look up the message → get its conversationId → fetch thread.
+    Uses `requests` (not httpx) to avoid OData URL-encoding issues.
+
+    Returns a list (oldest first) with keys matching fetch_thread_by_conversation_id.
+    """
+    import requests as req
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # 1. Resolve conversationId
+    resolve = req.get(GRAPH_MESSAGES_URL, params={
+        "$filter": f"internetMessageId eq '{internet_message_id}'",
+        "$top": "1",
+        "$select": "id,conversationId",
+    }, headers=headers, timeout=15)
+    resolve.raise_for_status()
+    msgs = resolve.json().get("value", [])
+    if not msgs:
+        return []
+    conversation_id = msgs[0].get("conversationId")
+    if not conversation_id:
+        return []
+
+    # 2. Delegate to conversation fetcher
+    return fetch_thread_by_conversation_id(access_token, conversation_id, limit=limit)
+
+
+def _odata_encode(value: str) -> str:
+    """URL-encode a value for use inside an OData $filter expression.
+
+    ConversationId values are base64 and contain = + / characters that break
+    URL query-string parsing if left raw. Encoding the VALUE (not the operators)
+    ensures the HTTP layer doesn't misparse them.
+    """
+    from urllib.parse import quote
+    return quote(value, safe="")
+
+
+def fetch_thread_by_conversation_id(
+    access_token: str,
+    conversation_id: str,
+    limit: int = 30,
+) -> list[dict]:
+    """Fetch all emails in a conversation directly by conversationId.
+
+    Uses `requests` (not httpx) because httpx re-encodes OData $filter URLs,
+    breaking the base64 characters in conversationId values.
+
+    Returns a list (oldest first) of message dicts.
+    """
+    import requests as req
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    me_resp = req.get(GRAPH_ME_URL, params={"$select": "mail,userPrincipalName"}, headers=headers, timeout=15)
+    me_email = None
+    if me_resp.status_code == 200:
+        mm = me_resp.json()
+        me_email = (mm.get("mail") or mm.get("userPrincipalName") or "").lower()
+
+    select_fields = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,sentDateTime,receivedDateTime,body,hasAttachments"
+    # Note: $orderby is NOT supported alongside $filter on conversationId
+    # (Graph returns InefficientFilter). Sort in Python instead.
+    resp = req.get(GRAPH_MESSAGES_URL, params={
+        "$filter": f"conversationId eq '{conversation_id}'",
+        "$top": str(limit),
+        "$select": select_fields,
+        "$expand": "attachments($select=id,name,contentType,size)",
+    }, headers=headers, timeout=30)
+    resp.raise_for_status()
+    items = resp.json().get("value", [])
+    # Sort by receivedDateTime ascending (oldest first)
+    items.sort(key=lambda m: m.get("receivedDateTime") or m.get("sentDateTime") or "")
+
+    out: list[dict] = []
+    for m in items:
+        from_obj = (m.get("from") or {}).get("emailAddress") or {}
+        from_addr = from_obj.get("address") or ""
+        to_list = [
+            (r.get("emailAddress") or {}).get("address", "")
+            for r in (m.get("toRecipients") or [])
+        ]
+        cc_list = [
+            (r.get("emailAddress") or {}).get("address", "")
+            for r in (m.get("ccRecipients") or [])
+        ]
+        direction = "sent" if me_email and from_addr.lower() == me_email else "received"
+        body = (m.get("body") or {}).get("content") or ""
+
+        attachments = []
+        for att in (m.get("attachments") or []):
+            if att.get("@odata.type", "").endswith("itemAttachment"):
+                continue
+            attachments.append({
+                "id": att.get("id") or "",
+                "name": att.get("name") or "attachment",
+                "content_type": att.get("contentType") or "application/octet-stream",
+                "size": att.get("size") or 0,
+            })
+
+        out.append({
+            "graph_message_id": m.get("id"),
+            "direction": direction,
+            "from_email": from_addr,
+            "to_email": ", ".join([t for t in to_list if t]),
+            "cc": ", ".join([c for c in cc_list if c]) or None,
+            "subject": m.get("subject") or "",
+            "sent_time": m.get("sentDateTime"),
+            "received_time": m.get("receivedDateTime"),
+            "body": body[:8000],
+            "internet_message_id": m.get("internetMessageId"),
+            "conversation_id": m.get("conversationId"),
+            "has_attachments": bool(m.get("hasAttachments")),
+            "attachments": attachments,
+        })
+    return out
 
 
 # ── Calendar events ──────────────────────────────────────────────────────────

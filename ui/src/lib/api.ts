@@ -766,8 +766,8 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
 
 // ── Email drafts & send ──────────────────────────────────────────────────────
 
-export async function getEmailDrafts(dealId: string): Promise<EmailDraft[]> {
-  const res = await protectedApi.get(`/potentials/${dealId}/drafts`);
+export async function getEmailDrafts(dealId: string, isNextAction = false): Promise<EmailDraft[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/drafts`, { params: { is_next_action: isNextAction } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (res.data.data ?? []).map((r: any): EmailDraft => ({
     id: r.id,
@@ -786,8 +786,8 @@ export async function getEmailDrafts(dealId: string): Promise<EmailDraft[]> {
   }));
 }
 
-export async function createEmailDraft(dealId: string, data: Partial<EmailDraft>): Promise<EmailDraft> {
-  const res = await protectedApi.post(`/potentials/${dealId}/drafts`, {
+export async function createEmailDraft(dealId: string, data: Partial<EmailDraft>, isNextAction = false): Promise<EmailDraft> {
+  const res = await protectedApi.post(`/potentials/${dealId}/drafts?is_next_action=${isNextAction}`, {
     to_email: data.toEmail,
     to_name: data.toName,
     cc_emails: data.ccEmails,
@@ -858,6 +858,68 @@ export async function sendEmail(dealId: string, data: {
       content_bytes: a.contentBytes,
     })),
   });
+}
+
+export async function getEmailThreads(dealId: string): Promise<{ threads: import("@/types").SyncEmailThread[]; totalMessages: number }> {
+  const res = await protectedApi.get(`/potentials/${dealId}/email-threads`);
+  const d = res.data.data ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const threads = (d.threads ?? []).map((t: any) => ({
+    threadKey: t.thread_key ?? "",
+    subject: t.subject ?? "",
+    lastActivity: t.last_activity ?? null,
+    messageCount: t.message_count ?? 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    messages: (t.messages ?? []).map((m: any) => ({
+      id: m.id,
+      fromEmail: m.from_email ?? "",
+      toEmail: m.to_email ?? "",
+      cc: m.cc ?? null,
+      subject: m.subject ?? "",
+      body: m.body ?? null,
+      direction: m.direction ?? "received",
+      sentTime: m.sent_time ?? null,
+      receivedTime: m.received_time ?? null,
+      internetMessageId: m.internet_message_id ?? null,
+      threadId: m.thread_id ?? null,
+      graphMessageId: m.graph_message_id ?? null,
+      hasAttachments: m.has_attachments ?? false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      attachments: (m.attachments ?? []).map((a: any) => ({
+        id: a.id ?? "",
+        name: a.name ?? "attachment",
+        contentType: a.content_type ?? "",
+        size: a.size ?? 0,
+      })),
+    })),
+    replyThreadId: t.reply_thread_id ?? null,
+    replyToMessageId: t.reply_to_message_id ?? null,
+    isFlat: t.is_flat ?? false,
+  }));
+  return { threads, totalMessages: d.total_messages ?? 0 };
+}
+
+export async function downloadEmailAttachment(dealId: string, messageId: string, attachmentId: string, fileName: string): Promise<void> {
+  const res = await protectedApi.get(`/potentials/${dealId}/email-attachment`, {
+    params: { message_id: messageId, attachment_id: attachmentId },
+    responseType: "blob",
+  });
+  const blob = new Blob([res.data]);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+export async function resolveNextAction(dealId: string, action: "done" | "skip" = "done"): Promise<void> {
+  await protectedApi.post(`/potentials/${dealId}/next-action/resolve?action=${action}`);
+}
+
+export async function getReplyContext(dealId: string): Promise<{ threadId: string | null; internetMessageId: string | null }> {
+  const res = await protectedApi.get(`/potentials/${dealId}/reply-context`);
+  const d = res.data.data ?? {};
+  return { threadId: d.thread_id ?? null, internetMessageId: d.internet_message_id ?? null };
 }
 
 export async function getEmailSignature(): Promise<string | null> {
@@ -1219,6 +1281,26 @@ export async function getUpcomingMeetingBriefs(hoursAhead = 24): Promise<Meeting
   });
 }
 
+// ── Lookups (services, sub-services, stages, industries) ──────────────────────
+
+export interface LookupData {
+  services: { id: number; name: string }[];
+  subServiceMap: Record<string, string[]>;
+  stages: string[];
+  industries: string[];
+}
+
+export async function getLookups(): Promise<LookupData> {
+  const res = await protectedApi.get("/lookups");
+  const d = res.data.data ?? {};
+  return {
+    services: d.services ?? [],
+    subServiceMap: d.sub_service_map ?? {},
+    stages: d.stages ?? [],
+    industries: d.industries ?? [],
+  };
+}
+
 // ── Support email ─────────────────────────────────────────────────────────────
 
 export async function getSupportCategories(): Promise<Record<string, string>> {
@@ -1236,4 +1318,33 @@ export async function sendSupportEmail(data: {
     category: data.category,
     message: data.message ?? "",
   });
+}
+
+// ── User settings ─────────────────────────────────────────────────────────────
+
+export async function getUserSettings(): Promise<import("@/types").UserSettings> {
+  const res = await protectedApi.get("/me/settings");
+  const r = res.data.data ?? {};
+  return {
+    emailSignature: r.email_signature ?? null,
+    workingHoursStart: r.working_hours_start ?? null,
+    workingHoursEnd: r.working_hours_end ?? null,
+    timezone: r.timezone ?? null,
+  };
+}
+
+export async function updateUserSettings(data: Partial<import("@/types").UserSettings>): Promise<import("@/types").UserSettings> {
+  const res = await protectedApi.patch("/me/settings", {
+    email_signature: data.emailSignature,
+    working_hours_start: data.workingHoursStart,
+    working_hours_end: data.workingHoursEnd,
+    timezone: data.timezone,
+  });
+  const r = res.data.data ?? {};
+  return {
+    emailSignature: r.email_signature ?? null,
+    workingHoursStart: r.working_hours_start ?? null,
+    workingHoursEnd: r.working_hours_end ?? null,
+    timezone: r.timezone ?? null,
+  };
 }

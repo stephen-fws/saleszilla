@@ -128,6 +128,9 @@ class CXUserToken(Base):
     token_expiry: Mapped[datetime | None] = mapped_column("TokenExpiry", DateTime, nullable=True)
     calendar_sync_cursor: Mapped[str | None] = mapped_column("CalendarSyncCursor", String(256), nullable=True)
     email_signature: Mapped[str | None] = mapped_column("EmailSignature", UnicodeText, nullable=True)
+    working_hours_start: Mapped[str | None] = mapped_column("WorkingHoursStart", String(5), nullable=True)  # "09:00"
+    working_hours_end: Mapped[str | None] = mapped_column("WorkingHoursEnd", String(5), nullable=True)      # "18:00"
+    timezone: Mapped[str | None] = mapped_column("Timezone", String(64), nullable=True)                      # IANA, e.g. "Asia/Kolkata"
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
@@ -255,6 +258,7 @@ class CXUserEmailDraft(Base):
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+    is_next_action: Mapped[bool] = mapped_column("IsNextAction", Boolean, nullable=False, default=False)
 
 
 class CXSentEmail(Base):
@@ -274,6 +278,7 @@ class CXSentEmail(Base):
     subject: Mapped[str] = mapped_column("Subject", Unicode(512), nullable=False)
     body: Mapped[str] = mapped_column("Body", UnicodeText, nullable=False)
     thread_id: Mapped[str | None] = mapped_column("ThreadId", String(512), nullable=True)
+    internet_message_id: Mapped[str | None] = mapped_column("InternetMessageId", String(512), nullable=True)
     sent_by_user_id: Mapped[str | None] = mapped_column("SentByUserId", String(32), nullable=True)
     sent_time: Mapped[datetime] = mapped_column("SentTime", DateTime, nullable=False)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
@@ -448,3 +453,43 @@ class CXMeeting(Base):
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
+
+
+class CXFollowUpSchedule(Base):
+    """One row per scheduled follow-up tick (D3/D5/D8/D12)."""
+
+    __tablename__ = "CX_FollowUpSchedule"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    potential_id: Mapped[str] = mapped_column("PotentialId", String(32), nullable=False)
+    potential_number: Mapped[str] = mapped_column("PotentialNumber", String(20), nullable=False)
+    trigger_message_id: Mapped[str | None] = mapped_column("TriggerMessageId", String(512), nullable=True)
+    trigger_sent_time: Mapped[datetime] = mapped_column("TriggerSentTime", DateTime, nullable=False)
+    day_offset: Mapped[int] = mapped_column("DayOffset", Integer, nullable=False)
+    scheduled_time: Mapped[datetime] = mapped_column("ScheduledTime", DateTime, nullable=False)
+    status: Mapped[str] = mapped_column("Status", String(20), nullable=False, default="pending")
+    fired_time: Mapped[datetime | None] = mapped_column("FiredTime", DateTime, nullable=True)
+    insight_id: Mapped[int | None] = mapped_column("InsightId", Integer, nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column("CancelReason", String(50), nullable=True)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
+    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+
+
+class LookupService(Base):
+    __tablename__ = "service"
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True)
+    service: Mapped[str] = mapped_column("Service", String(128), nullable=False)
+    active: Mapped[int] = mapped_column("Active", Integer, nullable=False)
+
+
+class LookupSubservice(Base):
+    __tablename__ = "Subservices"
+    id: Mapped[int] = mapped_column("ID", Integer, primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(256), nullable=False)
+    service_id: Mapped[int] = mapped_column("ServiceID", Integer, nullable=False)
+
+
+class LookupPotentialStage(Base):
+    __tablename__ = "potentialstageid"
+    stage_id: Mapped[str] = mapped_column("StageID", String(32), primary_key=True)
+    stage_name: Mapped[str] = mapped_column("StageName", String(128), nullable=False)

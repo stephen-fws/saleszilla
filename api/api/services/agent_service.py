@@ -60,13 +60,15 @@ def _resolve_potential_number(identifier: str) -> str:
 
 # ── Config queries ────────────────────────────────────────────────────────────
 
-def list_active_configs() -> list[CXAgentTypeConfig]:
+def list_active_configs(trigger_category: str | None = None) -> list[CXAgentTypeConfig]:
     with get_session() as session:
         stmt = (
             select(CXAgentTypeConfig)
             .where(CXAgentTypeConfig.is_active == True)
             .order_by(CXAgentTypeConfig.sort_order)
         )
+        if trigger_category:
+            stmt = stmt.where(CXAgentTypeConfig.trigger_category == trigger_category)
         return list(session.execute(stmt).scalars().all())
 
 
@@ -329,8 +331,8 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
     # DB insights are keyed on potential_number (7-digit business key), not UUID
     pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
 
-    # If agent configs exist, upsert pending insight rows so the UI shows spinners
-    configs = list_active_configs()
+    # Only create insight rows for newEnquiry agents (not followUp, meetingBrief, etc.)
+    configs = list_active_configs(trigger_category="newEnquiry")
     if not configs:
         return
 

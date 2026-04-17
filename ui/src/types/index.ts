@@ -363,6 +363,73 @@ export interface ContactForCall {
 
 export type CallState = "idle" | "fetching-token" | "connecting" | "ringing" | "in-progress" | "completed" | "failed";
 
+// ── Email threads ─────────────────────────────────────────────────────────────
+
+export interface SyncEmailAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+}
+
+export interface SyncEmailMessage {
+  id: number;
+  fromEmail: string;
+  toEmail: string;
+  cc: string | null;
+  subject: string;
+  body: string | null;
+  direction: "sent" | "received";
+  sentTime: string | null;
+  receivedTime: string | null;
+  internetMessageId: string | null;
+  threadId: string | null;
+  graphMessageId: string | null;
+  hasAttachments: boolean;
+  attachments: SyncEmailAttachment[];
+}
+
+export interface SyncEmailThread {
+  threadKey: string;
+  subject: string;
+  messages: SyncEmailMessage[];
+  lastActivity: string | null;
+  messageCount: number;
+  replyThreadId: string | null;       // MS Graph conversationId for threading
+  replyToMessageId: string | null;    // internetMessageId for reply-to
+  isFlat: boolean;                    // true = legacy data, no Graph threading
+}
+
+// ── User settings ─────────────────────────────────────────────────────────────
+
+export interface UserSettings {
+  emailSignature: string | null;
+  workingHoursStart: string | null;   // "09:00"
+  workingHoursEnd: string | null;     // "18:00"
+  timezone: string | null;            // IANA, e.g. "Asia/Kolkata"
+}
+
+export const COMMON_TIMEZONES: { value: string; label: string }[] = [
+  { value: "Asia/Kolkata",         label: "Asia/Kolkata — India Standard Time" },
+  { value: "Asia/Dubai",           label: "Asia/Dubai — Gulf Standard Time" },
+  { value: "Asia/Singapore",       label: "Asia/Singapore — Singapore Time" },
+  { value: "Asia/Shanghai",        label: "Asia/Shanghai — China Standard Time" },
+  { value: "Asia/Tokyo",           label: "Asia/Tokyo — Japan Standard Time" },
+  { value: "Australia/Sydney",     label: "Australia/Sydney — AEST" },
+  { value: "Europe/London",        label: "Europe/London — GMT/BST" },
+  { value: "Europe/Berlin",        label: "Europe/Berlin — CET/CEST" },
+  { value: "Europe/Paris",         label: "Europe/Paris — CET/CEST" },
+  { value: "Europe/Madrid",        label: "Europe/Madrid — CET/CEST" },
+  { value: "America/New_York",     label: "America/New_York — Eastern Time" },
+  { value: "America/Chicago",      label: "America/Chicago — Central Time" },
+  { value: "America/Denver",       label: "America/Denver — Mountain Time" },
+  { value: "America/Phoenix",      label: "America/Phoenix — MST (no DST)" },
+  { value: "America/Los_Angeles",  label: "America/Los_Angeles — Pacific Time" },
+  { value: "America/Toronto",      label: "America/Toronto — Eastern Time" },
+  { value: "America/Sao_Paulo",    label: "America/Sao_Paulo — Brasília Time" },
+  { value: "UTC",                  label: "UTC" },
+];
+
 // ── Sales targets ─────────────────────────────────────────────────────────────
 
 export interface SalesTopDeal {

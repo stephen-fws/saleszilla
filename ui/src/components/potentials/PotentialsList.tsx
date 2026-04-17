@@ -269,17 +269,9 @@ export default function PotentialsList({
                         </span>
                       )}
                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        {onStageChange ? (
-                          <StageSelector
-                            stage={deal.stage}
-                            availableStages={availableStages}
-                            onStageChange={(s) => onStageChange(deal.id, s)}
-                          />
-                        ) : (
-                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[deal.stage] ?? "bg-slate-100 text-slate-600"}`}>
-                            {deal.stage}
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[deal.stage] ?? "bg-slate-100 text-slate-600"}`}>
+                          {deal.stage}
+                        </span>
                         {deal.category === "Diamond" && (
                           <span title="Diamond" className="text-base leading-none">💎</span>
                         )}

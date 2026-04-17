@@ -7,8 +7,9 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy } from "lucide-react";
-import { getAgentResults, getEmailDrafts, deleteEmailDraft } from "@/lib/api";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X } from "lucide-react";
+import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft } from "@/lib/api";
+import type { SyncEmailThread, SyncEmailMessage } from "@/types";
 import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";
 import EmailComposer from "./EmailComposer";
 
@@ -79,23 +80,58 @@ function parseFREDraft(rawContent: string): { subject: string; body: string } {
   const body = lines.slice(bodyStart).join("\n").trim();
 
   // Convert markdown body to simple HTML for the TipTap editor.
-  // Split on 1+ blank lines so 2, 3, or more consecutive \n all create paragraph breaks.
-  const htmlBody = body
-    .split(/\n\s*\n/)
-    .map((para) => para.trim())
-    .filter((para) => para.length > 0)
-    .map((para) => {
-      const escaped = para
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\n/g, "<br>");
-      return `<p>${escaped}</p>`;
-    })
-    .join("");
+  // Every \n becomes a <br> so the rendered output preserves the EXACT number
+  // of line breaks the agent emitted — two \n = two visible line breaks, etc.
+  const escaped = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br>");
+  const htmlBody = `<p>${escaped}</p>`;
 
   return { subject, body: htmlBody };
+}
+
+function PriorMessage({ msg }: { msg: SyncEmailMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const isSent = msg.direction === "sent";
+  const ts = msg.sentTime || msg.receivedTime;
+  const senderName = (msg.fromEmail || "").split("@")[0].split(/[._-]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const shortTs = ts
+    ? new Date(ts.endsWith("Z") ? ts : ts + "Z").toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+
+  return (
+    <div className="px-3 py-2">
+      <button onClick={() => setExpanded((v) => !v)} className="w-full flex items-start gap-2 text-left">
+        <div className={`flex h-6 w-6 items-center justify-center rounded-full shrink-0 mt-0.5 text-[9px] font-bold ${
+          isSent ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+        }`}>
+          {(msg.fromEmail || "?").slice(0, 2).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-slate-700 truncate">
+              {senderName}
+              {isSent && <span className="ml-1 text-[9px] text-emerald-600 font-normal">(You)</span>}
+            </span>
+            <span className="text-[10px] text-slate-400 shrink-0">{shortTs}</span>
+          </div>
+          {!expanded && (
+            <p className="text-[10px] text-slate-400 truncate mt-0.5">
+              {(msg.body || "").replace(/<[^>]*>/g, "").slice(0, 100)}
+            </p>
+          )}
+        </div>
+      </button>
+      {expanded && msg.body && (
+        <div className="mt-2 ml-8 text-xs text-slate-600 leading-relaxed prose prose-sm max-w-none"
+          dangerouslySetInnerHTML={{ __html: msg.body }}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSupport }: NextActionTabProps) {
@@ -108,6 +144,10 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
   const [savedDraft, setSavedDraft] = useState<EmailDraft | null>(null);
   // emailSent: set to the sent subject after the FRE is successfully sent
   const [emailSent, setEmailSent] = useState<string | null>(null);
+  const [signature, setSignature] = useState<string | null>(null);
+  const [replyContext, setReplyContext] = useState<{ threadId: string | null; internetMessageId: string | null }>({ threadId: null, internetMessageId: null });
+  const [priorThread, setPriorThread] = useState<SyncEmailThread | null>(null);
+  const [loadingThread, setLoadingThread] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
@@ -148,19 +188,38 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [hasPending, stuck, load]);
 
-  // When agent completes, parse the FRE draft
+  // When agent completes, parse the draft content.
+  // FRE: extract subject from first line of agent output.
+  // Follow-up: use prior thread's subject; entire agent output is the body.
   useEffect(() => {
     if (completedResult?.content) {
-      setDraftFromAgent(parseFREDraft(completedResult.content));
+      if (priorThread?.subject) {
+        // Follow-up — don't extract subject from content, use thread subject
+        const rawContent = completedResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const escaped = rawContent
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\n/g, "<br>");
+        const threadSubject = priorThread.subject;
+        const subject = threadSubject.startsWith("RE:") || threadSubject.startsWith("Re:")
+          ? threadSubject
+          : `RE: ${threadSubject}`;
+        setDraftFromAgent({ subject, body: `<p>${escaped}</p>` });
+      } else {
+        // FRE — extract subject from first line
+        setDraftFromAgent(parseFREDraft(completedResult.content));
+      }
     }
-  }, [completedResult]);
+  }, [completedResult, priorThread]);
 
   // On mount, check if user already saved a draft for this potential.
   // If so, that takes precedence over the raw agent content when opening composer.
   // If multiple drafts exist (from before the upsert fix), keep only the newest
   // and soft-delete the rest so the Emails tab doesn't show duplicates.
   useEffect(() => {
-    getEmailDrafts(dealId)
+    getEmailDrafts(dealId, true)
       .then((drafts) => {
         if (drafts.length === 0) return;
         setSavedDraft(drafts[0]); // most recently updated
@@ -168,6 +227,17 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
         drafts.slice(1).forEach((d) => deleteEmailDraft(dealId, d.id).catch(() => {}));
       })
       .catch(() => {});
+    getEmailSignature().then(setSignature).catch(() => {});
+    getReplyContext(dealId).then((ctx) => {
+      setReplyContext(ctx);
+      if (ctx.threadId) {
+        setLoadingThread(true);
+        getEmailThreads(dealId).then((data) => {
+          const match = data.threads.find((t) => t.replyThreadId === ctx.threadId);
+          if (match) setPriorThread(match);
+        }).catch(() => {}).finally(() => setLoadingThread(false));
+      }
+    }).catch(() => {});
   }, [dealId]);
 
   // Build the EmailDraft-like object for the composer
@@ -198,8 +268,8 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
       bccEmails: [],
       subject: draftFromAgent!.subject,
       body: draftFromAgent!.body,
-      replyToThreadId: null,
-      replyToMessageId: null,
+      replyToThreadId: replyContext.threadId,
+      replyToMessageId: replyContext.internetMessageId,
       status: "draft",
       createdTime: new Date().toISOString(),
       updatedTime: new Date().toISOString(),
@@ -212,12 +282,15 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           initialDraft={initialDraft}
           contactEmail={contactEmail}
           contactName={contactName}
-          signature={null}
+          signature={signature}
+          isNextAction
           onClose={() => setComposerOpen(false)}
-          onSent={() => {
+          onSent={async () => {
             setComposerOpen(false);
             setEmailSent(initialDraft.subject ?? "Email");
             setSavedDraft(null);
+            // Mark next_action as actioned — user sent the email from here
+            await resolveNextAction(dealId, "done").catch(() => {});
             onEmailSent?.();
           }}
           onDraftSaved={(draft) => setSavedDraft(draft)}
@@ -326,6 +399,9 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     : draftFromAgent;
 
   if (previewDraft) {
+    const isFollowUp = !!replyContext.threadId;
+    const draftLabel = isFollowUp ? "Follow-Up Draft" : "First Response Draft";
+
     return (
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="px-4 py-4 space-y-4">
@@ -334,36 +410,49 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
             <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <Mail className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-xs font-semibold text-slate-600">FRE Draft — Ready to Send</span>
+                <span className="text-xs font-semibold text-slate-600">{draftLabel} — Ready to Send</span>
                 {savedDraft && (
                   <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
                     Saved
                   </span>
                 )}
               </div>
-              <button
-                onClick={handleOpenComposer}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                <Mail className="h-3 w-3" />
-                Open in Composer
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={async () => { await resolveNextAction(dealId, "skip"); load(); }}
+                  title="Skip — not needed"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Skip
+                </button>
+                <button
+                  onClick={async () => { await resolveNextAction(dealId, "done"); load(); }}
+                  title="Mark done — action completed"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
+                >
+                  <Check className="h-3 w-3" />
+                  Done
+                </button>
+                <button
+                  onClick={handleOpenComposer}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <Mail className="h-3 w-3" />
+                  Open in Composer
+                </button>
+              </div>
             </div>
 
             <div className="px-4 py-3 space-y-3">
-              {/* To */}
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-semibold text-slate-400 uppercase w-12 shrink-0">To</span>
                 <span className="text-xs text-slate-700">{contactEmail || "—"}</span>
               </div>
-
-              {/* Subject */}
               <div className="flex items-start gap-2">
                 <span className="text-[10px] font-semibold text-slate-400 uppercase w-12 shrink-0 pt-0.5">Subject</span>
                 <span className="text-xs font-medium text-slate-800">{previewDraft.subject || "—"}</span>
               </div>
-
-              {/* Body preview */}
               <div className="border-t border-slate-100 pt-3">
                 <div
                   className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
@@ -372,6 +461,26 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
               </div>
             </div>
           </div>
+
+          {/* Prior conversation — shown for follow-ups */}
+          {loadingThread && (
+            <div className="flex items-center gap-2 py-3 text-slate-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span className="text-xs">Loading prior conversation…</span>
+            </div>
+          )}
+          {!loadingThread && priorThread && priorThread.messages.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-2">
+                Prior Conversation ({priorThread.messageCount} {priorThread.messageCount === 1 ? "message" : "messages"})
+              </p>
+              <div className="rounded-lg border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                {priorThread.messages.map((msg) => (
+                  <PriorMessage key={msg.id} msg={msg} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

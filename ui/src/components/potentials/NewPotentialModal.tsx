@@ -143,13 +143,16 @@ interface NewPotentialModalProps {
   onCreated: (dealId: string) => void;
   availableStages?: string[];
   availableServices?: string[];
+  subServiceMap?: Record<string, string[]>;
+  industries?: string[];
 }
 
 export default function NewPotentialModal({
-  isOpen, onClose, onCreated, availableStages,
+  isOpen, onClose, onCreated, availableStages, availableServices, subServiceMap, industries,
 }: NewPotentialModalProps) {
   const stages = availableStages?.length ? availableStages : Object.keys(STAGE_PROBABILITY);
-  const services = Object.keys(SUB_SERVICES); // Always use hardcoded list; will point to service table later
+  const services = availableServices?.length ? availableServices : Object.keys(SUB_SERVICES);
+  const subSvcMap = subServiceMap && Object.keys(subServiceMap).length ? subServiceMap : SUB_SERVICES;
 
   // ── Account ────────────────────────────────────────────────────────────────
   const [accountQuery, setAccountQuery] = useState("");
@@ -180,7 +183,7 @@ export default function NewPotentialModal({
   // ── Deal ───────────────────────────────────────────────────────────────────
   const [dealTitle, setDealTitle] = useState("");
   const [dealValue, setDealValue] = useState("");
-  const defaultStage = stages.includes("Pre Qualified") ? "Pre Qualified" : (stages[0] ?? "Pre Qualified");
+  const defaultStage = stages.includes("Open") ? "Open" : (stages[0] ?? "Open");
   const [stage, setStage] = useState(defaultStage);
   const [probability, setProbability] = useState<number>(STAGE_PROBABILITY[defaultStage] ?? 20);
   const [service, setService] = useState("");
@@ -214,7 +217,7 @@ export default function NewPotentialModal({
     setContactQuery(""); setContactOptions([]); setSelectedContact(null); setNewContact(false);
     setCtName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
     setDealTitle(""); setDealValue("");
-    const s0 = stages.includes("Pre Qualified") ? "Pre Qualified" : (stages[0] ?? "Pre Qualified");
+    const s0 = stages.includes("Open") ? "Open" : (stages[0] ?? "Open");
     setStage(s0); setProbability(STAGE_PROBABILITY[s0] ?? 20);
     setService(""); setSubService(""); setDescription("");
     setLeadSource(""); setDealType(""); setDealSize("");
@@ -352,7 +355,7 @@ export default function NewPotentialModal({
   const selectCls = (field = "") =>
     `w-full rounded-lg border ${fieldErrors[field] ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"} px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200 appearance-none cursor-pointer`;
 
-  const subServiceOptions = service ? (SUB_SERVICES[service] ?? []) : [];
+  const subServiceOptions = service ? (subSvcMap[service] ?? []) : [];
 
   return (
     <>
@@ -418,11 +421,17 @@ export default function NewPotentialModal({
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Industry</label>
                     <div className="relative">
-                      <select value={accIndustry} onChange={(e) => setAccIndustry(e.target.value)} className={selectCls()}>
-                        <option value="">Industry</option>
-                        {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        list="industry-list"
+                        value={accIndustry}
+                        onChange={(e) => setAccIndustry(e.target.value)}
+                        placeholder="Type to search…"
+                        className={inputCls("")}
+                      />
+                      <datalist id="industry-list">
+                        {(industries ?? INDUSTRIES).map((i) => <option key={i} value={i} />)}
+                      </datalist>
                     </div>
                   </div>
                 </div>
