@@ -433,6 +433,7 @@ class CXMeeting(Base):
     end_time: Mapped[datetime | None] = mapped_column("EndTime", DateTime, nullable=True)
     location: Mapped[str | None] = mapped_column("Location", Unicode(256), nullable=True)
     description: Mapped[str | None] = mapped_column("Description", UnicodeText, nullable=True)
+    meeting_link: Mapped[str | None] = mapped_column("MeetingLink", String(1024), nullable=True)
     meeting_type: Mapped[str | None] = mapped_column("MeetingType", String(32), nullable=True)
     attendees: Mapped[str | None] = mapped_column("Attendees", UnicodeText, nullable=True)
     user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)

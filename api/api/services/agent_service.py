@@ -440,15 +440,20 @@ def is_meeting_brief_stale(insight: CXAgentInsight, max_age_hours: int = 4) -> b
         return False  # Pending/running — not stale, just in flight
     now = datetime.now(timezone.utc)
     completed = insight.completed_time or insight.created_time
-    if completed and (now - completed).total_seconds() > max_age_hours * 3600:
-        return True
+    if completed:
+        c = completed.replace(tzinfo=timezone.utc) if completed.tzinfo is None else completed
+        if (now - c).total_seconds() > max_age_hours * 3600:
+            return True
     # Activity-aware: check if the Potential has been modified since
     with get_session() as session:
         modified_time = session.execute(
             select(Potential.modified_time).where(Potential.potential_id == insight.potential_id)
         ).scalar_one_or_none()
-    if modified_time and completed and modified_time > completed:
-        return True
+    if modified_time and completed:
+        m = modified_time.replace(tzinfo=timezone.utc) if modified_time.tzinfo is None else modified_time
+        c = completed.replace(tzinfo=timezone.utc) if completed.tzinfo is None else completed
+        if m > c:
+            return True
     return False
 
 
@@ -474,17 +479,26 @@ def fire_meeting_brief(
     # Resolve potential_number (7-digit) — insights are keyed on this, not UUID
     potential_number = _resolve_potential_number(potential_id)
 
-    # 5-minute hard floor — don't re-fire too aggressively
+    # Skip if insight already exists and is not stale
     existing = get_meeting_brief_insight(potential_number, ms_event_id)
-    if existing and existing.triggered_at:
-        triggered = existing.triggered_at.replace(tzinfo=timezone.utc) if existing.triggered_at.tzinfo is None else existing.triggered_at
-        seconds_since_trigger = (now - triggered).total_seconds()
-        if seconds_since_trigger < 300 and existing.status in ("pending", "running"):
+    if existing:
+        # Already completed and not stale — no need to re-fire
+        if existing.status == "completed" and not is_meeting_brief_stale(existing):
             logger.info(
-                "Skipping meeting_brief trigger for %s/%s — last fired %ds ago, still %s",
-                potential_id, ms_event_id, int(seconds_since_trigger), existing.status,
+                "Skipping meeting_brief trigger for %s/%s — already completed and fresh",
+                potential_number, ms_event_id,
             )
             return existing
+        # Still pending/running within 5-min window — throttle
+        if existing.triggered_at and existing.status in ("pending", "running"):
+            triggered = existing.triggered_at.replace(tzinfo=timezone.utc) if existing.triggered_at.tzinfo is None else existing.triggered_at
+            seconds_since_trigger = (now - triggered).total_seconds()
+            if seconds_since_trigger < 300:
+                logger.info(
+                    "Skipping meeting_brief trigger for %s/%s — last fired %ds ago, still %s",
+                    potential_number, ms_event_id, int(seconds_since_trigger), existing.status,
+                )
+                return existing
 
     with get_session() as session:
         # Load agent configs by role

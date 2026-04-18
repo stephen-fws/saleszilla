@@ -144,8 +144,7 @@ Key tables (ORM models in `api/core/models.py`):
 | `CX_ChatMessages` | `id` (int) | Per-potential AI chat history — keyed on `potential_id` = **potential_number** (7-digit), not UUID |
 | `CX_GlobalChatConversations` | `id` (int) | Global chat threads per user — has `Title` (AI-generated after first response) |
 | `CX_GlobalChatMessages` | `id` (int) | Global chat messages — has `ConversationId` FK to conversations table |
-| `CX_MeetingBriefDismissals` | `id` (int) | Per-user meeting brief done/skipped tracking. UNIQUE on `(UserId, MSEventId)` |
-| `CX_UserTokens` | — | MS OAuth tokens per user — has `ms_email` field used for sales target view matching |
+| `CX_UserTokens` | — | MS OAuth tokens per user — has `ms_email`, `WorkingHoursStart/End`, `Timezone`, `EmailSignature` |
 | `VW_actuals_vs_targets_salescopilot` | — | SQL Server view — daily invoice rows. Has `CustomerName`, `Email`, `Accountingmonth`, `Invoiceamount`, `targetsamount` columns |
 
 **Critical SQLAlchemy gotcha**: SQL Server BIT columns — use `== True` not `.is_(True)` in WHERE clauses.
@@ -252,7 +251,7 @@ Three-panel responsive layout:
 - MS Graph backed via `core/ms_graph.py`
 - **Required scopes**: `Calendars.ReadWrite`, `Mail.Send`, `People.Read`, `offline_access`
 - `People.Read` needed for attendee autocomplete search (`GET /me/people?$search=...`)
-- **OData `$` params**: must NOT be URL-encoded — build raw URL string (`?$search=query`), not httpx `params` dict (which encodes `$` → `%24`)
+- **OData `$` params**: for `$search`, build raw URL string. For `$filter` with conversationId/internetMessageId (base64 values with `=`), use `requests` library `params` dict (not httpx — httpx re-encodes breaking the filter). `$orderby` is NOT supported alongside `$filter` on conversationId (Graph returns InefficientFilter).
 - **Timezone**: event creation uses browser's IANA timezone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) passed as `timezone` field to backend/Graph
 - **Cross-midnight events**: `EventFormModal` tracks `endDate` separately from `date`; auto-advances to next day when end time ≤ start time using `timeToMinutes()` for numeric comparison (avoids string comparison bugs like `"23:15" >= "00:15"` being true)
 - **New event default time**: rounds current time up to next 30-minute boundary
@@ -530,18 +529,17 @@ Stage, Service, and Owner filters are **dynamically populated from the DB** via 
 
 ## Queue Folders
 
-Active folders (defined in `queue_service.py`):
-1. **Meeting Briefs** — client meetings in next 24h with AI-prepared briefs (uses live lazy-load, not CXQueueItem rows)
-2. **New Inquiries** — Recently assigned potentials with no prior activity
-3. **Reply** — Potentials awaiting reply
-4. **Follow Up Active** — Potentials awaiting follow-up
-5. **Follow Up Inactive** — Inactive follow-up potentials
+Active folders (defined in `queue_service.py`). All folders use `CXQueueItem` rows and render as potential cards via `QueuePanel`:
+1. **Meeting Briefs** — client meetings with AI-prepared meeting prep. Auto-expires 1hr after meeting end.
+2. **New Inquiries** — newly created potentials awaiting FRE
+3. **Reply** — client replied, reply draft ready
+4. **Follow Up Active** — follow-up draft ready (stage NOT IN Sleeping/Contact Later)
+5. **Follow Up Inactive** — follow-up for sleeping/contact-later potentials
 6. **News** — CRM news items
-7. **Emails Sent** — Sent email tracking
+7. **Emails Sent** — potentials where user sent email (no Done/Skip actions — action already taken). Deduplicated per potential.
 
-When the "Meeting Briefs" folder is selected, Panel 2 renders `MeetingBriefsList` (live from MS Graph + agent data) instead of `QueuePanel` (from `CXQueueItem` rows).
-
-All queue items in Panel 2 have **Done/Skip hover actions**: ✓ (emerald) marks `status=completed`, ✕ (red) marks `status=skipped`. Both are optimistic and fire-and-forget.
+All folders except Emails Sent have Done/Skip hover actions. Outlook-style date grouping on all lists.
+`CXQueueItem.potential_id` stores the **7-digit potential_number**. API response resolves UUID via Potential join for frontend navigation.
 
 ---
 
@@ -551,8 +549,9 @@ All queue items in Panel 2 have **Done/Skip hover actions**: ✓ (emerald) marks
 External agentflow system processes potentials and pushes results back. Salezilla triggers it and receives results via webhook.
 
 ### Tables
-- **`CX_AgentTypeConfig`** — registry of agents. Each row: `agent_id`, `agent_name`, `tab_type` (research/solution_brief/next_action), `content_type` (markdown/html), `sort_order`, `is_active`
-- **`CX_AgentInsights`** — results per potential per agent. Status: `pending` → `completed` / `error`
+- **`CX_AgentTypeConfig`** — registry of agents. Each row: `agent_id`, `agent_name`, `tab_type` (research/solution_brief/next_action), `trigger_category` (newEnquiry/followUp/reply/meeting_brief), `content_type` (markdown/html), `sort_order`, `is_active`. `TriggerCategory` drives which agents are created for each workflow.
+- **`CX_AgentInsights`** — results per potential per agent. Status: `pending` → `completed` / `error` / `actioned`. Keyed on 7-digit potential_number (not UUID).
+- **`CX_AgentDraftHistory`** — append-only audit log. Snapshots draft content before overwrite/resolve with `Resolution` (done/skip/replaced/overwritten).
 
 ### Trigger flow
 `init_agents_for_potential(potential_id, triggered_by)`:
@@ -637,9 +636,9 @@ WEBHOOK_API_KEY     # validates incoming webhook + init calls — must be set in
 
 After creation: UI auto-selects the new deal and opens the Next Action tab. Folder counts refresh via `refreshFolders()`.
 
-**Default stage**: `Pre Qualified` (set in both initial state and useEffect reset in `NewPotentialModal`)
+**Default stage**: `Open` (from `potentialstageid` table via `/lookups` endpoint)
 
-**Service list**: hardcoded in `SERVICES` constant (`types/index.ts`) — always shows the same 8 services regardless of existing data. Sub-services auto-populate from `SUB_SERVICES` map in `NewPotentialModal.tsx`.
+**Service list**: DB-driven via `GET /lookups` — services from `service` table, sub-services from `Subservices` table. Hardcoded `SERVICES` / `SUB_SERVICES` constants kept as fallbacks only.
 
 **Next Action tab for new inquiries**: `NextActionTab.tsx` wraps the agent result for `tab_type="next_action"`:
 - While agent is running: "Preparing FRE Draft" loading state
@@ -850,15 +849,217 @@ BASE_URL=https://xxx.ngrok-free.app  # Public URL for webhooks (ngrok in dev, re
 
 ---
 
+## Follow-Up Cadence System
+
+### Overview
+Automated follow-up scheduling triggered by outbound emails. Cadence: D3 → D5 → D8 → D12 (fixed). Cancelled on client reply. Supports both Salezilla-sent and Outlook-sent emails via sync service webhooks.
+
+### Tables
+- **`CX_FollowUpSchedule`** — one row per (potential, day_offset). Status: `pending` → `fired` / `cancelled`. Has `TriggerMessageId` (internetMessageId of outbound that started the series).
+- **`CX_AgentDraftHistory`** — append-only audit log. Snapshots agent draft content before overwrite/resolve. Tracks `Resolution` (done/skip/replaced/overwritten).
+
+### Trigger flow
+1. **Salezilla sends email** → proactive `start_new_series()` creates D3/D5/D8/D12 rows immediately
+2. **Sync service detects outbound** → `POST /webhooks/email-outbound` → idempotency check by `internetMessageId` → skips if series already exists
+3. **Client replies** → `POST /webhooks/email-inbound` → cancels pending schedules (scoped by `in_reply_to_message_id` to avoid race conditions) + triggers reply agent
+4. **Cloud Scheduler tick** (every 15 min) → `POST /internal/followups/tick` → processes due rows → honors working hours (user timezone) → fires agentflow graph
+
+### Agent trigger categories (CX_AgentTypeConfig.TriggerCategory)
+| Category | Tab | When triggered | Graph env var |
+|---|---|---|---|
+| `newEnquiry` | next_action + research + solution | New potential created | `AGENTFLOW_GRAPH_NEW_POTENTIAL` |
+| `followUp` | next_action | FU tick fires | `AGENTFLOW_GRAPH_FOLLOW_UP` |
+| `reply` | next_action | Client reply detected | `AGENTFLOW_GRAPH_REPLY` |
+| `meeting_brief` | next_action | Meeting detected | `AGENTFLOW_GRAPH_MEETING_BRIEF` |
+
+All categories check `has_research_completed()` — if research missing, adds research agents + category-specific agent. If research exists, only the category-specific agent.
+
+### Next Action tab behavior
+- **FRE** (`newEnquiry`): extracts subject from first line, rest is body. Email composer with reply context.
+- **Follow-Up** (`followUp`): subject from prior thread (`RE: ...`), entire agent output is body. Shows prior conversation below.
+- **Reply** (`reply`): same as follow-up pattern.
+- **Meeting Brief** (`meeting_brief`): NOT an email draft. Shows meeting info (title, time, participants, join link, description) + agent content (talking points, research). Skip/Done buttons only.
+- Labels adapt: "First Response Draft" / "Follow-Up Draft" / "Reply Draft" / "Meeting Prep"
+
+### Draft separation
+- Next Action drafts (`CX_UserEmailDrafts.IsNextAction = true`) are separate from Email tab drafts (`IsNextAction = false`)
+- Email tab sends do NOT clear Next Action
+- Only Skip/Done/Send-from-NextAction clears Next Action (via `POST /potentials/{id}/next-action/resolve`)
+
+### Folder pipeline
+```
+New Inquiries → [FRE sent] → Emails Sent → [D3 fires] → Follow Up Active
+                                                              ↓ client replies
+                                                          Reply (draft ready)
+                                                              ↓ user sends reply
+                                                          Emails Sent → [D3] → Follow Up → ...
+```
+- Potentials move between folders via `CXQueueItem` status changes
+- `CXQueueItem.potential_id` stores **7-digit potential_number** (not UUID). API response returns UUID via Potential join for frontend navigation.
+- **Emails Sent**: no Done/Skip actions (action already taken). Deduplicated — one queue item per potential.
+- **Follow Up Active**: stage NOT IN (Sleeping, Contact Later)
+- **Follow Up Inactive**: stage IN (Sleeping, Contact Later)
+- **Meeting Briefs**: auto-expires 1hr after meeting end time (frontend filter)
+
+---
+
+## Email Threads (Emails Tab)
+
+### Data sources (priority order)
+1. **MS Graph** (live) — for threads with a known `conversationId` from Salezilla-sent emails. Fetched via `fetch_thread_by_conversation_id()` using `requests` (not httpx — httpx re-encodes OData $filter URLs breaking base64 conversationIds).
+2. **CX_SentEmails** — Salezilla-sent emails (available immediately, no sync lag). Stores `InternetMessageId` + `ThreadId` (conversationId).
+3. **CRM_Sales_Sync_Emails** — email sync service captures (Outlook-sent + inbound). Columns: `[Related To]` (PotentialNumber), `[From]`, `[To]`, `CC`, `Subject`, `UniqueBody`, `SentTime`, `ReceivedTime`, `internetMessageID`.
+4. **Healing**: sync table emails with `internetMessageID` → resolve via Graph → upgrade to live thread.
+
+### Threading
+- Subject-based grouping (strip RE:/FW: prefixes) for non-Graph data
+- Graph threads use `conversationId` for accurate grouping
+- `is_flat` flag on threads without Graph threading (shows amber info banner)
+
+### Reply flow
+- Reply button on each thread → EmailComposer with `replyToThreadId` (conversationId) + `replyToMessageId`
+- `send_mail_via_graph` uses `createReply` when thread context provided → threads correctly in client's inbox
+- Reply context endpoint (`GET /potentials/{id}/reply-context`) anchors on the most recently **fired** FU schedule's trigger email
+
+### Attachments
+- Graph `$expand=attachments($select=id,name,contentType,size)` fetches attachment metadata
+- Download via proxy: `GET /potentials/{id}/email-attachment?message_id=...&attachment_id=...`
+- Backend fetches from Graph, decodes base64, returns binary with Content-Disposition
+
+### `send_mail_via_graph` returns 3 values
+`(message_id, conversation_id, internet_message_id)` — the last is fetched after send via a GET on the draft id. Stored on `CX_SentEmails.InternetMessageId`.
+
+---
+
+## User Settings
+
+- **Settings drawer** — right-side slide-out overlay from avatar dropdown
+- Stored on `CX_UserTokens`: `WorkingHoursStart` (HH:MM), `WorkingHoursEnd`, `Timezone` (IANA), `EmailSignature`
+- Endpoints: `GET /me/settings`, `PATCH /me/settings`
+- Defaults: 09:00–18:00, Asia/Kolkata
+- **Email signature**: auto-appended to composer body on mount (part of editable content, not separate section). User can delete per-email.
+- **Working hours**: follow-up tick only fires during owner's working hours in their timezone. `tzdata` pip package required on Windows.
+
+---
+
+## Support Email
+
+- **SupportEmailModal** — accessible via LifeBuoy icon in Panel 3 header (every potential)
+- Categories: Agent stuck, Research quality, Solution brief, Next action/FRE, Meeting brief, Email sending, AI chat, Call/Twilio, Data correction, Other
+- Sends via SendGrid to `SUPPORT_EMAIL_TO` (comma-separated list in env)
+- HTML email with potential context (deal #, company, contact, owner, stage, value, service)
+- **Auto-surfaced** when agents are stuck >2hrs — amber banner with "Contact Support" button pre-selecting "Agent stuck" category
+
+---
+
+## Lookup Tables (DB-driven lists)
+
+Master data served by `GET /lookups`:
+- **Services** — from `service` table (Active=1), 20 entries
+- **Sub-services** — from `Subservices` table, grouped by ServiceID → service name map
+- **Stages** — from `potentialstageid` table, 19 entries
+- **Industries** — distinct from `CompanyEnrichmentData.Industry`, 370+ entries (searchable datalist in UI)
+
+Default stage for new potentials: **"Open"** (was "Pre Qualified")
+
+---
+
+## Meeting Briefs (Updated)
+
+### Architecture change
+Meeting briefs now use the **standard queue flow** — `QueuePanel` + `DetailPanel` with all tabs. No more `MeetingBriefsList` / `MeetingBriefOverlay` custom components for rendering.
+
+### Meeting-to-potential binding
+`CX_Meetings` table is populated when a meeting is bound to a potential via Rule 2 (contact email) or Rule 3 (domain match). Stores: ms_event_id, potential_id, title, start/end time, location, description (HTML-stripped), `MeetingLink` (Teams/Zoom/Meet URL extracted from event), attendees.
+
+### Agent trigger
+Uses `TriggerCategory="meeting_brief"` from config. Same research-check pattern as FU/Reply. Graph: `AGENTFLOW_GRAPH_MEETING_BRIEF`.
+
+### Throttle
+- Completed + not stale (< 4hrs) → skip (no re-fire)
+- Pending/running within 5 min → skip
+- Stale or actioned → re-fire
+
+### Auto-expiry
+Frontend filters meetings where `meetingEnd + 1hr` has passed.
+
+### `CX_MeetingBriefDismissals` — DROPPED
+Replaced by `CXQueueItem` status changes via `resolve_next_action`.
+
+---
+
+## Terminology
+
+**Always say "potential"** — never "deal" or "deals" in any user-facing text, LLM prompts, or tool descriptions. Internal code variables (`dealId`, `dealName`) are fine. This applies to:
+- UI labels, placeholders, button text, form fields
+- Per-potential and global AI chat system prompts
+- CRM query tool descriptions and categories
+- Support email templates
+- Error messages
+
+---
+
+## Additional Environment Variables (new)
+
+```
+SUPPORT_EMAIL_TO=email1@domain.com,email2@domain.com
+AGENTFLOW_GRAPH_FOLLOW_UP=<graph-id>
+AGENTFLOW_GRAPH_REPLY=<graph-id>
+```
+
+---
+
+## Additional API Routes (new)
+
+| Route | File | Purpose |
+|---|---|---|
+| `POST /webhooks/email-outbound` | `routes/follow_ups.py` | Sync service → start FU series |
+| `POST /webhooks/email-inbound` | `routes/follow_ups.py` | Sync service → cancel FU + trigger reply agent |
+| `POST /internal/followups/tick` | `routes/follow_ups.py` | Cloud Scheduler → process due FU rows |
+| `GET /lookups` | `routes/lookups.py` | Services, sub-services, stages, industries from DB |
+| `POST /support/email` | `routes/support.py` | Send support email via SendGrid |
+| `GET /support/categories` | `routes/support.py` | Support issue categories |
+| `GET /me/settings` | `routes/emails.py` | User settings (signature, working hours, timezone) |
+| `PATCH /me/settings` | `routes/emails.py` | Update user settings |
+| `GET /potentials/{id}/email-threads` | `routes/emails.py` | Email threads from sync table + Graph |
+| `GET /potentials/{id}/reply-context` | `routes/emails.py` | Thread context for reply composer |
+| `GET /potentials/{id}/meeting-info` | `routes/emails.py` | Meeting details from CX_Meetings |
+| `GET /potentials/{id}/email-attachment` | `routes/emails.py` | Proxy attachment download from Graph |
+| `POST /potentials/{id}/next-action/resolve` | `routes/emails.py` | Skip/Done for Next Action (marks insight actioned) |
+
+---
+
+## Additional Database Tables (new)
+
+| Table | Purpose |
+|---|---|
+| `CX_FollowUpSchedule` | Follow-up cadence D3/D5/D8/D12 per potential |
+| `CX_AgentDraftHistory` | Audit log of agent drafts before overwrite/resolve |
+| `CRM_Sales_Sync_Emails` | Email sync service data (view: `VW_CRM_Sales_Sync_Emails`) |
+| `service` | Master service list (read-only lookup) |
+| `Subservices` | Sub-services grouped by ServiceID (read-only lookup) |
+| `potentialstageid` | Potential stage master list (read-only lookup) |
+| `CompanyEnrichmentData` | Company enrichment data — `Industry` column used for unique industry list |
+
+### Schema changes to existing tables
+- `CX_UserTokens` — added `WorkingHoursStart`, `WorkingHoursEnd`, `Timezone`
+- `CX_SentEmails` — added `InternetMessageId`
+- `CX_UserEmailDrafts` — added `IsNextAction` (BIT, default 0)
+- `CX_AgentTypeConfig` — `TriggerCategory` column drives agent selection (newEnquiry/followUp/reply/meeting_brief)
+- `CX_QueueItems` — `PotentialId` now stores 7-digit potential_number (not UUID)
+- `CX_Meetings` — added `MeetingLink`; now populated by meeting brief binding logic
+- `CX_MeetingBriefDismissals` — **DROPPED** (replaced by CXQueueItem status)
+
+---
+
 ## What Is NOT Yet Built
 
 - Mobile responsive polish (basic breakpoints exist, overlay panels not done)
 - RAG for uploaded files (files are stored in GCS; vector indexing + pgvector search deferred to future)
-- Meeting brief agent on the agentflow side (backend trigger + webhook receive are ready; agent logic TBD)
 - Out-of-app notifications (Slack DM, email digest) for meeting briefs
-- Polling safety net: stale `pending` meeting briefs not yet auto-failed after N minutes
-- Full email conversation table integration for chat context (currently uses `CX_SentEmails`; awaiting new table details)
-- `account` dimension for `pipeline_summary` group_by (needed for "which account has the most open deals" questions)
-- Call transcription: recording pipeline is built (MP3 → GCS → Files tab), but automatic speech-to-text is not yet wired. Options explored: Twilio Media Streams (server-side real-time), Deepgram/AssemblyAI (post-call or real-time browser SDK), Web Speech API (browser-side, rep's mic only). Deferred to future.
-- Twilio webhook request signature validation (currently open endpoints; should add `RequestValidator` for production)
-- Service/sub-service master table (currently hardcoded list in frontend)
+- Call transcription (recording pipeline built, STT not wired)
+- Twilio webhook request signature validation
+- `InReplyTo` column on `CRM_Sales_Sync_Emails` (sync team to add — enables stricter FU cancellation matching)
+- Smart reply healing (Option X) — search user's mailbox via Graph to thread old flat emails correctly
+- Business-day awareness for FU cadence (currently calendar days only)
+- Per-service/per-stage configurable FU cadence intervals

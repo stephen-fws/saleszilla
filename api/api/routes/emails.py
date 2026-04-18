@@ -368,6 +368,7 @@ def get_meeting_info(
         "end_time": row.end_time.isoformat() if row.end_time else None,
         "location": row.location,
         "description": row.description,
+        "meeting_link": row.meeting_link,
         "attendees": attendees,
         "ms_event_id": row.ms_event_id,
     })

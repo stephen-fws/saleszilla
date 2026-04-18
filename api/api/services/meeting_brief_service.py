@@ -145,6 +145,39 @@ def _external_attendees(event: dict) -> list[dict]:
 
 # ── Filtering + binding ──────────────────────────────────────────────────────
 
+def _strip_html(text: str) -> str:
+    """Convert HTML to readable plain text — preserves line breaks, strips boilerplate."""
+    import re
+    if not text:
+        return ""
+    s = text
+    # Convert block elements to newlines
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.IGNORECASE)
+    s = re.sub(r"</(?:div|p|tr|li|h[1-6])>", "\n", s, flags=re.IGNORECASE)
+    # Strip remaining tags
+    s = re.sub(r"<[^>]+>", "", s)
+    # Decode common entities
+    s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&#8203;", "")
+    # Collapse multiple blank lines but keep single newlines
+    s = re.sub(r"\n\s*\n+", "\n\n", s)
+    # Trim each line
+    s = "\n".join(line.strip() for line in s.split("\n"))
+    # Cut off common meeting boilerplate (Teams, Zoom, etc.)
+    for marker in [
+        "________________",
+        "Microsoft Teams meeting",
+        "Join with Google Meet",
+        "Join Zoom Meeting",
+        "RSVP to this event",
+        "This event has been created with",
+    ]:
+        idx = s.find(marker)
+        if idx > 0:
+            s = s[:idx]
+            break
+    return s.strip()
+
+
 def _save_meeting_binding(
     session, ms_event_id: str, event: dict, potential: Potential,
     account: Account | None, contact: Contact | None, user_id: str,
@@ -165,6 +198,24 @@ def _save_meeting_binding(
         start_str = (event.get("start") or {}).get("dateTime") or ""
         end_str = (event.get("end") or {}).get("dateTime") or ""
         attendees_raw = event.get("attendees") or []
+        # Extract meeting join URL: try Graph's onlineMeetingUrl first, fall back to body
+        join_url = (
+            event.get("onlineMeetingUrl")
+            or (event.get("onlineMeeting") or {}).get("joinUrl")
+        )
+        if not join_url:
+            import re as _re
+            body_html = (event.get("body") or {}).get("content", "")
+            link_match = _re.search(r'href="(https?://[^"]+)"', body_html)
+            if not link_match:
+                link_match = _re.search(r'(https?://teams\.microsoft\.com/\S+)', body_html)
+            if not link_match:
+                link_match = _re.search(r'(https?://\S*zoom\S+)', body_html)
+            if not link_match:
+                link_match = _re.search(r'(https?://meet\.google\.com/\S+)', body_html)
+            if link_match:
+                join_url = link_match.group(1).rstrip('"').rstrip("'")
+
         session.add(CXMeeting(
             ms_event_id=ms_event_id,
             potential_id=potential.potential_id,
@@ -174,7 +225,8 @@ def _save_meeting_binding(
             start_time=datetime.fromisoformat(start_str.replace("Z", "+00:00")) if start_str else now,
             end_time=datetime.fromisoformat(end_str.replace("Z", "+00:00")) if end_str else None,
             location=(event.get("location") or {}).get("displayName"),
-            description=(event.get("body") or {}).get("content", "")[:500],
+            description=_strip_html((event.get("body") or {}).get("content", ""))[:500],
+            meeting_link=join_url,
             attendees=json.dumps([a.get("emailAddress", {}).get("address", "") for a in attendees_raw])[:2000] if attendees_raw else None,
             user_id=user_id,
             created_time=now,

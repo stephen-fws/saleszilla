@@ -916,6 +916,33 @@ export async function resolveNextAction(dealId: string, action: "done" | "skip" 
   await protectedApi.post(`/potentials/${dealId}/next-action/resolve?action=${action}`);
 }
 
+export interface MeetingInfo {
+  title: string;
+  startTime: string | null;
+  endTime: string | null;
+  location: string | null;
+  description: string | null;
+  meetingLink: string | null;
+  attendees: string[];
+  msEventId: string | null;
+}
+
+export async function getMeetingInfo(dealId: string): Promise<MeetingInfo | null> {
+  const res = await protectedApi.get(`/potentials/${dealId}/meeting-info`);
+  const d = res.data.data;
+  if (!d) return null;
+  return {
+    title: d.title ?? "",
+    startTime: d.start_time ?? null,
+    endTime: d.end_time ?? null,
+    location: d.location ?? null,
+    description: d.description ?? null,
+    meetingLink: d.meeting_link ?? null,
+    attendees: d.attendees ?? [],
+    msEventId: d.ms_event_id ?? null,
+  };
+}
+
 export async function getReplyContext(dealId: string): Promise<{ threadId: string | null; internetMessageId: string | null }> {
   const res = await protectedApi.get(`/potentials/${dealId}/reply-context`);
   const d = res.data.data ?? {};

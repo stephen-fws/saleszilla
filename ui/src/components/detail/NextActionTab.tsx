@@ -7,9 +7,10 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X, CalendarClock, Users } from "lucide-react";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X, CalendarClock, Users, MapPin, Video, ExternalLink } from "lucide-react";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
-import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft } from "@/lib/api";
+import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft, getMeetingInfo } from "@/lib/api";
+import type { MeetingInfo } from "@/lib/api";
 import type { SyncEmailThread, SyncEmailMessage } from "@/types";
 import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";
 import EmailComposer from "./EmailComposer";
@@ -149,6 +150,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
   const [replyContext, setReplyContext] = useState<{ threadId: string | null; internetMessageId: string | null }>({ threadId: null, internetMessageId: null });
   const [priorThread, setPriorThread] = useState<SyncEmailThread | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
+  const [meetingInfo, setMeetingInfo] = useState<MeetingInfo | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
@@ -241,6 +243,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
         }).catch(() => {}).finally(() => setLoadingThread(false));
       }
     }).catch(() => {});
+    getMeetingInfo(dealId).then(setMeetingInfo).catch(() => {});
   }, [dealId]);
 
   // Build the EmailDraft-like object for the composer
@@ -410,8 +413,16 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     ? { subject: savedDraft.subject ?? "", body: savedDraft.body ?? "" }
     : draftFromAgent;
 
-  // Meeting brief — not an email draft, just info + agent content + skip/done
+  // Meeting brief — not an email draft, just meeting info + agent content + skip/done
   if (completedResult?.triggerCategory === "meeting_brief" && completedResult.content) {
+    const mi = meetingInfo;
+    const meetingLink = mi?.meetingLink || null;
+    const formatMeetingTime = (iso: string | null) => {
+      if (!iso) return "";
+      const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
+      return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    };
+
     return (
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="px-4 py-4 space-y-4">
@@ -439,25 +450,75 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
             </div>
           </div>
 
-          {/* Meeting details from potential */}
-          {detail && (
-            <div className="rounded-lg border border-purple-100 bg-purple-50/50 p-3 space-y-1.5">
-              {detail.contact?.name && (
-                <div className="flex items-center gap-1.5 text-xs text-slate-700">
-                  <Users className="h-3 w-3 text-purple-400" />
-                  <span className="font-medium">{detail.contact.name}</span>
-                  {detail.contact.title && <span className="text-slate-400">· {detail.contact.title}</span>}
+          {/* Meeting details card */}
+          <div className="rounded-lg border border-purple-200 bg-purple-50/50 overflow-hidden">
+            <div className="px-3 py-2 bg-purple-100/50 border-b border-purple-200">
+              <p className="text-xs font-semibold text-purple-900">{mi?.title || "Meeting"}</p>
+            </div>
+            <div className="px-3 py-2.5 space-y-2">
+              {/* Time */}
+              {mi?.startTime && (
+                <div className="flex items-center gap-2 text-xs text-slate-700">
+                  <Clock className="h-3 w-3 text-purple-400 shrink-0" />
+                  <span>{formatMeetingTime(mi.startTime)}</span>
+                  {mi.endTime && <span className="text-slate-400">→ {formatMeetingTime(mi.endTime)}</span>}
                 </div>
               )}
-              {detail.company?.name && (
-                <p className="text-[11px] text-slate-500 ml-[18px]">{detail.company.name}{detail.company.industry ? ` · ${detail.company.industry}` : ""}</p>
+
+              {/* Location / link */}
+              {mi?.location && (
+                <div className="flex items-start gap-2 text-xs text-slate-700">
+                  {meetingLink ? <Video className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" /> : <MapPin className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" />}
+                  <span>{mi.location}</span>
+                </div>
+              )}
+              {meetingLink && (
+                <div className="ml-5">
+                  <a href={meetingLink} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 underline underline-offset-2">
+                    <ExternalLink className="h-3 w-3" /> Join Meeting
+                  </a>
+                </div>
+              )}
+
+              {/* Participants */}
+              {mi?.attendees && mi.attendees.length > 0 && (
+                <div className="flex items-start gap-2 text-xs text-slate-700">
+                  <Users className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" />
+                  <div className="flex flex-wrap gap-1">
+                    {mi.attendees.map((email, i) => (
+                      <span key={i} className="inline-block bg-white border border-purple-100 rounded-full px-2 py-0.5 text-[10px] text-slate-600">
+                        {email}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Contact + Company from potential */}
+              {detail?.contact?.name && (
+                <div className="flex items-center gap-2 text-xs text-slate-600 pt-1 border-t border-purple-100">
+                  <span className="font-medium">{detail.contact.name}</span>
+                  {detail.contact.title && <span className="text-slate-400">· {detail.contact.title}</span>}
+                  {detail.company?.name && <span className="text-slate-400">· {detail.company.name}</span>}
+                </div>
+              )}
+
+              {/* Description */}
+              {mi?.description && (
+                <div className="pt-1 border-t border-purple-100">
+                  <p className="text-[11px] text-slate-500 line-clamp-3">{mi.description.replace(/<[^>]*>/g, "")}</p>
+                </div>
               )}
             </div>
-          )}
+          </div>
 
           {/* Agent content */}
-          <div className="rounded-lg border border-slate-200 p-4">
-            <MarkdownBlock content={completedResult.content} compact />
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-2">AI Meeting Prep</p>
+            <div className="rounded-lg border border-slate-200 p-4">
+              <MarkdownBlock content={completedResult.content} compact />
+            </div>
           </div>
         </div>
       </div>
