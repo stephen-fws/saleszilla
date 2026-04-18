@@ -389,20 +389,6 @@ class CXChatMessage(Base):
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
 
 
-class CXMeetingBriefDismissal(Base):
-    """Per-user dismissal of a meeting brief — keeps the meeting from re-appearing
-    in the upcoming briefs list after the user marks it done/skipped."""
-
-    __tablename__ = "CX_MeetingBriefDismissals"
-
-    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column("UserId", String(32), nullable=False)
-    ms_event_id: Mapped[str] = mapped_column("MSEventId", String(256), nullable=False)
-    status: Mapped[str] = mapped_column("Status", String(16), nullable=False)  # 'done' | 'skipped'
-    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
-    updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
-    is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
-
 
 class CXGlobalChatConversation(Base):
     """Global AI chat — one row per conversation thread per user."""
@@ -473,6 +459,26 @@ class CXFollowUpSchedule(Base):
     cancel_reason: Mapped[str | None] = mapped_column("CancelReason", String(50), nullable=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
+
+
+class CXAgentDraftHistory(Base):
+    """Append-only audit log — snapshots agent draft content before it gets
+    overwritten (upsert) or resolved (skip/done/sent)."""
+
+    __tablename__ = "CX_AgentDraftHistory"
+
+    id: Mapped[int] = mapped_column("Id", Integer, primary_key=True, autoincrement=True)
+    potential_id: Mapped[str] = mapped_column("PotentialId", String(20), nullable=False)
+    agent_id: Mapped[str] = mapped_column("AgentId", String(64), nullable=False)
+    agent_name: Mapped[str | None] = mapped_column("AgentName", Unicode(128), nullable=True)
+    trigger_category: Mapped[str | None] = mapped_column("TriggerCategory", String(32), nullable=True)
+    content: Mapped[str | None] = mapped_column("Content", UnicodeText, nullable=True)
+    status: Mapped[str] = mapped_column("Status", String(16), nullable=False)
+    resolution: Mapped[str | None] = mapped_column("Resolution", String(16), nullable=True)
+    triggered_at: Mapped[datetime | None] = mapped_column("TriggeredAt", DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column("CompletedAt", DateTime, nullable=True)
+    resolved_at: Mapped[datetime] = mapped_column("ResolvedAt", DateTime, nullable=False)
+    created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
 
 
 class LookupService(Base):

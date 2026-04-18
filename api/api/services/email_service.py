@@ -100,11 +100,15 @@ def record_sent_email(
         )
         session.add(activity)
 
+        # Resolve potential_number — CXQueueItem stores 7-digit number, not UUID
+        pn = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none() or potential_id
+
         # Add to "Emails Sent" queue folder — upsert so one potential appears at most once.
-        # If a pending row already exists for this potential, just bump its timestamp.
         existing_sent_item = session.execute(
             select(CXQueueItem).where(
-                CXQueueItem.potential_id == potential_id,
+                CXQueueItem.potential_id == pn,
                 CXQueueItem.folder_type == "emails-sent",
                 CXQueueItem.status == "pending",
                 CXQueueItem.is_active == True,
@@ -135,7 +139,7 @@ def record_sent_email(
                 deal_subtitle = to_email
 
             session.add(CXQueueItem(
-                potential_id=potential_id,
+                potential_id=pn,
                 contact_id=contact_id,
                 account_id=account_id,
                 folder_type="emails-sent",
@@ -152,10 +156,9 @@ def record_sent_email(
             ))
 
         # Complete any pending "new-inquiries" queue item for this potential
-        # — sending the FRE means the inquiry has been handled
         new_inquiry = session.execute(
             select(CXQueueItem).where(
-                CXQueueItem.potential_id == potential_id,
+                CXQueueItem.potential_id == pn,
                 CXQueueItem.folder_type == "new-inquiries",
                 CXQueueItem.status == "pending",
                 CXQueueItem.is_active == True,

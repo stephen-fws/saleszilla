@@ -18,6 +18,7 @@ from api.services.follow_up_service import (
     InboundEvent,
     OutboundEvent,
     cancel_series_on_reply,
+    trigger_reply_agent,
     process_due_schedules,
     start_new_series,
 )
@@ -77,16 +78,21 @@ def post_email_inbound(
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> ResponseModel[dict]:
     """Called by the sync service when it detects a reply from the client.
-    Cancels any pending follow-up schedules for the potential."""
+    Cancels any pending follow-up schedules and triggers the reply agent."""
     _require_webhook_key(x_api_key)
-    result = cancel_series_on_reply(InboundEvent(
+    event = InboundEvent(
         potential_number=data.potential_number,
         received_time=data.received_time,
         from_email=data.from_email,
         internet_message_id=data.internet_message_id,
         in_reply_to_message_id=data.in_reply_to_message_id,
-    ))
-    return ResponseModel(data=result)
+    )
+    cancel_result = cancel_series_on_reply(event)
+    reply_result = trigger_reply_agent(event)
+    return ResponseModel(data={
+        "fu_cancelled": cancel_result.get("cancelled", 0),
+        "reply_agents_created": reply_result.get("agents_created", 0),
+    })
 
 
 # ── Scheduler tick (Cloud Scheduler → Salezilla every N minutes) ─────────────

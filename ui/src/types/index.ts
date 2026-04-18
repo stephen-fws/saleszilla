@@ -245,6 +245,7 @@ export interface AgentResult {
   content: string | null;
   status: string; // "pending" | "completed" | "error"
   sortOrder: number;
+  triggerCategory: string | null;
   triggeredBy: string | null;
   triggeredAt: string | null;
   completedAt: string | null;

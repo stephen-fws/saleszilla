@@ -64,32 +64,12 @@ def list_queue_items(
 ) -> list[QueueItemResponse]:
     """Get queue items for a specific folder."""
     with get_session() as session:
-        if folder_type == "meeting-briefs":
-            stmt = select(CXQueueItem).where(
-                CXQueueItem.folder_type == folder_type,
-                CXQueueItem.status == "pending",
-                CXQueueItem.is_active == True,
-            ).order_by(CXQueueItem.time_label.asc())
-            if user_id:
-                stmt = stmt.where(CXQueueItem.assigned_to_user_id == user_id)
-            items = session.execute(stmt).scalars().all()
-            return [
-                QueueItemResponse(
-                    id=item.id, potential_id=item.potential_id,
-                    contact_id=item.contact_id, account_id=item.account_id,
-                    folder_type=item.folder_type, title=item.title,
-                    subtitle=item.subtitle, preview=item.preview,
-                    time_label=item.time_label, priority=item.priority,
-                    status=item.status, created_time=item.created_time,
-                )
-                for item in items
-            ]
-
-        # All other folders: join with Potential/Account/Contact to render
+        # All folders: join with Potential/Account/Contact to render
         # identical cards to the Potentials list view.
+        # CXQueueItem.potential_id stores 7-digit potential_number.
         stmt = (
             select(CXQueueItem, Potential, Account, Contact)
-            .outerjoin(Potential, CXQueueItem.potential_id == Potential.potential_id)
+            .outerjoin(Potential, CXQueueItem.potential_id == Potential.potential_number)
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
             .where(
@@ -112,7 +92,7 @@ def list_queue_items(
             subtitle = " · ".join(parts) if parts else (item.subtitle or "")
             result.append(QueueItemResponse(
                 id=item.id,
-                potential_id=item.potential_id,
+                potential_id=p.potential_id if p else item.potential_id,
                 contact_id=item.contact_id,
                 account_id=item.account_id,
                 folder_type=item.folder_type,

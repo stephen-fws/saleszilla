@@ -433,7 +433,7 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             contact_name = con.full_name if con else ""
 
         session.add(CXQueueItem(
-            potential_id=potential_id,
+            potential_id=potential_number,
             contact_id=contact_id,
             account_id=account_id,
             folder_type="new-inquiries",

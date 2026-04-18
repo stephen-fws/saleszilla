@@ -293,12 +293,7 @@ export default function FolderPanel({
                 const IconComponent = ICON_MAP[folder.icon] || Inbox;
                 const isSelected = folder.id === selectedId;
                 const isMeetingBriefs = folder.id === "meeting-briefs";
-                // Override the count for the meeting-briefs folder so it
-                // reflects the live lazy-loaded brief list, not the legacy
-                // CXQueueItem count which is unused for this folder.
-                const displayCount = isMeetingBriefs && meetingBriefsCount !== undefined
-                  ? meetingBriefsCount
-                  : folder.count;
+                const displayCount = folder.count;
                 return (
                   <button
                     key={folder.id}

@@ -126,7 +126,16 @@ export default function DashboardPage() {
     setMeetingBriefsError(null);
     try {
       const items = await getUpcomingMeetingBriefs(24);
-      setMeetingBriefs(items);
+      // Auto-expire: hide meetings whose end time + 1hr has passed
+      const now = Date.now();
+      const EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+      const active = items.filter((item) => {
+        const end = item.skeleton.meetingEnd;
+        if (!end) return true;
+        const endMs = new Date(end.endsWith("Z") ? end : end + "Z").getTime();
+        return isNaN(endMs) || now < endMs + EXPIRY_MS;
+      });
+      setMeetingBriefs(active);
       // If an overlay is open, keep its data fresh by re-binding to the latest version
       setActiveBrief((prev) => {
         if (!prev) return prev;
@@ -256,6 +265,18 @@ export default function DashboardPage() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [refreshMeetingBriefs, refreshFolders]);
+
+  const refreshQueueItems = useCallback(async () => {
+    if (!selectedFolderId || viewMode !== "queue") return;
+    try {
+      const data = await getQueue(selectedFolderId);
+      setQueueItems(data.items ?? []);
+    } catch { /* ignore */ }
+  }, [selectedFolderId, viewMode]);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshFolders(), refreshQueueItems()]);
+  }, [refreshFolders, refreshQueueItems]);
 
   // Fetch queue items when folder changes
   useEffect(() => {
@@ -737,7 +758,7 @@ export default function DashboardPage() {
           )}
 
           {viewMode === "queue" ? (
-            selectedFolderId === "meeting-briefs" ? (
+            selectedFolderId === "meeting-briefs-legacy" ? (
               <MeetingBriefsList
                 items={meetingBriefs}
                 loading={meetingBriefsLoading}
@@ -819,7 +840,7 @@ export default function DashboardPage() {
               accountId={viewMode === "accounts" ? selectedAccountId : null}
               folderType={viewMode === "queue" ? currentFolderType : "all-potentials"}
               onComplete={handleComplete}
-              onEmailSent={refreshFolders}
+              onEmailSent={refreshAll}
               onPotentialNavigate={(dealId) => {
                 setViewMode("potentials");
                 setSelectedDealId(dealId);

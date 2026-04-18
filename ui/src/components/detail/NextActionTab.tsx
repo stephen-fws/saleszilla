@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X } from "lucide-react";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X, CalendarClock, Users } from "lucide-react";
+import MarkdownBlock from "@/components/chat/MarkdownBlock";
 import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft } from "@/lib/api";
 import type { SyncEmailThread, SyncEmailMessage } from "@/types";
 import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";
@@ -188,13 +189,15 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [hasPending, stuck, load]);
 
-  // When agent completes, parse the draft content.
-  // FRE: extract subject from first line of agent output.
-  // Follow-up: use prior thread's subject; entire agent output is the body.
+  // When agent completes, parse the draft content based on triggerCategory:
+  // - "newEnquiry" (FRE): extract subject from first line of agent output
+  // - "followUp" / "reply": use prior thread's subject; entire agent output is body
+  const isFRE = completedResult?.triggerCategory === "newEnquiry";
+
   useEffect(() => {
     if (completedResult?.content) {
-      if (priorThread?.subject) {
-        // Follow-up — don't extract subject from content, use thread subject
+      if (!isFRE) {
+        // FU / Reply — entire agent output is the body, subject from prior thread
         const rawContent = completedResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         const escaped = rawContent
           .replace(/&/g, "&amp;")
@@ -202,7 +205,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           .replace(/>/g, "&gt;")
           .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
           .replace(/\n/g, "<br>");
-        const threadSubject = priorThread.subject;
+        const threadSubject = priorThread?.subject || completedResult.agentName || "Follow Up";
         const subject = threadSubject.startsWith("RE:") || threadSubject.startsWith("Re:")
           ? threadSubject
           : `RE: ${threadSubject}`;
@@ -326,15 +329,24 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
 
   // Agent still running
   if (hasPending) {
+    const pendingResult = results.find((r) => r.status === "pending" || r.status === "running");
+    const pendingCategory = pendingResult?.triggerCategory;
+    const pendingLabel = pendingCategory === "followUp" ? "Preparing Follow-Up Draft"
+      : pendingCategory === "reply" ? "Preparing Reply Draft"
+      : pendingCategory === "meeting_brief" ? "Preparing Meeting Brief"
+      : "Preparing First Response Email";
+    const pendingDesc = pendingCategory === "followUp" ? "The AI agent is drafting a follow-up email based on the prior conversation."
+      : pendingCategory === "reply" ? "The AI agent is drafting a reply based on the client's message."
+      : pendingCategory === "meeting_brief" ? "The AI agent is preparing talking points and research for your upcoming meeting."
+      : "The AI agent is researching the potential and drafting a First Response Email. This typically takes 20–40 seconds.";
+
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
         <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-4">
           <Bot className="h-6 w-6 text-blue-500 animate-pulse" />
         </div>
-        <p className="text-sm font-semibold text-slate-700 mb-1">Preparing FRE Draft</p>
-        <p className="text-xs text-slate-500 max-w-sm">
-          The AI agent is researching the potential and drafting a First Response Email. This typically takes 20–40 seconds.
-        </p>
+        <p className="text-sm font-semibold text-slate-700 mb-1">{pendingLabel}</p>
+        <p className="text-xs text-slate-500 max-w-sm">{pendingDesc}</p>
         <div className="flex items-center gap-2 mt-4 text-xs text-slate-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Agent working…
@@ -398,9 +410,65 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     ? { subject: savedDraft.subject ?? "", body: savedDraft.body ?? "" }
     : draftFromAgent;
 
+  // Meeting brief — not an email draft, just info + agent content + skip/done
+  if (completedResult?.triggerCategory === "meeting_brief" && completedResult.content) {
+    return (
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="px-4 py-4 space-y-4">
+          {/* Header with skip/done */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-purple-500" />
+              <span className="text-xs font-semibold text-slate-700">Meeting Prep</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={async () => { await resolveNextAction(dealId, "skip"); load(); onEmailSent?.(); }}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Skip
+              </button>
+              <button
+                onClick={async () => { await resolveNextAction(dealId, "done"); load(); onEmailSent?.(); }}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
+              >
+                <Check className="h-3 w-3" />
+                Done
+              </button>
+            </div>
+          </div>
+
+          {/* Meeting details from potential */}
+          {detail && (
+            <div className="rounded-lg border border-purple-100 bg-purple-50/50 p-3 space-y-1.5">
+              {detail.contact?.name && (
+                <div className="flex items-center gap-1.5 text-xs text-slate-700">
+                  <Users className="h-3 w-3 text-purple-400" />
+                  <span className="font-medium">{detail.contact.name}</span>
+                  {detail.contact.title && <span className="text-slate-400">· {detail.contact.title}</span>}
+                </div>
+              )}
+              {detail.company?.name && (
+                <p className="text-[11px] text-slate-500 ml-[18px]">{detail.company.name}{detail.company.industry ? ` · ${detail.company.industry}` : ""}</p>
+              )}
+            </div>
+          )}
+
+          {/* Agent content */}
+          <div className="rounded-lg border border-slate-200 p-4">
+            <MarkdownBlock content={completedResult.content} compact />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (previewDraft) {
-    const isFollowUp = !!replyContext.threadId;
-    const draftLabel = isFollowUp ? "Follow-Up Draft" : "First Response Draft";
+    const category = completedResult?.triggerCategory;
+    const draftLabel = category === "followUp" ? "Follow-Up Draft"
+      : category === "reply" ? "Reply Draft"
+      : "First Response Draft";
 
     return (
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -419,7 +487,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
               </div>
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={async () => { await resolveNextAction(dealId, "skip"); load(); }}
+                  onClick={async () => { await resolveNextAction(dealId, "skip"); load(); onEmailSent?.(); }}
                   title="Skip — not needed"
                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
                 >
@@ -427,7 +495,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
                   Skip
                 </button>
                 <button
-                  onClick={async () => { await resolveNextAction(dealId, "done"); load(); }}
+                  onClick={async () => { await resolveNextAction(dealId, "done"); load(); onEmailSent?.(); }}
                   title="Mark done — action completed"
                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
                 >

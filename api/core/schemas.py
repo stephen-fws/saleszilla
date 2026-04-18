@@ -394,6 +394,7 @@ class AgentResultItem(BaseModel):
     content: Optional[str] = None
     status: str = "pending"
     sort_order: int = 0
+    trigger_category: Optional[str] = None
     triggered_by: Optional[str] = None
     triggered_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

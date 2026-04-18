@@ -29,8 +29,8 @@ from sqlalchemy import select, text
 import core.config as config
 from core.database import get_session
 from core.models import (
-    Account, Contact, CXAgentInsight, CXAgentTypeConfig, CXFollowUpSchedule,
-    CXQueueItem, CXUserToken, Potential, User,
+    Account, Contact, CXAgentDraftHistory, CXAgentInsight, CXAgentTypeConfig,
+    CXFollowUpSchedule, CXQueueItem, CXUserToken, Potential, User,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,6 +202,177 @@ def cancel_series_on_reply(event: InboundEvent) -> dict:
     return {"ok": True, "cancelled": len(pending)}
 
 
+def trigger_reply_agent(event: InboundEvent) -> dict:
+    """On an inbound from the client: trigger the reply agent graph so a draft
+    is ready for the user. Also creates the 'reply' queue item and completes
+    any 'emails-sent' queue item.
+
+    Logic mirrors the FU flow:
+      - Check if research exists → create insight rows accordingly
+      - Mark any pending next_action as actioned (FU draft replaced by reply draft)
+      - Trigger agentflow with category='reply' + email thread context
+    """
+    now = datetime.now(tzutil.utc)
+
+    with get_session() as session:
+        potential_uuid = _resolve_potential_uuid(session, event.potential_number)
+        if not potential_uuid:
+            logger.warning("trigger_reply_agent: unknown potential=%s", event.potential_number)
+            return {"ok": False, "reason": "unknown_potential"}
+
+        # Mark any pending next_action as actioned (FU or FRE being replaced by reply)
+        _mark_pending_next_actions_actioned(session, event.potential_number, now)
+
+        # Create insight rows: research (if missing) + reply agent
+        reply_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "reply",
+            )
+        ).scalars().all()
+        research_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.tab_type == "research",
+            )
+        ).scalars().all()
+
+        research_agent_ids = {c.agent_id for c in research_configs}
+        has_research = True
+        if research_agent_ids:
+            completed = set(session.execute(
+                select(CXAgentInsight.agent_id).where(
+                    CXAgentInsight.potential_id == event.potential_number,
+                    CXAgentInsight.is_active == True,
+                    CXAgentInsight.status == "completed",
+                    CXAgentInsight.ms_event_id.is_(None),
+                    CXAgentInsight.agent_id.in_(research_agent_ids),
+                )
+            ).scalars().all())
+            has_research = research_agent_ids.issubset(completed)
+
+        configs_to_fire = list(reply_configs)
+        if not has_research:
+            configs_to_fire = research_configs + configs_to_fire
+            logger.info("trigger_reply_agent: research missing for %s — adding %d research + %d reply agents",
+                         event.potential_number, len(research_configs), len(reply_configs))
+        else:
+            logger.info("trigger_reply_agent: research exists for %s — adding %d reply agents only",
+                         event.potential_number, len(reply_configs))
+
+        for cfg in configs_to_fire:
+            _upsert_pending_insight(session, event.potential_number, cfg, now)
+
+        # Queue item: create/update "reply" folder item, complete "emails-sent"
+        potential = session.execute(
+            select(Potential, Account, Contact)
+            .outerjoin(Account, Potential.account_id == Account.account_id)
+            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+            .where(Potential.potential_id == potential_uuid)
+        ).first()
+
+        if potential:
+            p, a, c = potential
+            deal_title = p.potential_name or "(untitled)"
+            parts = [x for x in [a.account_name if a else None, c.full_name if c else None] if x]
+            subtitle = " · ".join(parts) if parts else ""
+
+            # Upsert reply queue item
+            existing_qi = session.execute(
+                select(CXQueueItem).where(
+                    CXQueueItem.potential_id == event.potential_number,
+                    CXQueueItem.folder_type == "reply",
+                    CXQueueItem.status == "pending",
+                    CXQueueItem.is_active == True,
+                )
+            ).scalar_one_or_none()
+
+            if existing_qi:
+                existing_qi.time_label = now.strftime("%Y-%m-%d")
+                existing_qi.updated_time = now
+                session.add(existing_qi)
+            else:
+                session.add(CXQueueItem(
+                    potential_id=event.potential_number,
+                    contact_id=c.contact_id if c else None,
+                    account_id=a.account_id if a else None,
+                    folder_type="reply",
+                    title=deal_title,
+                    subtitle=subtitle,
+                    preview=f"Reply from {event.from_email or 'client'}",
+                    time_label=now.strftime("%Y-%m-%d"),
+                    priority="normal",
+                    status="pending",
+                    assigned_to_user_id=p.potential_owner_id,
+                    created_time=now,
+                    updated_time=now,
+                    is_active=True,
+                ))
+
+            # Complete emails-sent + follow-up queue items
+            for folder in ("emails-sent", "follow-up-active", "follow-up-inactive"):
+                qi = session.execute(
+                    select(CXQueueItem).where(
+                        CXQueueItem.potential_id == event.potential_number,
+                        CXQueueItem.folder_type == folder,
+                        CXQueueItem.status == "pending",
+                        CXQueueItem.is_active == True,
+                    )
+                ).scalar_one_or_none()
+                if qi:
+                    qi.status = "completed"
+                    qi.updated_time = now
+                    session.add(qi)
+
+    # Trigger agentflow — fire-and-forget
+    if config.AGENTFLOW_GRAPH_REPLY:
+        potential_data = _load_potential_data(potential_uuid)
+        email_thread = _load_email_thread(
+            potential_id=potential_uuid,
+            potential_number=event.potential_number,
+            trigger_message_id=event.internet_message_id,
+        )
+        url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
+        attributes = {
+            "customer_name": potential_data.get("customer_name", ""),
+            "contact_email": potential_data.get("contact_email", ""),
+            "contact_phone": potential_data.get("contact_phone", ""),
+            "company_name": potential_data.get("company_name", ""),
+            "company_website": potential_data.get("company_website", ""),
+            "customer_country": potential_data.get("customer_country", ""),
+            "service": potential_data.get("service", ""),
+            "sub_service": potential_data.get("sub_service", ""),
+            "customer_requirements": potential_data.get("description", ""),
+            "lead_source": potential_data.get("lead_source", ""),
+            "potential_id": potential_data.get("potential_number", ""),
+            "entity_owner_email": potential_data.get("owner_email", ""),
+            "category": "reply",
+            "client_email": event.from_email or "",
+            "client_message_id": event.internet_message_id or "",
+            "email_thread": email_thread,
+        }
+        payload = {
+            "graph_id": config.AGENTFLOW_GRAPH_REPLY,
+            "entity": {
+                "entity_type": "sales_lead",
+                "external_id": potential_data.get("potential_number", ""),
+                "attributes": attributes,
+            },
+            "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+            "callback_mode": "per_agent",
+        }
+        logger.info("trigger_reply_agent: POST %s potential=%s", url, event.potential_number)
+        try:
+            resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
+            logger.info("reply agent agentflow response: status=%s", resp.status_code)
+        except Exception as exc:
+            logger.error("trigger_reply_agent: agentflow failed: %s", exc)
+    else:
+        logger.warning("AGENTFLOW_GRAPH_REPLY not configured — reply agent trigger skipped")
+
+    return {"ok": True, "agents_created": len(configs_to_fire)}
+
+
 # ── Tick processing ──────────────────────────────────────────────────────────
 
 def _has_client_reply_since(potential_number: str, since: datetime) -> bool:
@@ -346,14 +517,34 @@ def _mark_pending_next_actions_actioned(session, potential_number: str, now: dat
         )
     ).scalars().all()
     for r in rows:
+        _snapshot_draft(session, r, "replaced", now)
         r.status = "actioned"
         r.updated_time = now
         session.add(r)
     return len(rows)
 
 
+def _snapshot_draft(session, insight: CXAgentInsight, resolution: str, now: datetime) -> None:
+    """Snapshot the current insight content to CX_AgentDraftHistory before overwriting."""
+    if not insight.content:
+        return
+    session.add(CXAgentDraftHistory(
+        potential_id=insight.potential_id,
+        agent_id=insight.agent_id,
+        agent_name=insight.agent_name,
+        trigger_category=insight.agent_type,
+        content=insight.content,
+        status=insight.status,
+        resolution=resolution,
+        triggered_at=insight.triggered_at,
+        completed_at=insight.completed_time,
+        resolved_at=now,
+        created_time=now,
+    ))
+
+
 def _upsert_pending_insight(session, potential_number: str, cfg: CXAgentTypeConfig, now: datetime) -> CXAgentInsight:
-    """Create or reset a single insight row to pending."""
+    """Create or reset a single insight row to pending. Snapshots old content before overwriting."""
     existing = session.execute(
         select(CXAgentInsight).where(
             CXAgentInsight.potential_id == potential_number,
@@ -363,6 +554,7 @@ def _upsert_pending_insight(session, potential_number: str, cfg: CXAgentTypeConf
     ).scalar_one_or_none()
 
     if existing:
+        _snapshot_draft(session, existing, "overwritten", now)
         existing.status = "pending"
         existing.content = None
         existing.error_message = None
@@ -546,7 +738,7 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
             # Upsert: one queue item per potential per follow-up folder
             existing_qi = session.execute(
                 select(CXQueueItem).where(
-                    CXQueueItem.potential_id == schedule_row.potential_id,
+                    CXQueueItem.potential_id == schedule_row.potential_number,
                     CXQueueItem.folder_type.in_(["follow-up-active", "follow-up-inactive"]),
                     CXQueueItem.status == "pending",
                     CXQueueItem.is_active == True,
@@ -562,7 +754,7 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
                 session.add(existing_qi)
             else:
                 session.add(CXQueueItem(
-                    potential_id=schedule_row.potential_id,
+                    potential_id=schedule_row.potential_number,
                     contact_id=c.contact_id if c else None,
                     account_id=a.account_id if a else None,
                     folder_type=folder,
@@ -581,7 +773,7 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
             # Complete any "emails-sent" queue item — potential is moving to follow-up
             emails_sent_qi = session.execute(
                 select(CXQueueItem).where(
-                    CXQueueItem.potential_id == schedule_row.potential_id,
+                    CXQueueItem.potential_id == schedule_row.potential_number,
                     CXQueueItem.folder_type == "emails-sent",
                     CXQueueItem.status == "pending",
                     CXQueueItem.is_active == True,

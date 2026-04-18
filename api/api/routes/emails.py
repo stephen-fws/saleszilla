@@ -226,7 +226,8 @@ def resolve_next_action(
             select(Potential.potential_number).where(Potential.potential_id == potential_id)
         ).scalar_one_or_none() or potential_id
 
-        # Mark next_action insights as actioned
+        # Snapshot + mark next_action insights as actioned
+        from core.models import CXAgentDraftHistory
         rows = session.execute(
             select(CXAgentInsight)
             .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
@@ -238,6 +239,21 @@ def resolve_next_action(
             )
         ).scalars().all()
         for r in rows:
+            # Snapshot before resolving
+            if r.content:
+                session.add(CXAgentDraftHistory(
+                    potential_id=r.potential_id,
+                    agent_id=r.agent_id,
+                    agent_name=r.agent_name,
+                    trigger_category=r.agent_type,
+                    content=r.content,
+                    status=r.status,
+                    resolution=action,
+                    triggered_at=r.triggered_at,
+                    completed_at=r.completed_time,
+                    resolved_at=now,
+                    created_time=now,
+                ))
             r.status = "actioned"
             r.updated_time = now
             session.add(r)
@@ -256,12 +272,11 @@ def resolve_next_action(
             d.updated_time = now
             session.add(d)
 
-        # Complete any pending follow-up / new-inquiries queue items so the
-        # potential moves out of those folders (into Emails Sent via record_sent_email)
-        for folder in ("follow-up-active", "follow-up-inactive", "new-inquiries"):
+        # Complete any pending queue items — use potential_number (7-digit) to match
+        for folder in ("follow-up-active", "follow-up-inactive", "new-inquiries", "reply", "meeting-briefs"):
             qi = session.execute(
                 select(CXQueueItem).where(
-                    CXQueueItem.potential_id == potential_id,
+                    CXQueueItem.potential_id == pn,
                     CXQueueItem.folder_type == folder,
                     CXQueueItem.status == "pending",
                     CXQueueItem.is_active == True,
@@ -317,6 +332,45 @@ async def download_email_attachment(
         media_type=content_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Meeting info (for meeting brief next action) ─────────────────────────────
+
+@router.get("/potentials/{potential_id}/meeting-info")
+def get_meeting_info(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Return the most recent meeting from CX_Meetings for this potential."""
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import CXMeeting
+    from sqlalchemy import select
+    import json as _json
+    with get_session() as session:
+        row = session.execute(
+            select(CXMeeting).where(
+                CXMeeting.potential_id == potential_id,
+                CXMeeting.is_active == True,
+            ).order_by(CXMeeting.start_time.desc()).limit(1)
+        ).scalar_one_or_none()
+    if not row:
+        return ResponseModel(data=None)
+    attendees = []
+    if row.attendees:
+        try:
+            attendees = _json.loads(row.attendees)
+        except Exception:
+            attendees = [row.attendees]
+    return ResponseModel(data={
+        "title": row.title,
+        "start_time": row.start_time.isoformat() if row.start_time else None,
+        "end_time": row.end_time.isoformat() if row.end_time else None,
+        "location": row.location,
+        "description": row.description,
+        "attendees": attendees,
+        "ms_event_id": row.ms_event_id,
+    })
 
 
 # ── Reply context (latest thread info for composing replies) ─────────────────

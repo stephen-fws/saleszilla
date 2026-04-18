@@ -1,4 +1,4 @@
-import { Briefcase, Building2, Video, Clock, Check, X } from "lucide-react";
+import { Briefcase, Building2, Check, X } from "lucide-react";
 import type { QueueItem } from "@/types";
 import { groupByDateBucket } from "@/lib/utils";
 
@@ -16,35 +16,6 @@ const STAGE_COLORS: Record<string, string> = {
   Lost: "bg-red-100 text-red-700",
 };
 
-function formatTime24to12(time24: string): string {
-  if (!time24 || !time24.includes(":")) return time24 || "";
-  const [h, m] = time24.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
-  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${h12}:${(m ?? 0).toString().padStart(2, "0")} ${period}`;
-}
-
-function MeetingTypeBadge({ type }: { type: string }) {
-  const styles: Record<string, string> = {
-    demo: "bg-purple-100 text-purple-700",
-    discovery: "bg-teal-100 text-teal-700",
-    "follow-up": "bg-amber-100 text-amber-700",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${
-        styles[type] || "bg-slate-100 text-slate-600"
-      }`}
-    >
-      {type}
-    </span>
-  );
-}
-
-function parseDuration(preview: string): string | null {
-  const match = preview.match(/Duration:\s*(\d+\s*min)/i);
-  return match ? match[1] : null;
-}
 
 
 interface QueuePanelProps {
@@ -91,7 +62,6 @@ export default function QueuePanel({
   loading = false,
   onResolveItem,
 }: QueuePanelProps) {
-  const isMeetingBriefs = folderType === "meeting-briefs";
   // Actions are hidden for "emails-sent" — the user already acted on the potential
   // (sent the email) when it moved into this folder.
   const showActions = folderType !== "emails-sent";
@@ -100,9 +70,7 @@ export default function QueuePanel({
     <div className="flex h-full flex-col bg-white">
       <div className="flex h-14 items-center border-b border-slate-200 px-4">
         <span className="text-sm font-semibold text-slate-900">
-          {isMeetingBriefs
-            ? `${items.length} ${items.length === 1 ? "meeting" : "meetings"} today`
-            : `${items.length} ${items.length === 1 ? "item" : "items"}`}
+          {`${items.length} ${items.length === 1 ? "item" : "items"}`}
         </span>
       </div>
 
@@ -137,58 +105,6 @@ export default function QueuePanel({
                 <div className="divide-y divide-slate-100">
                   {group.items.map((item) => {
               const isSelected = item.id === selectedItemId;
-
-              if (isMeetingBriefs) {
-                const displayTime = formatTime24to12(item.timeLabel);
-                const duration = parseDuration(item.preview);
-                const agendaText = item.preview.replace(/\s*Duration:\s*\d+\s*min\s*$/i, "");
-
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => onSelectItem(item.id)}
-                    className={`group cursor-pointer w-full p-3 text-left transition-colors ${
-                      isSelected
-                        ? "bg-blue-50 border-l-2 border-l-blue-500"
-                        : "hover:bg-slate-50 border-l-2 border-l-transparent"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${
-                          isSelected ? "bg-purple-100 text-purple-600" : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        <Video className="h-4 w-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-base font-bold ${isSelected ? "text-blue-900" : "text-slate-900"}`}>
-                            {displayTime}
-                          </span>
-                          {item.priority && <MeetingTypeBadge type={item.priority} />}
-                          {duration && (
-                            <span className="flex items-center gap-0.5 text-[10px] text-slate-400">
-                              <Clock className="h-2.5 w-2.5" />
-                              {duration}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-0.5">
-                          <span className={`text-sm font-medium ${isSelected ? "text-blue-800" : "text-slate-800"}`}>
-                            {item.title}
-                          </span>
-                          <span className="text-xs text-slate-500 ml-1.5">{item.subtitle}</span>
-                        </div>
-                        <p className={`mt-1 text-xs line-clamp-2 ${isSelected ? "text-blue-700" : "text-slate-400"}`}>
-                          {agendaText}
-                        </p>
-                      </div>
-                      {showActions && onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
-                    </div>
-                  </div>
-                );
-              }
 
               const [company, contact] = (item.subtitle ?? "").split(" · ");
               const stageColor = STAGE_COLORS[item.stage ?? ""] ?? "bg-slate-100 text-slate-600";

@@ -26,7 +26,7 @@ from sqlalchemy import select
 
 from core.database import get_session
 from core.ms_graph import fetch_calendar_events, get_valid_ms_token
-from core.models import Account, Contact, CXAgentInsight, CXMeeting, CXMeetingBriefDismissal, CXNote, CXSentEmail, CXTodo, Potential, User
+from core.models import Account, Contact, CXAgentInsight, CXMeeting, CXNote, CXSentEmail, CXTodo, Potential, User
 from api.services.agent_service import (
     MEETING_BRIEF_AGENT_TYPE,
     fire_meeting_brief,
@@ -145,10 +145,50 @@ def _external_attendees(event: dict) -> list[dict]:
 
 # ── Filtering + binding ──────────────────────────────────────────────────────
 
+def _save_meeting_binding(
+    session, ms_event_id: str, event: dict, potential: Potential,
+    account: Account | None, contact: Contact | None, user_id: str,
+) -> None:
+    """Persist the meeting→potential binding so Rule 1 catches it on repeat lookups."""
+    import json
+    now = datetime.now(timezone.utc)
+    existing = session.execute(
+        select(CXMeeting).where(CXMeeting.ms_event_id == ms_event_id)
+    ).scalar_one_or_none()
+    if existing:
+        existing.potential_id = potential.potential_id
+        existing.contact_id = contact.contact_id if contact else None
+        existing.account_id = account.account_id if account else None
+        existing.updated_time = now
+        session.add(existing)
+    else:
+        start_str = (event.get("start") or {}).get("dateTime") or ""
+        end_str = (event.get("end") or {}).get("dateTime") or ""
+        attendees_raw = event.get("attendees") or []
+        session.add(CXMeeting(
+            ms_event_id=ms_event_id,
+            potential_id=potential.potential_id,
+            contact_id=contact.contact_id if contact else None,
+            account_id=account.account_id if account else None,
+            title=event.get("subject", "(no subject)"),
+            start_time=datetime.fromisoformat(start_str.replace("Z", "+00:00")) if start_str else now,
+            end_time=datetime.fromisoformat(end_str.replace("Z", "+00:00")) if end_str else None,
+            location=(event.get("location") or {}).get("displayName"),
+            description=(event.get("body") or {}).get("content", "")[:500],
+            attendees=json.dumps([a.get("emailAddress", {}).get("address", "") for a in attendees_raw])[:2000] if attendees_raw else None,
+            user_id=user_id,
+            created_time=now,
+            updated_time=now,
+            is_active=True,
+        ))
+
+
 def _bind_meeting_to_potential(
-    session, event: dict, externals: list[dict]
+    session, event: dict, externals: list[dict], user_id: str = "",
 ) -> tuple[Potential, Account | None, Contact | None] | None:
     """Try to find a CRM Potential for this meeting using the 3-rule filter.
+    If bound via Rule 2 or 3, persists the binding to CX_Meetings so Rule 1
+    catches it on subsequent lookups.
 
     Returns (potential, account, contact) on match, or None if no binding."""
     ms_event_id = event.get("id", "")
@@ -207,6 +247,7 @@ def _bind_meeting_to_potential(
             ).first()
         if pot_row:
             p, acc = pot_row
+            _save_meeting_binding(session, ms_event_id, event, p, acc, c, user_id)
             return (p, acc, c)
 
     # Rule 3 — domain matches an Account.website
@@ -230,6 +271,7 @@ def _bind_meeting_to_potential(
                     ).first()
                     if pot_row:
                         p, contact = pot_row
+                        _save_meeting_binding(session, ms_event_id, event, p, acc, contact, user_id)
                         return (p, acc, contact)
 
     return None
@@ -240,45 +282,10 @@ def _bind_meeting_to_potential(
 DISMISSAL_STATUSES = {"done", "skipped"}
 
 
-def get_dismissed_event_ids(user_id: str) -> set[str]:
-    """Return the set of ms_event_ids the user has marked done/skipped."""
-    with get_session() as session:
-        rows = session.execute(
-            select(CXMeetingBriefDismissal.ms_event_id).where(
-                CXMeetingBriefDismissal.user_id == user_id,
-                CXMeetingBriefDismissal.is_active == True,
-            )
-        ).scalars().all()
-        return set(rows)
-
-
 def resolve_meeting_brief(user_id: str, ms_event_id: str, status: str) -> bool:
-    """Mark a meeting brief as done or skipped for a specific user.
-    Upserts a row in CX_MeetingBriefDismissals."""
-    if status not in DISMISSAL_STATUSES:
-        return False
-    now = datetime.now(timezone.utc)
-    with get_session() as session:
-        row = session.execute(
-            select(CXMeetingBriefDismissal).where(
-                CXMeetingBriefDismissal.user_id == user_id,
-                CXMeetingBriefDismissal.ms_event_id == ms_event_id,
-            )
-        ).scalar_one_or_none()
-        if row:
-            row.status = status
-            row.is_active = True
-            row.updated_time = now
-        else:
-            session.add(CXMeetingBriefDismissal(
-                user_id=user_id,
-                ms_event_id=ms_event_id,
-                status=status,
-                created_time=now,
-                updated_time=now,
-                is_active=True,
-            ))
-    return True
+    """Kept for backward compat — meeting brief dismissals now handled via
+    CXQueueItem status changes through resolve_next_action endpoint."""
+    return status in DISMISSAL_STATUSES
 
 
 # ── Find qualifying meetings ─────────────────────────────────────────────────
@@ -297,9 +304,8 @@ async def find_qualifying_meetings(user_id: str, hours_ahead: int = 24) -> list[
         len(raw_events), user_id, now.isoformat(), end_dt.isoformat(),
     )
 
-    dismissed_ids = get_dismissed_event_ids(user_id)
-    if dismissed_ids:
-        logger.info("[meeting_briefs] %d meetings dismissed by this user", len(dismissed_ids))
+    # Dismissals now tracked via CXQueueItem status (resolved by resolve_next_action)
+    dismissed_ids: set[str] = set()
 
     qualifying: list[dict[str, Any]] = []
     with get_session() as session:
@@ -325,7 +331,7 @@ async def find_qualifying_meetings(user_id: str, hours_ahead: int = 24) -> list[
                 )
                 continue
 
-            binding = _bind_meeting_to_potential(session, event, externals)
+            binding = _bind_meeting_to_potential(session, event, externals, user_id=user_id)
             if not binding:
                 logger.info(
                     "[meeting_briefs] DROP no CRM match: '%s' @ %s — externals=%s, no contact email match, no account.website domain match",

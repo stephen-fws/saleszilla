@@ -21,12 +21,13 @@ def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentRes
         id=insight.id,
         potential_id=insight.potential_id,
         agent_id=insight.agent_id or cfg.agent_id,
-        agent_name=cfg.agent_name,  # Always from CX_AgentTypeConfig — source of truth
+        agent_name=cfg.agent_name,
         tab_type=cfg.tab_type,
         content_type=insight.content_type or cfg.content_type,
         content=insight.content,
         status=insight.status,
         sort_order=cfg.sort_order,
+        trigger_category=cfg.trigger_category,
         triggered_by=insight.triggered_by,
         triggered_at=insight.triggered_at,
         completed_at=insight.completed_time,
@@ -291,11 +292,14 @@ def process_webhook(payload_data: dict) -> None:
     # If missing, log and drop — callback is an anomaly (stale execution, wrong id, etc).
     now = datetime.now(timezone.utc)
     with get_session() as session:
+        # Find the most recent pending/running row for this agent.
+        # Use .first() instead of .scalar_one_or_none() because meeting brief
+        # agents can have multiple rows (one per ms_event_id).
         existing = session.execute(
             select(CXAgentInsight).where(
                 CXAgentInsight.potential_id == external_id,
                 CXAgentInsight.agent_id == agent_id,
-            )
+            ).order_by(CXAgentInsight.triggered_at.desc()).limit(1)
         ).scalar_one_or_none()
         if not existing:
             logger.warning(
@@ -409,13 +413,22 @@ MEETING_BRIEF_AGENT_ID = "meeting_brief"  # convention: agentflow side keys on t
 
 
 def get_meeting_brief_insight(potential_id: str, ms_event_id: str) -> CXAgentInsight | None:
-    """Look up an existing meeting_brief insight row for this potential+meeting."""
+    """Look up an existing meeting_brief insight row for this potential+meeting.
+    Uses TriggerCategory='meeting_brief' from config to find the right agent_ids."""
     with get_session() as session:
+        mb_agent_ids = set(session.execute(
+            select(CXAgentTypeConfig.agent_id).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "meeting_brief",
+            )
+        ).scalars().all())
+        if not mb_agent_ids:
+            return None
         return session.execute(
             select(CXAgentInsight).where(
                 CXAgentInsight.potential_id == potential_id,
                 CXAgentInsight.ms_event_id == ms_event_id,
-                CXAgentInsight.agent_type == MEETING_BRIEF_AGENT_TYPE,
+                CXAgentInsight.agent_id.in_(mb_agent_ids),
                 CXAgentInsight.is_active == True,
             )
         ).scalar_one_or_none()
@@ -444,21 +457,28 @@ def fire_meeting_brief(
     ms_event_id: str,
     meeting_info: dict,
     triggered_by: str = "meeting_brief_lazy",
-) -> CXAgentInsight:
-    """Create-or-update the meeting_brief insight row to 'pending' and fire
-    the agentflow trigger. Sends category='meeting-prep' if base research is
-    incomplete (full chain), or 'meeting-brief-only' if base research is cached.
+) -> CXAgentInsight | None:
+    """Trigger the meeting brief graph for a potential+meeting.
 
-    `meeting_info` is sent as-is under the data.meeting_info key in the agentflow
-    payload. Expected keys: ms_event_id, title, start, end, is_online, location,
-    organizer, attendees, agenda.
+    Same pattern as FU/Reply:
+      - Check if research exists → create insight rows accordingly
+      - meeting_brief agents identified by TriggerCategory='meeting_brief'
+      - research agents identified by TabType='research'
+      - Trigger AGENTFLOW_GRAPH_MEETING_BRIEF with meeting_info context
+
+    Meeting brief insights are keyed on (potential_id, agent_id, ms_event_id)
+    so each meeting gets its own insight row per agent.
     """
     now = datetime.now(timezone.utc)
 
+    # Resolve potential_number (7-digit) — insights are keyed on this, not UUID
+    potential_number = _resolve_potential_number(potential_id)
+
     # 5-minute hard floor — don't re-fire too aggressively
-    existing = get_meeting_brief_insight(potential_id, ms_event_id)
+    existing = get_meeting_brief_insight(potential_number, ms_event_id)
     if existing and existing.triggered_at:
-        seconds_since_trigger = (now - existing.triggered_at).total_seconds()
+        triggered = existing.triggered_at.replace(tzinfo=timezone.utc) if existing.triggered_at.tzinfo is None else existing.triggered_at
+        seconds_since_trigger = (now - triggered).total_seconds()
         if seconds_since_trigger < 300 and existing.status in ("pending", "running"):
             logger.info(
                 "Skipping meeting_brief trigger for %s/%s — last fired %ds ago, still %s",
@@ -466,49 +486,142 @@ def fire_meeting_brief(
             )
             return existing
 
-    # Upsert the row to pending
     with get_session() as session:
-        row = session.execute(
-            select(CXAgentInsight).where(
-                CXAgentInsight.potential_id == potential_id,
-                CXAgentInsight.ms_event_id == ms_event_id,
-                CXAgentInsight.agent_type == MEETING_BRIEF_AGENT_TYPE,
+        # Load agent configs by role
+        mb_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "meeting_brief",
             )
-        ).scalar_one_or_none()
-        if row:
-            row.status = "pending"
-            row.content = None
-            row.error_message = None
-            row.triggered_by = triggered_by
-            row.triggered_at = now
-            row.completed_time = None
-            row.updated_time = now
-            row.is_active = True
-        else:
-            row = CXAgentInsight(
-                potential_id=potential_id,
-                agent_type=MEETING_BRIEF_AGENT_TYPE,
-                ms_event_id=ms_event_id,
-                agent_id=MEETING_BRIEF_AGENT_ID,
-                agent_name="Meeting Brief",
-                content=None,
-                content_type="markdown",
-                status="pending",
-                triggered_by=triggered_by,
-                triggered_at=now,
-                requested_time=now,
-                created_time=now,
-                updated_time=now,
-                is_active=True,
+        ).scalars().all()
+        research_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.tab_type == "research",
             )
-            session.add(row)
-        session.flush()
-        session.refresh(row)
-        insight_to_return = row
+        ).scalars().all()
 
+        # Check if research already completed (using potential_number)
+        research_agent_ids = {c.agent_id for c in research_configs}
+        has_research = True
+        if research_agent_ids:
+            completed = set(session.execute(
+                select(CXAgentInsight.agent_id).where(
+                    CXAgentInsight.potential_id == potential_number,
+                    CXAgentInsight.is_active == True,
+                    CXAgentInsight.status == "completed",
+                    CXAgentInsight.ms_event_id.is_(None),
+                    CXAgentInsight.agent_id.in_(research_agent_ids),
+                )
+            ).scalars().all())
+            has_research = research_agent_ids.issubset(completed)
+
+        configs_to_fire = list(mb_configs)
+        if not has_research:
+            configs_to_fire = research_configs + configs_to_fire
+            logger.info("fire_meeting_brief: research missing for %s — adding %d research + %d MB agents",
+                         potential_number, len(research_configs), len(mb_configs))
+
+        # Create/reset insight rows — all keyed on potential_number (7-digit)
+        # Meeting brief agents additionally keyed on ms_event_id
+        first_insight = None
+        for cfg in configs_to_fire:
+            is_mb = cfg.trigger_category == "meeting_brief"
+            event_id = ms_event_id if is_mb else None
+
+            existing_row = session.execute(
+                select(CXAgentInsight).where(
+                    CXAgentInsight.potential_id == potential_number,
+                    CXAgentInsight.agent_id == cfg.agent_id,
+                    CXAgentInsight.ms_event_id == event_id if is_mb else CXAgentInsight.ms_event_id.is_(None),
+                )
+            ).scalar_one_or_none()
+
+            if existing_row:
+                existing_row.status = "pending"
+                existing_row.content = None
+                existing_row.error_message = None
+                existing_row.triggered_at = now
+                existing_row.completed_time = None
+                existing_row.updated_time = now
+                existing_row.is_active = True
+                session.add(existing_row)
+                if not first_insight and is_mb:
+                    first_insight = existing_row
+            else:
+                row = CXAgentInsight(
+                    potential_id=potential_number,
+                    agent_type=cfg.tab_type,
+                    ms_event_id=event_id,
+                    agent_id=cfg.agent_id,
+                    agent_name=cfg.agent_name,
+                    content=None,
+                    content_type=cfg.content_type,
+                    status="pending",
+                    triggered_by=triggered_by,
+                    triggered_at=now,
+                    requested_time=now,
+                    created_time=now,
+                    updated_time=now,
+                    is_active=True,
+                )
+                session.add(row)
+                if not first_insight and is_mb:
+                    first_insight = row
+        session.flush()
+
+        # Create/update "meeting-briefs" queue item so it shows as a potential card in Panel 2
+        from core.models import CXQueueItem
+        potential_row = session.execute(
+            select(Potential, Account, Contact)
+            .outerjoin(Account, Potential.account_id == Account.account_id)
+            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+            .where(Potential.potential_id == potential_id)
+        ).first()
+        if potential_row:
+            p, a, c = potential_row
+            deal_title = p.potential_name or "(untitled)"
+            parts = [x for x in [a.account_name if a else None, c.full_name if c else None] if x]
+            subtitle = " · ".join(parts) if parts else ""
+            meeting_title = meeting_info.get("title", "")
+            meeting_start = meeting_info.get("start", "")
+
+            existing_qi = session.execute(
+                select(CXQueueItem).where(
+                    CXQueueItem.potential_id == potential_number,
+                    CXQueueItem.folder_type == "meeting-briefs",
+                    CXQueueItem.status == "pending",
+                    CXQueueItem.is_active == True,
+                )
+            ).scalar_one_or_none()
+
+            if existing_qi:
+                existing_qi.preview = meeting_title
+                existing_qi.time_label = meeting_start[:16] if meeting_start else existing_qi.time_label
+                existing_qi.updated_time = now
+                session.add(existing_qi)
+            else:
+                session.add(CXQueueItem(
+                    potential_id=potential_number,
+                    contact_id=c.contact_id if c else None,
+                    account_id=a.account_id if a else None,
+                    folder_type="meeting-briefs",
+                    title=deal_title,
+                    subtitle=subtitle,
+                    preview=meeting_title,
+                    time_label=meeting_start[:16] if meeting_start else now.strftime("%Y-%m-%d"),
+                    priority="normal",
+                    status="pending",
+                    assigned_to_user_id=p.potential_owner_id,
+                    created_time=now,
+                    updated_time=now,
+                    is_active=True,
+                ))
+
+    # Trigger agentflow graph
     potential_data = _load_potential_data(potential_id)
-    extra_attrs = {"meeting_info": meeting_info}
-    logger.info("fire_meeting_brief: potential=%s ms_event_id=%s", potential_id, ms_event_id)
+    extra_attrs = {"meeting_info": meeting_info, "category": "meeting_brief"}
+    logger.info("fire_meeting_brief: potential=%s ms_event_id=%s agents=%d", potential_number, ms_event_id, len(configs_to_fire))
     _trigger_agentflow(
         potential_id,
         potential_data,
@@ -516,7 +629,7 @@ def fire_meeting_brief(
         extra_attrs=extra_attrs,
     )
 
-    return insight_to_return
+    return first_insight
 
 
 def has_all_base_research_completed(potential_id: str) -> bool:
