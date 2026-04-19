@@ -162,8 +162,13 @@ export default function NewPotentialModal({
   const [newAccount, setNewAccount] = useState(false);
   // New account fields
   const [accName, setAccName] = useState("");
+  const [accPhone, setAccPhone] = useState("");
   const [accIndustry, setAccIndustry] = useState("");
   const [accWebsite, setAccWebsite] = useState("");
+  const [accStreet, setAccStreet] = useState("");
+  const [accCity, setAccCity] = useState("");
+  const [accState, setAccState] = useState("");
+  const [accCode, setAccCode] = useState("");
   const [accCountry, setAccCountry] = useState("");
   // Supplemental fields for existing account (fill in missing agent-critical data)
   const [suppWebsite, setSuppWebsite] = useState("");
@@ -176,6 +181,7 @@ export default function NewPotentialModal({
   const [selectedContact, setSelectedContact] = useState<ContactSearchResult | null>(null);
   const [newContact, setNewContact] = useState(false);
   const [ctName, setCtName] = useState("");
+  const [ctLastName, setCtLastName] = useState("");
   const [ctTitle, setCtTitle] = useState("");
   const [ctEmail, setCtEmail] = useState("");
   const [ctPhone, setCtPhone] = useState("");
@@ -212,10 +218,10 @@ export default function NewPotentialModal({
   useEffect(() => {
     if (!isOpen) return;
     setAccountQuery(""); setAccountOptions([]); setSelectedAccount(null); setNewAccount(false);
-    setAccName(""); setAccIndustry(""); setAccWebsite(""); setAccCountry("");
+    setAccName(""); setAccPhone(""); setAccIndustry(""); setAccWebsite(""); setAccStreet(""); setAccCity(""); setAccState(""); setAccCode(""); setAccCountry("");
     setSuppWebsite(""); setSuppCountry("");
     setContactQuery(""); setContactOptions([]); setSelectedContact(null); setNewContact(false);
-    setCtName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
+    setCtName(""); setCtLastName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
     setDealTitle(""); setDealValue("");
     const s0 = stages.includes("Open") ? "Open" : (stages[0] ?? "Open");
     setStage(s0); setProbability(STAGE_PROBABILITY[s0] ?? 20);
@@ -278,10 +284,23 @@ export default function NewPotentialModal({
     const errors: Record<string, boolean> = {};
     if (!selectedAccount && !newAccount) errors.account = true;
     if (newAccount && !accName.trim()) errors.accName = true;
+    if (newAccount && !accPhone.trim()) errors.accPhone = true;
+    if (newAccount && !accStreet.trim()) errors.accStreet = true;
+    if (newAccount && !accCity.trim()) errors.accCity = true;
+    if (newAccount && !accState.trim()) errors.accState = true;
+    if (newAccount && !accCode.trim()) errors.accCode = true;
     if (!selectedContact && !newContact) errors.contact = true;
     if (newContact && !ctName.trim()) errors.ctName = true;
+    if (newContact && !ctLastName.trim()) errors.ctLastName = true;
+    if (newContact && !ctEmail.trim()) errors.ctEmail = true;
+    if (newContact && !ctPhone.trim()) errors.ctPhone = true;
     if (!dealTitle.trim()) errors.dealTitle = true;
-    if (!dealValue || Number(dealValue) <= 0) errors.dealValue = true;
+    if (!description.trim()) errors.description = true;
+    if (!service) errors.service = true;
+    if (!subService) errors.subService = true;
+    if (!leadSource) errors.leadSource = true;
+    if (!accCountry.trim() && newAccount) errors.accCountry = true;
+    if (selectedAccount && !selectedAccount.country && !suppCountry.trim()) errors.accCountry = true;
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -320,8 +339,13 @@ export default function NewPotentialModal({
       } else {
         payload.company = {
           name: accName.trim(),
+          phone: accPhone.trim() || undefined,
           industry: accIndustry || undefined,
           website: accWebsite.trim() || undefined,
+          billing_street: accStreet.trim() || undefined,
+          billing_city: accCity.trim() || undefined,
+          billing_state: accState.trim() || undefined,
+          billing_code: accCode.trim() || undefined,
           country: accCountry || undefined,
         };
       }
@@ -330,10 +354,12 @@ export default function NewPotentialModal({
         payload.contact_id = selectedContact.id;
       } else {
         payload.contact = {
-          name: ctName.trim(),
+          name: `${ctName.trim()} ${ctLastName.trim()}`.trim(),
+          first_name: ctName.trim(),
+          last_name: ctLastName.trim(),
           title: ctTitle.trim() || undefined,
-          email: ctEmail.trim() || undefined,
-          phone: ctPhone.trim() || undefined,
+          email: ctEmail.trim(),
+          phone: ctPhone.trim(),
         };
       }
 
@@ -403,20 +429,51 @@ export default function NewPotentialModal({
               {newAccount ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="col-span-2">
-                    <label className="text-[10px] text-slate-400 mb-1 block">Company Name *</label>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accName ? "text-red-500" : "text-slate-400"}`}>Company Name *</label>
                     <input type="text" placeholder="e.g. Acme Corporation" value={accName}
                       onChange={(e) => { setAccName(e.target.value); setFieldErrors((p) => ({ ...p, accName: false })); }}
                       className={inputCls("accName")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accPhone ? "text-red-500" : "text-slate-400"}`}>Phone *</label>
+                    <input type="tel" placeholder="+1 555 000 0000" value={accPhone}
+                      onChange={(e) => { setAccPhone(e.target.value); setFieldErrors((p) => ({ ...p, accPhone: false })); }}
+                      className={inputCls("accPhone")} />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Website</label>
                     <input type="url" placeholder="https://company.com" value={accWebsite}
                       onChange={(e) => setAccWebsite(e.target.value)} className={inputCls("")} />
                   </div>
+                  <div className="col-span-2">
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accStreet ? "text-red-500" : "text-slate-400"}`}>Billing Street *</label>
+                    <input type="text" placeholder="123 Main St" value={accStreet}
+                      onChange={(e) => { setAccStreet(e.target.value); setFieldErrors((p) => ({ ...p, accStreet: false })); }}
+                      className={inputCls("accStreet")} />
+                  </div>
                   <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Country</label>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accCity ? "text-red-500" : "text-slate-400"}`}>City *</label>
+                    <input type="text" placeholder="e.g. New York" value={accCity}
+                      onChange={(e) => { setAccCity(e.target.value); setFieldErrors((p) => ({ ...p, accCity: false })); }}
+                      className={inputCls("accCity")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accState ? "text-red-500" : "text-slate-400"}`}>State *</label>
+                    <input type="text" placeholder="e.g. NY" value={accState}
+                      onChange={(e) => { setAccState(e.target.value); setFieldErrors((p) => ({ ...p, accState: false })); }}
+                      className={inputCls("accState")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accCode ? "text-red-500" : "text-slate-400"}`}>Postal Code *</label>
+                    <input type="text" placeholder="e.g. 10001" value={accCode}
+                      onChange={(e) => { setAccCode(e.target.value); setFieldErrors((p) => ({ ...p, accCode: false })); }}
+                      className={inputCls("accCode")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.accCountry ? "text-red-500" : "text-slate-400"}`}>Country *</label>
                     <input list="country-list" placeholder="Select or type country" value={accCountry}
-                      onChange={(e) => setAccCountry(e.target.value)} className={inputCls("")} />
+                      onChange={(e) => { setAccCountry(e.target.value); setFieldErrors((p) => ({ ...p, accCountry: false })); }}
+                      className={inputCls("accCountry")} />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Industry</label>
@@ -495,25 +552,33 @@ export default function NewPotentialModal({
               {newContact ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Full Name *</label>
-                    <input type="text" placeholder="e.g. Jane Smith" value={ctName}
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.ctName ? "text-red-500" : "text-slate-400"}`}>First Name *</label>
+                    <input type="text" placeholder="e.g. Jane" value={ctName}
                       onChange={(e) => { setCtName(e.target.value); setFieldErrors((p) => ({ ...p, ctName: false })); }}
                       className={inputCls("ctName")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.ctLastName ? "text-red-500" : "text-slate-400"}`}>Last Name *</label>
+                    <input type="text" placeholder="e.g. Smith" value={ctLastName}
+                      onChange={(e) => { setCtLastName(e.target.value); setFieldErrors((p) => ({ ...p, ctLastName: false })); }}
+                      className={inputCls("ctLastName")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.ctEmail ? "text-red-500" : "text-slate-400"}`}>Email *</label>
+                    <input type="email" placeholder="jane@company.com" value={ctEmail}
+                      onChange={(e) => { setCtEmail(e.target.value); setFieldErrors((p) => ({ ...p, ctEmail: false })); }}
+                      className={inputCls("ctEmail")} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] mb-1 block ${fieldErrors.ctPhone ? "text-red-500" : "text-slate-400"}`}>Phone *</label>
+                    <input type="tel" placeholder="+1 555 000 0000" value={ctPhone}
+                      onChange={(e) => { setCtPhone(e.target.value); setFieldErrors((p) => ({ ...p, ctPhone: false })); }}
+                      className={inputCls("ctPhone")} />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Title / Role</label>
                     <input type="text" placeholder="e.g. CFO" value={ctTitle}
                       onChange={(e) => setCtTitle(e.target.value)} className={inputCls("")} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Email</label>
-                    <input type="email" placeholder="jane@company.com" value={ctEmail}
-                      onChange={(e) => setCtEmail(e.target.value)} className={inputCls("")} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Phone</label>
-                    <input type="tel" placeholder="+1 555 000 0000" value={ctPhone}
-                      onChange={(e) => setCtPhone(e.target.value)} className={inputCls("")} />
                   </div>
                 </div>
               ) : (
@@ -543,12 +608,12 @@ export default function NewPotentialModal({
                     className={inputCls("dealTitle")} />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Potential Value *</label>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Potential Value</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
                     <input type="number" min="0" placeholder="0" value={dealValue}
-                      onChange={(e) => { setDealValue(e.target.value); setFieldErrors((p) => ({ ...p, dealValue: false })); }}
-                      className={`${inputCls("dealValue")} pl-7`} />
+                      onChange={(e) => setDealValue(e.target.value)}
+                      className={`${inputCls("")} pl-7`} />
                   </div>
                 </div>
                 <div>
@@ -561,9 +626,9 @@ export default function NewPotentialModal({
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Service Line</label>
+                  <label className={`text-[10px] mb-1 block ${fieldErrors.service ? "text-red-500" : "text-slate-400"}`}>Service Line *</label>
                   <div className="relative">
-                    <select value={service} onChange={(e) => setService(e.target.value)} className={selectCls()}>
+                    <select value={service} onChange={(e) => { setService(e.target.value); setFieldErrors((p) => ({ ...p, service: false })); }} className={inputCls("service")}>
                       <option value="">Select service…</option>
                       {services.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
@@ -571,11 +636,11 @@ export default function NewPotentialModal({
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Sub-Service</label>
+                  <label className={`text-[10px] mb-1 block ${fieldErrors.subService ? "text-red-500" : "text-slate-400"}`}>Sub-Service *</label>
                   <div className="relative">
-                    <select value={subService} onChange={(e) => setSubService(e.target.value)}
+                    <select value={subService} onChange={(e) => { setSubService(e.target.value); setFieldErrors((p) => ({ ...p, subService: false })); }}
                       disabled={!service || subServiceOptions.length === 0}
-                      className={`${selectCls()} ${(!service || subServiceOptions.length === 0) ? "opacity-50" : ""}`}>
+                      className={`${inputCls("subService")} ${(!service || subServiceOptions.length === 0) ? "opacity-50" : ""}`}>
                       <option value="">Select sub-service…</option>
                       {subServiceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
@@ -585,15 +650,27 @@ export default function NewPotentialModal({
               </div>
             </div>
 
-            {/* ── Customer Requirements ── */}
+            {/* ── Lead Source (mandatory, moved from More Details) ── */}
             <div>
-              <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
-                Customer Requirements
+              <label className={`text-[10px] mb-1 block ${fieldErrors.leadSource ? "text-red-500 font-semibold" : "text-slate-400"}`}>Lead Source *</label>
+              <div className="relative">
+                <select value={leadSource} onChange={(e) => { setLeadSource(e.target.value); setFieldErrors((p) => ({ ...p, leadSource: false })); }} className={inputCls("leadSource")}>
+                  <option value="">Select lead source…</option>
+                  {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              </div>
+            </div>
+
+            {/* ── Customer Requirements (mandatory) ── */}
+            <div>
+              <label className={`text-[10px] uppercase font-semibold tracking-wider mb-1.5 block ${fieldErrors.description ? "text-red-500" : "text-slate-400"}`}>
+                Customer Requirements *
               </label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+              <textarea value={description} onChange={(e) => { setDescription(e.target.value); setFieldErrors((p) => ({ ...p, description: false })); }}
                 placeholder="Describe the customer's requirements, pain points, project scope, volumes, timelines…"
                 rows={4}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y" />
+                className={`w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y ${fieldErrors.description ? "border-red-300" : "border-slate-200"}`} />
             </div>
 
             {/* ── More Details ── */}
@@ -617,16 +694,6 @@ export default function NewPotentialModal({
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Closing Date</label>
                     <input type="date" value={closingDate} onChange={(e) => setClosingDate(e.target.value)} className={inputCls("")} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 mb-1 block">Lead Source</label>
-                    <div className="relative">
-                      <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} className={selectCls()}>
-                        <option value="">Lead Source</option>
-                        {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                    </div>
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Potential Type</label>

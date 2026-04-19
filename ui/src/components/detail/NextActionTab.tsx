@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, LifeBuoy, Check, X, CalendarClock, Users, MapPin, Video, ExternalLink } from "lucide-react";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, Check, X, CalendarClock, Users, MapPin, Video, ExternalLink } from "lucide-react";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
 import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft, getMeetingInfo } from "@/lib/api";
 import type { MeetingInfo } from "@/lib/api";
@@ -322,7 +322,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
             onClick={() => onRequestSupport("agent_stuck")}
             className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition-colors"
           >
-            <LifeBuoy className="h-3.5 w-3.5" />
+            <Headphones className="h-3.5 w-3.5" />
             Contact Support
           </button>
         )}
@@ -429,7 +429,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           {/* Header with skip/done */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-purple-500" />
+              <CalendarClock className="h-4 w-4 text-blue-600" />
               <span className="text-xs font-semibold text-slate-700">Meeting Prep</span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -451,15 +451,15 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           </div>
 
           {/* Meeting details card */}
-          <div className="rounded-lg border border-purple-200 bg-purple-50/50 overflow-hidden">
-            <div className="px-3 py-2 bg-purple-100/50 border-b border-purple-200">
-              <p className="text-xs font-semibold text-purple-900">{mi?.title || "Meeting"}</p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50/50 overflow-hidden">
+            <div className="px-3 py-2 bg-blue-100/50 border-b border-blue-200">
+              <p className="text-xs font-semibold text-slate-900">{mi?.title || "Meeting"}</p>
             </div>
             <div className="px-3 py-2.5 space-y-2">
               {/* Time */}
               {mi?.startTime && (
                 <div className="flex items-center gap-2 text-xs text-slate-700">
-                  <Clock className="h-3 w-3 text-purple-400 shrink-0" />
+                  <Clock className="h-3 w-3 text-blue-400 shrink-0" />
                   <span>{formatMeetingTime(mi.startTime)}</span>
                   {mi.endTime && <span className="text-slate-400">→ {formatMeetingTime(mi.endTime)}</span>}
                 </div>
@@ -468,7 +468,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
               {/* Location / link */}
               {mi?.location && (
                 <div className="flex items-start gap-2 text-xs text-slate-700">
-                  {meetingLink ? <Video className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" /> : <MapPin className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" />}
+                  {meetingLink ? <Video className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" /> : <MapPin className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" />}
                   <span>{mi.location}</span>
                 </div>
               )}
@@ -484,10 +484,10 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
               {/* Participants */}
               {mi?.attendees && mi.attendees.length > 0 && (
                 <div className="flex items-start gap-2 text-xs text-slate-700">
-                  <Users className="h-3 w-3 text-purple-400 shrink-0 mt-0.5" />
+                  <Users className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" />
                   <div className="flex flex-wrap gap-1">
                     {mi.attendees.map((email, i) => (
-                      <span key={i} className="inline-block bg-white border border-purple-100 rounded-full px-2 py-0.5 text-[10px] text-slate-600">
+                      <span key={i} className="inline-block bg-white border border-blue-100 rounded-full px-2 py-0.5 text-[10px] text-slate-600">
                         {email}
                       </span>
                     ))}
@@ -497,7 +497,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
 
               {/* Contact + Company from potential */}
               {detail?.contact?.name && (
-                <div className="flex items-center gap-2 text-xs text-slate-600 pt-1 border-t border-purple-100">
+                <div className="flex items-center gap-2 text-xs text-slate-600 pt-1 border-t border-blue-100">
                   <span className="font-medium">{detail.contact.name}</span>
                   {detail.contact.title && <span className="text-slate-400">· {detail.contact.title}</span>}
                   {detail.company?.name && <span className="text-slate-400">· {detail.company.name}</span>}
@@ -506,7 +506,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
 
               {/* Description */}
               {mi?.description && (
-                <div className="pt-1 border-t border-purple-100">
+                <div className="pt-1 border-t border-blue-100">
                   <p className="text-[11px] text-slate-500 line-clamp-3">{mi.description.replace(/<[^>]*>/g, "")}</p>
                 </div>
               )}

@@ -208,8 +208,11 @@ def get_account_detail(account_id: str) -> AccountDetailResponse | None:
             industry=account.industry,
             website=account.website,
             location=_build_location(account),
+            phone=account.phone,
+            billing_street=account.billing_street,
             billing_city=account.billing_city,
             billing_state=account.billing_state,
+            billing_code=account.billing_code,
             billing_country=account.country_fws or account.billing_country,
             employees=account.employees,
             revenue=account.annual_revenue,
@@ -224,13 +227,17 @@ def update_account(account_id: str, data: dict) -> AccountDetailResponse | None:
     """Patch editable fields on an account and return the updated detail."""
     from datetime import datetime as dt
     field_map = {
+        "name": "account_name",
         "industry": "industry",
         "website": "website",
+        "phone": "phone",
         "employees": "employees",
         "revenue": "annual_revenue",
         "description": "description",
+        "billing_street": "billing_street",
         "billing_city": "billing_city",
         "billing_state": "billing_state",
+        "billing_code": "billing_code",
         "billing_country": "billing_country",
     }
     with get_session() as session:

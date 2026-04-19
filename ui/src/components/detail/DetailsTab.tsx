@@ -144,21 +144,15 @@ function EditableField({
               <p className="text-[10px] text-red-500 mt-0.5">{validationError}</p>
             )}
           </div>
-          {saving
-            ? <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
-            : <button type="button" onMouseDown={(e) => { e.preventDefault(); setDraft(String(value ?? "")); setValidationError(null); setEditing(false); }}><X className="h-3 w-3 text-slate-400 hover:text-slate-600" /></button>
-          }
+          {saving && <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="py-1 group">
-      <div className="flex items-center gap-1 mb-0.5">
-        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">{label}</p>
-        <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
+    <div className="py-1">
+      <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
       <div
         onClick={startEdit}
         className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
@@ -572,13 +566,13 @@ export default function DetailsTab({ detail, availableStages, availableServices,
               />
               <Field label="Owner" value={detail.ownerName} />
               <EditableSelect
-                label="Service"
+                label="Service *"
                 value={detail.service}
                 options={availableServices}
                 onSave={(v) => onFieldSave("service", v)}
               />
               <EditableField
-                label="Sub-service"
+                label="Sub-service *"
                 value={detail.subService}
                 onSave={(v) => onFieldSave("sub_service", v)}
               />
@@ -593,7 +587,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 onSave={(v) => onFieldSave("deal_size", v)}
               />
               <EditableField
-                label="Lead Source"
+                label="Lead Source *"
                 value={detail.leadSource}
                 onSave={(v) => onFieldSave("lead_source", v)}
               />
@@ -609,7 +603,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
               </div>
               <div className="col-span-2">
                 <EditableTextarea
-                  label="Description"
+                  label="Description *"
                   value={detail.description}
                   onSave={(v) => onFieldSave("description", v)}
                 />
@@ -627,22 +621,20 @@ export default function DetailsTab({ detail, availableStages, availableServices,
             </div>
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
-                <Field label="Name" value={contact.name} />
+                <Field label="Name *" value={contact.name} />
                 <Field label="Title" value={contact.title} />
-                {contact.email && (
-                  <div className="col-span-2">
-                    <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">Email</p>
-                    <a
-                      href={`mailto:${contact.email}`}
-                      className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                    >
-                      <Mail className="h-3 w-3" />
-                      {contact.email}
+                <div className="col-span-2">
+                  <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">Email *</p>
+                  {contact.email ? (
+                    <a href={`mailto:${contact.email}`} className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700">
+                      <Mail className="h-3 w-3" />{contact.email}
                     </a>
-                  </div>
-                )}
-                {contact.phone && <Field label="Phone" value={contact.phone} />}
-                {contact.mobile && <Field label="Mobile" value={contact.mobile} />}
+                  ) : (
+                    <span className="text-sm text-red-400">—</span>
+                  )}
+                </div>
+                <Field label="Phone *" value={contact.phone} />
+                <Field label="Mobile" value={contact.mobile} />
               </div>
             </div>
           </div>

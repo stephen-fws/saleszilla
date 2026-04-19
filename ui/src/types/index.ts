@@ -127,8 +127,10 @@ export interface AccountDetail {
   industry: string | null;
   website: string | null;
   location: string | null;
+  billingStreet: string | null;
   billingCity: string | null;
   billingState: string | null;
+  billingCode: string | null;
   billingCountry: string | null;
   employees: number | null;
   revenue: number | null;

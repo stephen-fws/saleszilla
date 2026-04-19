@@ -199,23 +199,72 @@ def build_context_prompt(potential_id: str) -> str:
                 lines.append(f"- [{check}] {t.text} (status: {t.status})")
             lines.append("")
 
-        # ── Sent Emails ───────────────────────────────────────────────────────
-        emails = session.execute(
+        # ── Email Conversations (sync table + Salezilla-sent, merged) ────────
+        from sqlalchemy import text as _text
+
+        # Salezilla-sent emails
+        sz_emails = session.execute(
             select(CXSentEmail)
             .where(CXSentEmail.potential_id == potential_id, CXSentEmail.is_active == True)
             .order_by(CXSentEmail.sent_time.desc())
             .limit(10)
         ).scalars().all()
 
-        if emails:
-            lines.append("## EMAIL CONVERSATIONS (most recent 10)")
-            for e in reversed(emails):
-                lines.append(f"\n[{_fmt_date(e.sent_time)}] From: {e.from_name or e.from_email} → To: {e.to_name or e.to_email}")
-                lines.append(f"Subject: {e.subject}")
-                body_preview = (e.body or "")[:800]
-                if len(e.body or "") > 800:
-                    body_preview += "... [truncated]"
-                lines.append(body_preview)
+        # Sync table emails (includes client replies + Outlook-sent)
+        pn = p.potential_number if p else None
+        sync_emails = []
+        if pn:
+            try:
+                sync_emails = session.execute(_text("""
+                    SELECT TOP 15
+                        [From], [To], [Subject], UniqueBody,
+                        SentTime, ReceivedTime
+                    FROM CRM_Sales_Sync_Emails
+                    WHERE [Related To] = :pn
+                    ORDER BY COALESCE(SentTime, ReceivedTime) DESC
+                """), {"pn": pn}).all()
+            except Exception:
+                pass  # sync table may not exist in all environments
+
+        # Merge: deduplicate by subject+time proximity, chronological order
+        seen_subjects: set[str] = set()
+        all_emails: list[tuple[str, str]] = []  # (sort_key, formatted_line)
+
+        for e in sz_emails:
+            key = f"{e.subject}|{_fmt_date(e.sent_time)}"
+            seen_subjects.add(key)
+            body_preview = (e.body or "")[:800]
+            if len(e.body or "") > 800:
+                body_preview += "... [truncated]"
+            sort_key = e.sent_time.isoformat() if e.sent_time else ""
+            line = f"\n[{_fmt_date(e.sent_time)}] OUTBOUND — From: {e.from_name or e.from_email} → To: {e.to_name or e.to_email}\nSubject: {e.subject}\n{body_preview}"
+            all_emails.append((sort_key, line))
+
+        for row_sync in sync_emails:
+            from_addr, to_addr, subject, body, sent_time, received_time = row_sync
+            ts = sent_time or received_time
+            key = f"{subject}|{_fmt_date(ts)}"
+            if key in seen_subjects:
+                continue
+            seen_subjects.add(key)
+            direction = "OUTBOUND" if (from_addr and any(
+                from_addr.lower().endswith(d) for d in ["@flatworldsolutions.com", "@botworkflat.onmicrosoft.com"]
+            )) else "INBOUND"
+            body_preview = (body or "")[:800]
+            if len(body or "") > 800:
+                body_preview += "... [truncated]"
+            sort_key = ts.isoformat() if ts else ""
+            line = f"\n[{_fmt_date(ts)}] {direction} — From: {from_addr or '?'} → To: {to_addr or '?'}\nSubject: {subject or '(no subject)'}\n{body_preview}"
+            all_emails.append((sort_key, line))
+
+        all_emails.sort(key=lambda x: x[0])
+        # Keep last 15
+        all_emails = all_emails[-15:]
+
+        if all_emails:
+            lines.append("## EMAIL CONVERSATIONS (most recent)")
+            for _, line in all_emails:
+                lines.append(line)
             lines.append("")
 
         # ── Agent Insights ────────────────────────────────────────────────────

@@ -68,8 +68,8 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
                     md:gap-0 md:px-0 md:py-0 md:w-8 md:h-8
                     ${isChat
                       ? isActive
-                        ? "text-violet-600 md:bg-violet-50"
-                        : "text-violet-400 hover:text-violet-600 md:hover:bg-violet-50"
+                        ? "text-blue-600 md:bg-blue-50"
+                        : "text-blue-400 hover:text-blue-600 md:hover:bg-blue-50"
                       : isActive
                         ? "text-blue-600 md:bg-blue-50"
                         : "text-slate-400 hover:text-slate-600 md:hover:bg-slate-50"
@@ -81,7 +81,7 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
                     {tab.label}
                   </span>
                   {isActive && (
-                    <span className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-t md:bottom-[-5px] md:left-1 md:right-1 ${isChat ? "bg-violet-600" : "bg-blue-600"}`} />
+                    <span className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-t md:bottom-[-5px] md:left-1 md:right-1 ${isChat ? "bg-blue-600" : "bg-blue-600"}`} />
                   )}
                 </button>
               );
@@ -100,8 +100,8 @@ export default function TabBar({ activeTab, onTabChange, hasDeal = true }: TabBa
                 onClick={() => onTabChange("chat")}
                 className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 my-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
                   isActive
-                    ? "bg-violet-600 text-white shadow-sm"
-                    : "bg-violet-50 text-violet-600 hover:bg-violet-100"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-blue-50 text-blue-600 hover:bg-blue-100"
                 }`}
               >
                 <MessageSquare className="h-3.5 w-3.5" />

@@ -1,6 +1,6 @@
 """Queue/folder operations."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -10,7 +10,7 @@ from core.schemas import FolderItem, QueueItemResponse
 
 
 FOLDER_CONFIG = {
-    "meeting-briefs": {"label": "Meeting Briefs", "icon": "calendarCheck"},
+    "meeting-briefs": {"label": "Meeting Prep", "icon": "calendarCheck"},
     "new-inquiries": {"label": "New inquiries", "icon": "inbox"},
     "reply": {"label": "Reply", "icon": "reply"},
     "follow-up-active": {"label": "Follow up active", "icon": "refreshCw"},
@@ -58,12 +58,76 @@ def _potential_category(potential: Potential | None) -> str | None:
     return None
 
 
+def _expire_meeting_briefs(session) -> None:
+    """Auto-complete meeting-brief queue items where the LATEST meeting for
+    that potential has ended 1+ hours ago. Avoids killing current meetings
+    when a potential has multiple meetings (old + upcoming)."""
+    from core.models import CXMeeting, CXAgentInsight, CXAgentTypeConfig
+    from sqlalchemy import func as sqlfunc
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=1)
+
+    # Find pending meeting-brief queue items
+    pending_qis = session.execute(
+        select(CXQueueItem).where(
+            CXQueueItem.folder_type == "meeting-briefs",
+            CXQueueItem.status == "pending",
+            CXQueueItem.is_active == True,
+        )
+    ).scalars().all()
+    if not pending_qis:
+        return
+
+    expired_qis = []
+    for qi in pending_qis:
+        # Get the LATEST meeting end_time for this potential
+        latest_end = session.execute(
+            select(sqlfunc.max(CXMeeting.end_time))
+            .join(Potential, CXMeeting.potential_id == Potential.potential_id)
+            .where(
+                Potential.potential_number == qi.potential_id,
+                CXMeeting.is_active == True,
+                CXMeeting.end_time.isnot(None),
+            )
+        ).scalar()
+        if latest_end and latest_end < cutoff:
+            qi.status = "completed"
+            qi.updated_time = now
+            expired_qis.append(qi)
+
+    # Mark meeting_brief next_action insights as actioned for expired potentials
+    if expired_qis:
+        mb_agent_ids = set(session.execute(
+            select(CXAgentTypeConfig.agent_id).where(
+                CXAgentTypeConfig.trigger_category == "meeting_brief",
+                CXAgentTypeConfig.is_active == True,
+            )
+        ).scalars().all())
+        if mb_agent_ids:
+            expired_pns = {qi.potential_id for qi in expired_qis}
+            insights = session.execute(
+                select(CXAgentInsight).where(
+                    CXAgentInsight.potential_id.in_(expired_pns),
+                    CXAgentInsight.agent_id.in_(mb_agent_ids),
+                    CXAgentInsight.status != "actioned",
+                    CXAgentInsight.is_active == True,
+                )
+            ).scalars().all()
+            for ins in insights:
+                ins.status = "actioned"
+                ins.updated_time = now
+
+
 def list_queue_items(
     folder_type: str,
     user_id: str | None = None,
 ) -> list[QueueItemResponse]:
     """Get queue items for a specific folder."""
     with get_session() as session:
+        # Auto-expire old meeting briefs before listing
+        if folder_type == "meeting-briefs":
+            _expire_meeting_briefs(session)
+
         # All folders: join with Potential/Account/Contact to render
         # identical cards to the Potentials list view.
         # CXQueueItem.potential_id stores 7-digit potential_number.

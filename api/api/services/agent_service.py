@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 import core.config as config
 from core.database import get_session
-from core.models import Account, Contact, CXAgentInsight, CXAgentTypeConfig, Potential, User
+from core.models import Account, Contact, CXAgentInsight, CXAgentTypeConfig, LookupPotentialStage, Potential, User
 from core.schemas import AgentResultItem
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,85 @@ def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentRes
 
 
 # ── ID resolver ───────────────────────────────────────────────────────────────
+
+def _apply_stage_update(session, potential_number: str, content: str, now) -> None:
+    """Parse the stage_update agent's JSON output and auto-update the Potential."""
+    import json as _json
+    try:
+        data = _json.loads(content)
+    except (ValueError, TypeError):
+        logger.warning("stage_update: invalid JSON for potential=%s: %s", potential_number, content[:100])
+        return
+
+    new_stage = data.get("stage")
+    new_probability = data.get("probability")
+
+    if not new_stage:
+        logger.warning("stage_update: no stage in response for potential=%s", potential_number)
+        return
+
+    # Validate stage against supported stages
+    valid_stages = set(session.execute(
+        select(LookupPotentialStage.stage_name)
+    ).scalars().all())
+    if new_stage not in valid_stages:
+        logger.warning("stage_update: invalid stage '%s' for potential=%s (valid: %s)",
+                         new_stage, potential_number, valid_stages)
+        return
+
+    # Find the potential by potential_number
+    potential = session.execute(
+        select(Potential).where(Potential.potential_number == potential_number)
+    ).scalar_one_or_none()
+    if not potential:
+        logger.warning("stage_update: potential not found for number=%s", potential_number)
+        return
+
+    old_stage = potential.stage
+    old_probability = potential.probability
+
+    # Update stage
+    changed = False
+    if new_stage != old_stage:
+        potential.stage = new_stage
+        changed = True
+    if new_probability is not None and isinstance(new_probability, (int, float)):
+        new_prob = max(0, min(100, int(new_probability)))
+        if new_prob != old_probability:
+            potential.probability = new_prob
+            changed = True
+
+    if changed:
+        potential.modified_time = now.replace(tzinfo=None) if now.tzinfo else now
+        session.add(potential)
+
+        # Log activity
+        from core.models import CXActivity
+        changes = []
+        if new_stage != old_stage:
+            changes.append(f"Stage: {old_stage} → {new_stage}")
+        if new_probability is not None and int(new_probability) != (old_probability or 0):
+            changes.append(f"Probability: {old_probability}% → {int(new_probability)}%")
+        ai_highlight = data.get("ai_highlight", "")
+        desc = f"AI stage update: {'; '.join(changes)}"
+        if ai_highlight:
+            desc += f" — {ai_highlight}"
+        session.add(CXActivity(
+            potential_id=potential.potential_id,
+            contact_id=potential.contact_id,
+            account_id=potential.account_id,
+            activity_type="stage_changed",
+            description=desc,
+            performed_by_user_id=None,
+            created_time=now.replace(tzinfo=None) if now.tzinfo else now,
+            updated_time=now.replace(tzinfo=None) if now.tzinfo else now,
+            is_active=True,
+        ))
+        logger.info("stage_update: potential=%s %s", potential_number, "; ".join(changes))
+    else:
+        logger.info("stage_update: no change for potential=%s (stage=%s, prob=%s)",
+                     potential_number, new_stage, new_probability)
+
 
 def _resolve_potential_number(identifier: str) -> str:
     """
@@ -318,6 +397,10 @@ def process_webhook(payload_data: dict) -> None:
         existing.updated_time = now
         existing.is_active = True
         session.add(existing)
+
+        # stage_update agent: auto-apply stage + probability to Potential
+        if cfg.trigger_category == "stage_update" and final_status == "completed" and content:
+            _apply_stage_update(session, external_id, content, now)
 
 
 def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:

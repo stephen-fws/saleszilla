@@ -93,6 +93,7 @@ def patch_contact(
 
         updates = data.model_dump(exclude_none=True)
         field_map = {
+            "name": "full_name",
             "title": "title",
             "email": "email",
             "phone": "phone",

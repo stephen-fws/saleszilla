@@ -112,15 +112,6 @@ export default function AccountsList({
                           <Users className="h-3 w-3" />
                           {account.contactCount}
                         </span>
-                        {account.topStage && (
-                          <span
-                            className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                              STAGE_COLORS[account.topStage] || "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {formatStage(account.topStage)}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

@@ -90,30 +90,23 @@ function EditableField({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKey}
             onBlur={commit}
-            className="flex-1 rounded border border-blue-300 px-2 py-1 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="flex-1 rounded border border-blue-300 px-1 py-0.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-400 -mx-1"
           />
-          {saving
-            ? <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
-            : <button type="button" onMouseDown={(e) => { e.preventDefault(); setDraft(String(value ?? "")); setEditing(false); }}><X className="h-3 w-3 text-slate-400 hover:text-slate-600" /></button>
-          }
+          {saving && <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="py-0.5 group">
+    <div className="py-0.5">
       <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
-      <div className="flex items-center gap-1">
-        <p className="text-xs text-slate-700 flex-1">{value != null && value !== "" ? String(value) : "—"}</p>
-        <button
-          type="button"
-          onClick={() => { setDraft(String(value ?? "")); setEditing(true); }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-slate-600"
-        >
-          <Pencil className="h-2.5 w-2.5" />
-        </button>
-      </div>
+      <p
+        className="text-xs text-slate-700 cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-slate-50 transition-colors"
+        onClick={() => { setDraft(String(value ?? "")); setEditing(true); }}
+      >
+        {value != null && value !== "" ? String(value) : <span className="text-slate-300">—</span>}
+      </p>
     </div>
   );
 }
@@ -214,13 +207,19 @@ function OverviewTab({
           <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Company Info</h3>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <div className="col-span-2">
+            <EditableField label="Account Name *" value={account.name} onSave={(v) => onFieldSave("name", v)} />
+          </div>
+          <EditableField label="Phone *" value={account.phone} onSave={(v) => onFieldSave("phone", v)} />
           <EditableField label="Industry" value={account.industry} onSave={(v) => onFieldSave("industry", v)} />
           <EditableField label="Website" value={account.website} onSave={(v) => onFieldSave("website", v)} />
           <EditableField label="Employees" value={account.employees} type="number" onSave={(v) => onFieldSave("employees", v)} />
           <EditableField label="Revenue" value={account.revenue} type="number" onSave={(v) => onFieldSave("revenue", v)} />
-          <EditableField label="City" value={account.billingCity} onSave={(v) => onFieldSave("billing_city", v)} />
-          <EditableField label="State" value={account.billingState} onSave={(v) => onFieldSave("billing_state", v)} />
-          <EditableField label="Country" value={account.billingCountry} onSave={(v) => onFieldSave("billing_country", v)} />
+          <EditableField label="Street *" value={account.billingStreet} onSave={(v) => onFieldSave("billing_street", v)} />
+          <EditableField label="City *" value={account.billingCity} onSave={(v) => onFieldSave("billing_city", v)} />
+          <EditableField label="State *" value={account.billingState} onSave={(v) => onFieldSave("billing_state", v)} />
+          <EditableField label="Postal Code *" value={account.billingCode} onSave={(v) => onFieldSave("billing_code", v)} />
+          <EditableField label="Country *" value={account.billingCountry} onSave={(v) => onFieldSave("billing_country", v)} />
         </div>
 
         {/* Website quick link */}
@@ -282,6 +281,23 @@ function ContactsTab({
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="col-span-2">
+                <EditableField
+                  label="Name *"
+                  value={contact.name}
+                  onSave={(v) => onContactFieldSave(contact.id, "name", v)}
+                />
+              </div>
+              <EditableField
+                label="Email *"
+                value={contact.email}
+                onSave={(v) => onContactFieldSave(contact.id, "email", v)}
+              />
+              <EditableField
+                label="Phone *"
+                value={contact.phone}
+                onSave={(v) => onContactFieldSave(contact.id, "phone", v)}
+              />
               <EditableField
                 label="Title"
                 value={contact.title}
@@ -291,16 +307,6 @@ function ContactsTab({
                 label="Department"
                 value={contact.department}
                 onSave={(v) => onContactFieldSave(contact.id, "department", v)}
-              />
-              <EditableField
-                label="Email"
-                value={contact.email}
-                onSave={(v) => onContactFieldSave(contact.id, "email", v)}
-              />
-              <EditableField
-                label="Phone"
-                value={contact.phone}
-                onSave={(v) => onContactFieldSave(contact.id, "phone", v)}
               />
               <EditableField
                 label="Mobile"
@@ -333,28 +339,6 @@ function ContactsTab({
               </div>
             )}
 
-            {contactPotentials.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-slate-100">
-                <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1">Potentials</p>
-                <div className="space-y-1">
-                  {contactPotentials.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 truncate">{p.title ?? "Untitled"}</span>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        {p.stage && (
-                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[p.stage] ?? "bg-slate-100 text-slate-600"}`}>
-                            {formatStage(p.stage)}
-                          </span>
-                        )}
-                        {p.value != null && (
-                          <span className="font-medium text-emerald-600">{formatValue(p.value)}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         );
       })}

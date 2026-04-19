@@ -96,13 +96,20 @@ class UpdatePotentialRequest(BaseModel):
 
 class CreatePotentialCompany(BaseModel):
     name: str
+    phone: Optional[str] = None
     industry: Optional[str] = None
     website: Optional[str] = None
+    billing_street: Optional[str] = None
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_code: Optional[str] = None
     country: Optional[str] = None
 
 
 class CreatePotentialContact(BaseModel):
     name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     title: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -128,8 +135,8 @@ class CreatePotentialRequest(BaseModel):
     contact: Optional[CreatePotentialContact] = None
 
     potential_name: str
-    amount: float
-    stage: str = "Pre Qualified"
+    amount: Optional[float] = None
+    stage: str = "Open"
     probability: Optional[float] = None
     service: Optional[str] = None
     sub_service: Optional[str] = None
@@ -223,8 +230,11 @@ class AccountDetailResponse(BaseModel):
     industry: Optional[str] = None
     website: Optional[str] = None
     location: Optional[str] = None
+    phone: Optional[str] = None
+    billing_street: Optional[str] = None
     billing_city: Optional[str] = None
     billing_state: Optional[str] = None
+    billing_code: Optional[str] = None
     billing_country: Optional[str] = None
     employees: Optional[int] = None
     revenue: Optional[float] = None
@@ -235,17 +245,22 @@ class AccountDetailResponse(BaseModel):
 
 
 class UpdateAccountRequest(BaseModel):
+    name: Optional[str] = None
     industry: Optional[str] = None
     website: Optional[str] = None
+    phone: Optional[str] = None
     employees: Optional[int] = None
     revenue: Optional[float] = None
     description: Optional[str] = None
+    billing_street: Optional[str] = None
     billing_city: Optional[str] = None
     billing_state: Optional[str] = None
+    billing_code: Optional[str] = None
     billing_country: Optional[str] = None
 
 
 class UpdateContactRequest(BaseModel):
+    name: Optional[str] = None
     title: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None

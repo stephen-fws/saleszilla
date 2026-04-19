@@ -19,6 +19,7 @@ from api.services.follow_up_service import (
     OutboundEvent,
     cancel_series_on_reply,
     trigger_reply_agent,
+    trigger_stage_update,
     process_due_schedules,
     start_new_series,
 )
@@ -69,6 +70,8 @@ def post_email_outbound(
         to_email=data.to_email,
         subject=data.subject,
     ))
+    # Stage update — runs after sync table has the email
+    trigger_stage_update(data.potential_number)
     return ResponseModel(data=result)
 
 
@@ -89,6 +92,8 @@ def post_email_inbound(
     )
     cancel_result = cancel_series_on_reply(event)
     reply_result = trigger_reply_agent(event)
+    # Stage update — runs after sync table has the email
+    trigger_stage_update(data.potential_number)
     return ResponseModel(data={
         "fu_cancelled": cancel_result.get("cancelled", 0),
         "reply_agents_created": reply_result.get("agents_created", 0),

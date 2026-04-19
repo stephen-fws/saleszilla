@@ -373,6 +373,70 @@ def trigger_reply_agent(event: InboundEvent) -> dict:
     return {"ok": True, "agents_created": len(configs_to_fire)}
 
 
+# ── Stage update trigger ─────────────────────────────────────────────────────
+
+def trigger_stage_update(potential_number: str) -> dict:
+    """Fire the stage-update graph for a potential. Called from both outbound
+    and inbound webhooks — the agent reads the email conversation from the
+    sync table (which has the latest email by the time the webhook fires)
+    and outputs stage + probability + ai_highlight."""
+    now = datetime.now(tzutil.utc)
+
+    with get_session() as session:
+        potential_uuid = _resolve_potential_uuid(session, potential_number)
+        if not potential_uuid:
+            logger.warning("trigger_stage_update: unknown potential=%s", potential_number)
+            return {"ok": False, "reason": "unknown_potential"}
+
+        # Get stage_update agent configs
+        su_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "stage_update",
+            )
+        ).scalars().all()
+        if not su_configs:
+            return {"ok": False, "reason": "no_stage_update_agents"}
+
+        # Upsert pending insight rows
+        for cfg in su_configs:
+            _upsert_pending_insight(session, potential_number, cfg, now)
+
+    # Trigger agentflow
+    if config.AGENTFLOW_GRAPH_STAGE_UPDATE:
+        potential_data = _load_potential_data(potential_uuid)
+        url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
+        payload = {
+            "graph_id": config.AGENTFLOW_GRAPH_STAGE_UPDATE,
+            "entity": {
+                "entity_type": "sales_lead",
+                "external_id": potential_number,
+                "attributes": {
+                    "potential_id": potential_number,
+                    "customer_name": potential_data.get("customer_name", ""),
+                    "contact_email": potential_data.get("contact_email", ""),
+                    "company_name": potential_data.get("company_name", ""),
+                    "company_website": potential_data.get("company_website", ""),
+                    "service": potential_data.get("service", ""),
+                    "entity_owner_email": potential_data.get("owner_email", ""),
+                    "category": "stage_update",
+                },
+            },
+            "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+            "callback_mode": "per_agent",
+        }
+        logger.info("trigger_stage_update: POST %s potential=%s", url, potential_number)
+        try:
+            resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
+            logger.info("stage_update agentflow response: status=%s", resp.status_code)
+        except Exception as exc:
+            logger.error("trigger_stage_update: agentflow failed: %s", exc)
+    else:
+        logger.warning("AGENTFLOW_GRAPH_STAGE_UPDATE not configured — skipped")
+
+    return {"ok": True, "agents_created": len(su_configs)}
+
+
 # ── Tick processing ──────────────────────────────────────────────────────────
 
 def _has_client_reply_since(potential_number: str, since: datetime) -> bool:

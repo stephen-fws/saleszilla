@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, LifeBuoy, Send, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { X, Headphones, Send, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { sendSupportEmail, getSupportCategories } from "@/lib/api";
 import type { PotentialDetail } from "@/types";
 
@@ -66,7 +66,7 @@ export default function SupportEmailModal({
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 px-5 py-4 border-b border-slate-200">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <LifeBuoy className="h-5 w-5 text-blue-600" />
+              <Headphones className="h-5 w-5 text-blue-600" />
               <h3 className="text-sm font-semibold text-slate-900">Contact Support</h3>
             </div>
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600">

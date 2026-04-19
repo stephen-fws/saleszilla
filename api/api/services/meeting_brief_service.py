@@ -507,7 +507,7 @@ async def get_upcoming_briefs(user_id: str, hours_ahead: int = 24) -> list[dict[
 
         skeleton = build_skeleton(item)
 
-        existing = get_meeting_brief_insight(potential.potential_id, ms_event_id)
+        existing = get_meeting_brief_insight(potential.potential_number, ms_event_id)
         needs_fire = False
         if not existing:
             needs_fire = True

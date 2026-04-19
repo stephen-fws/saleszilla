@@ -58,6 +58,7 @@ AGENTFLOW_GRAPH_NEW_POTENTIAL: str = os.getenv("AGENTFLOW_GRAPH_NEW_POTENTIAL", 
 AGENTFLOW_GRAPH_MEETING_BRIEF: str = os.getenv("AGENTFLOW_GRAPH_MEETING_BRIEF", "")
 AGENTFLOW_GRAPH_FOLLOW_UP: str = os.getenv("AGENTFLOW_GRAPH_FOLLOW_UP", "")
 AGENTFLOW_GRAPH_REPLY: str = os.getenv("AGENTFLOW_GRAPH_REPLY", "")
+AGENTFLOW_GRAPH_STAGE_UPDATE: str = os.getenv("AGENTFLOW_GRAPH_STAGE_UPDATE", "")
 
 # ── Twilio (calling) ─────────────────────────────────────────────────────────
 TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")

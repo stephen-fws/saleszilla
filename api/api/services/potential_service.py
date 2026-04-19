@@ -345,8 +345,13 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
                 account = Account(
                     account_id=uuid4().hex,
                     account_name=data.company.name,
+                    phone=data.company.phone,
                     industry=data.company.industry,
                     website=data.company.website,
+                    billing_street=data.company.billing_street,
+                    billing_city=data.company.billing_city,
+                    billing_state=data.company.billing_state,
+                    billing_code=data.company.billing_code,
                     billing_country=data.company.country,
                     created_time=dt.utcnow(),
                     modified_time=dt.utcnow(),
@@ -362,6 +367,8 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
         else:
             contact = Contact(
                 contact_id=uuid4().hex,
+                first_name=data.contact.first_name,
+                last_name=data.contact.last_name,
                 full_name=data.contact.name,
                 title=data.contact.title,
                 email=data.contact.email,

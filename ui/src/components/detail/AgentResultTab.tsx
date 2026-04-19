@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, RefreshCw, AlertCircle, Bot, Play, ChevronDown, LifeBuoy, Clock } from "lucide-react";
+import { Loader2, RefreshCw, AlertCircle, Bot, Play, ChevronDown, Headphones, Clock } from "lucide-react";
 import { getAgentResults, runAllAgents } from "@/lib/api";
 import type { AgentResult } from "@/types";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
@@ -304,7 +304,7 @@ function StuckBanner({ onRequestSupport }: { onRequestSupport?: (category?: stri
               onClick={() => onRequestSupport("agent_stuck")}
               className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 transition-colors"
             >
-              <LifeBuoy className="h-3 w-3" />
+              <Headphones className="h-3 w-3" />
               Contact Support
             </button>
           )}

@@ -509,8 +509,10 @@ export async function getAccountDetail(id: string): Promise<AccountDetail> {
     industry: d.industry ?? null,
     website: d.website ?? null,
     location: d.location ?? null,
+    billingStreet: d.billing_street ?? null,
     billingCity: d.billing_city ?? null,
     billingState: d.billing_state ?? null,
+    billingCode: d.billing_code ?? null,
     billingCountry: d.billing_country ?? null,
     employees: d.employees ?? null,
     revenue: d.revenue ?? null,
@@ -547,6 +549,7 @@ export async function getAccountDetail(id: string): Promise<AccountDetail> {
 }
 
 export interface UpdateContactPayload {
+  name?: string;
   title?: string;
   email?: string;
   phone?: string;
@@ -570,13 +573,17 @@ export async function updateContact(contactId: string, payload: UpdateContactPay
 }
 
 export interface UpdateAccountPayload {
+  name?: string;
   industry?: string;
   website?: string;
+  phone?: string;
   employees?: number;
   revenue?: number;
   description?: string;
+  billing_street?: string;
   billing_city?: string;
   billing_state?: string;
+  billing_code?: string;
   billing_country?: string;
 }
 
@@ -589,8 +596,10 @@ export async function updateAccount(id: string, payload: UpdateAccountPayload): 
     industry: d.industry ?? null,
     website: d.website ?? null,
     location: d.location ?? null,
+    billingStreet: d.billing_street ?? null,
     billingCity: d.billing_city ?? null,
     billingState: d.billing_state ?? null,
+    billingCode: d.billing_code ?? null,
     billingCountry: d.billing_country ?? null,
     employees: d.employees ?? null,
     revenue: d.revenue ?? null,
@@ -897,6 +906,21 @@ export async function getEmailThreads(dealId: string): Promise<{ threads: import
     isFlat: t.is_flat ?? false,
   }));
   return { threads, totalMessages: d.total_messages ?? 0 };
+}
+
+export async function getAiHighlight(dealId: string): Promise<string | null> {
+  try {
+    const res = await protectedApi.get(`/potentials/${dealId}/agent-results`, { params: { tab_type: "stage_update" } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results: any[] = res.data.data ?? [];
+    if (results.length === 0) return null;
+    const latest = results[0];
+    if (!latest.content) return null;
+    try {
+      const parsed = JSON.parse(latest.content);
+      return parsed.ai_highlight ?? null;
+    } catch { return null; }
+  } catch { return null; }
 }
 
 export async function downloadEmailAttachment(dealId: string, messageId: string, attachmentId: string, fileName: string): Promise<void> {

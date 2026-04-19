@@ -574,15 +574,15 @@ export default function DashboardPage() {
             return (
               <button
                 onClick={() => setCalendarOpen(true)}
-                className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs text-amber-800 hover:bg-amber-100 transition-colors max-w-xs"
+                className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs text-blue-800 hover:bg-blue-100 transition-colors max-w-xs"
                 title={nextMeeting.subject}
               >
                 {nextMeeting.isOnlineMeeting
-                  ? <Video className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                  : <Calendar className="h-3.5 w-3.5 shrink-0 text-amber-600" />}
+                  ? <Video className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                  : <Calendar className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
                 <span className="font-medium truncate">{title}</span>
-                <span className="text-amber-600 shrink-0">{timeStr}</span>
-                <span className="bg-amber-200 text-amber-800 rounded px-1 shrink-0 font-medium">{countdown}</span>
+                <span className="text-blue-600 shrink-0">{timeStr}</span>
+                <span className="bg-blue-200 text-blue-800 rounded px-1 shrink-0 font-medium">{countdown}</span>
               </button>
             );
           })() : (
