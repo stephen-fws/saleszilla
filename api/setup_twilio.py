@@ -1,28 +1,27 @@
 """One-time Twilio setup script.
 
 Creates the API Key + TwiML App programmatically using the Twilio REST API.
-Run once, copy the output values to your .env file.
+Run once, copy the output values into your TWILIO_CONFIG JSON in .env.
 
 Usage:
   cd api
   venv_saleszilla/Scripts/activate
   python setup_twilio.py
 
-Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CALLING_NUMBER,
-and BASE_URL to be set in .env already.
+Requires TWILIO_CONFIG (with account_sid, auth_token, calling_number) and
+BASE_URL to be set in .env already.
 """
 
-import os
-from dotenv import load_dotenv
+import json
 
-load_dotenv()
+import core.config as config
 
-ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-BASE_URL = os.getenv("BASE_URL", "")
+ACCOUNT_SID = config.TWILIO_ACCOUNT_SID
+AUTH_TOKEN = config.TWILIO_AUTH_TOKEN
+BASE_URL = config.BASE_URL
 
 if not ACCOUNT_SID or not AUTH_TOKEN:
-    print("ERROR: Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env first.")
+    print("ERROR: TWILIO_CONFIG must include account_sid and auth_token. Set it in .env first.")
     exit(1)
 
 from twilio.rest import Client
@@ -58,12 +57,19 @@ twiml_app = client.applications.create(
 print(f"   TWILIO_TWIML_APP_SID={twiml_app.sid}")
 
 # 3. Summary
+merged_config = {
+    "account_sid": ACCOUNT_SID,
+    "auth_token": AUTH_TOKEN,
+    "calling_number": config.TWILIO_CALLING_NUMBER,
+    "api_key": api_key.sid,
+    "api_secret": api_key.secret,
+    "twiml_app_sid": twiml_app.sid,
+}
+
 print("\n" + "=" * 60)
-print("Add these to your api/.env file:")
+print("Update TWILIO_CONFIG in api/.env to this single line:")
 print("=" * 60)
-print(f"TWILIO_API_KEY={api_key.sid}")
-print(f"TWILIO_API_SECRET={api_key.secret}")
-print(f"TWILIO_TWIML_APP_SID={twiml_app.sid}")
+print(f"TWILIO_CONFIG={json.dumps(merged_config, separators=(',', ':'))}")
 print("=" * 60)
 print("\nDone! Restart the API server after updating .env.")
 print(f"\nNote: If you change BASE_URL later (e.g. ngrok URL), update the")

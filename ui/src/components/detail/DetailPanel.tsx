@@ -13,6 +13,7 @@ import {
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults, getAiHighlight } from "@/lib/api";
 import type { UpdatePotentialPayload } from "@/lib/api";
+import { reasonFieldForStage } from "@/lib/utils";
 import TabBar from "./TabBar";
 import NotesTab from "./NotesTab";
 import TodosTab from "./TodosTab";
@@ -90,7 +91,7 @@ export default function DetailPanel({
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const agentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function handlePotentialFieldSave(field: keyof UpdatePotentialPayload, raw: string) {
+  async function handlePotentialFieldSave(field: keyof UpdatePotentialPayload, raw: string, reason?: string) {
     if (!dealId) return;
     const payload: UpdatePotentialPayload = {};
     if (field === "amount" || field === "probability") {
@@ -98,6 +99,10 @@ export default function DetailPanel({
       if (!isNaN(n)) (payload as Record<string, unknown>)[field] = n;
     } else {
       (payload as Record<string, unknown>)[field] = raw;
+    }
+    if (field === "stage" && reason) {
+      const reasonField = reasonFieldForStage(raw);
+      if (reasonField) payload[reasonField] = reason;
     }
     const updated = await updatePotential(dealId, payload);
     setDetail(updated);

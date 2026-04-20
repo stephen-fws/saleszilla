@@ -30,8 +30,8 @@ function MessageBubble({
           : <Bot className="h-3 w-3 text-white" />}
       </div>
       {/* Bubble + edit button */}
-      <div className={`flex items-start gap-1.5 max-w-[80%] ${isUser ? "flex-row-reverse" : "flex-row"}`}>
-        <div className={`rounded-xl px-3.5 py-2.5 ${
+      <div className={`flex items-start gap-1.5 max-w-[80%] min-w-0 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+        <div className={`rounded-xl px-3.5 py-2.5 min-w-0 max-w-full overflow-hidden ${
           isUser
             ? `bg-slate-100 border border-slate-200 text-slate-800 rounded-tr-sm ${isEditing ? "ring-2 ring-offset-1 ring-blue-300 opacity-60" : ""}`
             : "bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm"
@@ -39,7 +39,7 @@ function MessageBubble({
           {isUser ? (
             <p className="text-sm leading-normal whitespace-pre-wrap">{msg.content}</p>
           ) : (
-            <MarkdownBlock content={msg.content} />
+            <MarkdownBlock content={msg.content} compact />
           )}
           {isStreaming && (
             <span className="inline-block w-1.5 h-4 bg-slate-500 rounded-sm animate-pulse ml-0.5 align-middle" />

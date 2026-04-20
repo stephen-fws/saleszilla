@@ -271,23 +271,38 @@ def process_recording(
     call_sid: str,
     recording_sid: str,
     recording_url: str,
+    parent_call_sid: str | None = None,
 ) -> None:
     """Download a recording from Twilio and attach it to the call log as a file.
 
     Called by the recording-status webhook when the recording is ready.
-    """
-    logger.info("Processing recording: call_sid=%s recording_sid=%s", call_sid, recording_sid)
 
-    # Find the call log row by Twilio SID
+    For `<Dial record="record-from-answer-dual">` the recording webhook can report
+    either the parent (browser client) call SID or the child (PSTN) call SID in
+    `CallSid`, depending on which leg Twilio attributes the recording to. The
+    CXCallLog row is always created with the parent SID (from the browser SDK),
+    so we try both SIDs when looking it up.
+    """
+    logger.info(
+        "Processing recording: call_sid=%s parent_call_sid=%s recording_sid=%s",
+        call_sid, parent_call_sid, recording_sid,
+    )
+
+    candidate_sids = [s for s in (call_sid, parent_call_sid) if s]
+
+    # Find the call log row by Twilio SID — try both call_sid and parent_call_sid
     with get_session() as session:
         log = session.execute(
             select(CXCallLog).where(
-                CXCallLog.twilio_call_sid == call_sid,
+                CXCallLog.twilio_call_sid.in_(candidate_sids),
                 CXCallLog.is_active == True,
             )
         ).scalar_one_or_none()
         if not log:
-            logger.warning("No call log found for call_sid=%s, skipping recording", call_sid)
+            logger.warning(
+                "No call log found for call_sid=%s parent_call_sid=%s — skipping recording",
+                call_sid, parent_call_sid,
+            )
             return
         potential_id = log.potential_id
         log_id = log.id

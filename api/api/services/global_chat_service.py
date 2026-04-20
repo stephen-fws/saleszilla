@@ -23,6 +23,8 @@ from core.database import get_session
 from core.models import CXGlobalChatConversation, CXGlobalChatMessage, User
 from core.schemas import ChatMessageItem
 from api.services.crm_query_tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
+from api.services.potential_service import get_team_user_ids
+from api.services.tool_scope import set_scope
 
 logger = logging.getLogger(__name__)
 
@@ -286,14 +288,17 @@ If the user's question is ambiguous (vague terms, multiple valid interpretations
 # Available tools
 You have 10 tools covering: filtered listings, single-entity lookups, cross-entity 360 views, and aggregate analytics. Pick the most specific tool for the question.
 
-# UI navigation vs analytical scope (IMPORTANT)
-The CRM applies an ownership rule:
-- **Aggregate / analytical questions** (totals, breakdowns, "how many", "average", revenue summaries) — you SEE all-org data via the tools and should answer them honestly across the whole pipeline. Always do this when the user asks for org-wide insights.
-- **UI navigation** — the user can ONLY click into / open potentials, accounts and contacts they personally OWN. If you mention a specific record by number/name in your answer, the user might try to click it. So:
-  - When suggesting specific potentials/accounts/contacts to drill into ("you should look at #1234567"), prefer ones owned by `{user.name}` since others are not openable in the UI.
-  - When listing rows for a "show me" question scoped to "my/me/mine", filter by `owner_name_like="{user.name}"`.
-  - When the user asks an org-wide question and you list specific records (e.g. "the 5 biggest potentials in the org"), you MAY include records owned by others — but flag them: *"(owned by Jane Doe — view-only via this chat)"* so the user knows clicking won't work.
-- Never refuse to compute aggregates that include other people's data — the user is allowed to see totals.
+# Visibility scope (IMPORTANT)
+All CRM tools are **automatically scoped to the current user's reporting subtree** — the caller themselves plus every person beneath them in the org chart (direct reports, skip-level reports, and so on, transitively). You cannot see records owned by anyone outside that subtree; the tools enforce this at the SQL layer.
+
+- An individual contributor sees only their own records.
+- A manager sees their own + their team's + sub-teams' records.
+- A CEO (root of the tree) effectively sees everything.
+
+- **Aggregate questions** ("how many", "total value", breakdowns) — answer honestly, but base your numbers strictly on what the tools return. Do NOT claim to summarise "the whole org" unless the user is actually at the top of the hierarchy; just answer "across the records you and your team own."
+- **Specific record lookups** — if the user asks about a potential / account / contact that isn't in their subtree, the tool returns `{{"error": "not_accessible"}}` or `{{"error": "not_found"}}`. In both cases answer honestly: say you don't see that record in their scope. Do NOT invent data.
+- **"My/me/mine" queries** — already covered by the scope (user is in scope). No need to add `owner_name_like={user.name}` unless they specifically want their own records excluding the team.
+- **Team queries** — "my team's pipeline" etc. — the scope already includes the team; just answer.
 
 # Reporting hierarchy IS tracked
 For questions like "who does X report to" or "who is X's manager", call `list_owners(name_like="X")`. The response includes `reporting_to_email` (manager's email) and `reporting_to_name` (resolved manager name when that email matches another user). NEVER say reporting hierarchy isn't tracked — it is.
@@ -371,6 +376,14 @@ def stream_global_chat(
     messages.append({"role": "user", "content": user_message})
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    # Scope value for CRM tool calls: this user's reporting subtree (self + all descendants).
+    # BFS via get_team_user_ids returns the full transitive team; we prepend the caller's
+    # own user_id so users always see their own data in addition to their team's.
+    # We apply the scope per-tool-call below (not here) because Starlette iterates the
+    # streaming generator through anyio's threadpool — each `next(iterator)` runs in a
+    # fresh Context, so a ContextVar set once at the top wouldn't survive to the next slice.
+    allowed_owner_ids = [user.user_id] + get_team_user_ids(user.user_id)
 
     full_text_response = ""
     max_turns = 8  # safety cap on tool-use loops
@@ -452,7 +465,10 @@ def stream_global_chat(
                     if not fn:
                         result = {"error": f"Unknown tool {tool_name}"}
                     else:
-                        result = fn(**tool_input)
+                        # Install scope for the duration of this single tool call;
+                        # the with-block enters and exits inside one generator slice.
+                        with set_scope(allowed_owner_ids):
+                            result = fn(**tool_input)
                 except Exception as e:
                     logger.exception("Tool %s failed: %s", tool_name, e)
                     result = {"error": str(e)}

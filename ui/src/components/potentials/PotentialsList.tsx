@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Briefcase, Building2, X, Plus, ChevronDown, Loader2, Users } from "lucide-react";
 import type { PotentialDeal } from "@/types";
-import { groupByDateBucket } from "@/lib/utils";
+import { groupByDateBucket, reasonFieldForStage } from "@/lib/utils";
 
 const STAGE_COLORS: Record<string, string> = {
   // Real DB stage names
@@ -32,10 +32,11 @@ function StageSelector({
 }: {
   stage: string;
   availableStages: string[];
-  onStageChange: (stage: string) => Promise<void>;
+  onStageChange: (stage: string, reason?: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -45,6 +46,7 @@ function StageSelector({
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
         setPending(null);
+        setReason("");
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -54,17 +56,25 @@ function StageSelector({
   function handleSelect(newStage: string) {
     if (newStage === stage) { setOpen(false); return; }
     setPending(newStage);
+    setReason("");
   }
+
+  const reasonRequired = pending ? reasonFieldForStage(pending) !== null : false;
+  const canConfirm = !reasonRequired || reason.trim().length > 0;
 
   async function confirm() {
     if (!pending) return;
+    if (!canConfirm) return;
     setSaving(true);
     setOpen(false);
-    try { await onStageChange(pending); } finally { setSaving(false); setPending(null); }
+    try {
+      await onStageChange(pending, reasonRequired ? reason.trim() : undefined);
+    } finally { setSaving(false); setPending(null); setReason(""); }
   }
 
   function cancel() {
     setPending(null);
+    setReason("");
   }
 
   const colorClass = STAGE_COLORS[stage] ?? "bg-slate-100 text-slate-600";
@@ -83,7 +93,7 @@ function StageSelector({
       {open && availableStages.length > 0 && (
         <div className="absolute left-0 top-full mt-1 z-30 min-w-[170px] rounded-lg border border-slate-200 bg-white shadow-lg py-1">
           {pending ? (
-            <div className="px-3 py-2 space-y-2">
+            <div className="px-3 py-2 space-y-2 w-[260px]">
               <p className="text-[11px] text-slate-600">
                 Change stage to{" "}
                 <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
@@ -91,11 +101,22 @@ function StageSelector({
                 </span>
                 ?
               </p>
+              {reasonRequired && (
+                <textarea
+                  autoFocus
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason (required)"
+                  rows={3}
+                  className="w-full rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                />
+              )}
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={confirm}
-                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors"
+                  disabled={!canConfirm}
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                 >
                   Confirm
                 </button>
@@ -144,7 +165,7 @@ interface PotentialsListProps {
   onClearFilters?: () => void;
   onNewDeal?: () => void;
   availableStages?: string[];
-  onStageChange?: (dealId: string, stage: string) => Promise<void>;
+  onStageChange?: (dealId: string, stage: string, reason?: string) => Promise<void>;
   currentUserName?: string | null;
 }
 
@@ -248,7 +269,7 @@ export default function PotentialsList({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`text-sm font-medium truncate ${isSelected ? "text-blue-900" : "text-slate-900"}`}>
+                        <span className={`text-xs font-medium truncate ${isSelected ? "text-blue-900" : "text-slate-900"}`}>
                           {deal.title || deal.company.name}
                         </span>
                         <span className="flex-shrink-0 text-xs font-semibold text-emerald-600">

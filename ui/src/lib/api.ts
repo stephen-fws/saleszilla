@@ -213,6 +213,8 @@ export interface UpdatePotentialPayload {
   lead_source?: string;
   deal_type?: string;
   deal_size?: string;
+  not_an_inquiry_reason?: string;
+  disqualify_reason?: string;
 }
 
 export async function updatePotential(id: string, payload: UpdatePotentialPayload): Promise<PotentialDetail> {

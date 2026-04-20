@@ -293,26 +293,34 @@ export default function FolderPanel({
                 const IconComponent = ICON_MAP[folder.icon] || Inbox;
                 const isSelected = folder.id === selectedId;
                 const isMeetingBriefs = folder.id === "meeting-briefs";
+                // Temporarily disabled folders — revisit post-beta.
+                const isDisabled = folder.id === "follow-up-inactive" || folder.id === "news";
                 const displayCount = folder.count;
                 return (
                   <button
                     key={folder.id}
                     data-folder-id={folder.id}
-                    onClick={() => onSelect(folder.id)}
+                    onClick={() => { if (!isDisabled) onSelect(folder.id); }}
+                    disabled={isDisabled}
+                    title={isDisabled ? "Coming soon" : undefined}
                     className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                      isSelected
+                      isDisabled
+                        ? "text-slate-300 cursor-not-allowed"
+                        : isSelected
                         ? "bg-slate-200 text-slate-900 font-medium"
                         : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
                     <IconComponent
-                      className={`h-4 w-4 flex-shrink-0 ${isSelected ? "text-slate-900" : "text-slate-400"}`}
+                      className={`h-4 w-4 flex-shrink-0 ${
+                        isDisabled ? "text-slate-300" : isSelected ? "text-slate-900" : "text-slate-400"
+                      }`}
                     />
                     <span className="flex-1 truncate">{folder.label}</span>
                     {isMeetingBriefs && meetingBriefsLoading && (
                       <Loader2 className="h-3 w-3 animate-spin text-blue-500 flex-shrink-0" />
                     )}
-                    {displayCount > 0 && !(isMeetingBriefs && meetingBriefsLoading) && (
+                    {!isDisabled && displayCount > 0 && !(isMeetingBriefs && meetingBriefsLoading) && (
                       <span
                         className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium ${
                           isSelected ? "bg-slate-300 text-slate-800" : "bg-slate-100 text-slate-500"

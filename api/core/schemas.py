@@ -92,6 +92,8 @@ class UpdatePotentialRequest(BaseModel):
     lead_source: Optional[str] = None
     deal_type: Optional[str] = None
     deal_size: Optional[str] = None
+    not_an_inquiry_reason: Optional[str] = None
+    disqualify_reason: Optional[str] = None
 
 
 class CreatePotentialCompany(BaseModel):

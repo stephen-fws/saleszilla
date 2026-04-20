@@ -1,8 +1,9 @@
 """Global search route — potentials, accounts, contacts.
 
-Results include the current user's records + their direct reports' records
-(users whose reporting_to = current user's email). This lets managers find
-their team's deals in the same search bar.
+Results include the current user's records + their full reporting subtree
+(direct reports, their reports, and so on — via `get_team_user_ids`). This
+lets a manager at any level of the hierarchy find any deal owned by someone
+beneath them in the same search bar.
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -53,7 +54,7 @@ def global_search(
     q: str = Query(..., min_length=2, max_length=100),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Global search — returns records owned by the current user + their direct reports."""
+    """Global search — returns records owned by the current user + their full reporting subtree."""
     term = f"%{q}%"
     user_id = current_user.user_id
     team_ids = get_team_user_ids(user_id)

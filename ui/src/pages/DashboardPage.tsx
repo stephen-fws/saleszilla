@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown, Sparkles, Settings } from "lucide-react";
+import { Menu, X, ArrowLeft, Calendar, LogOut, Video, ChevronDown, ChevronLeft, ChevronRight, Sparkles, Settings } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import {
   getFolders,
@@ -14,7 +14,8 @@ import {
   resolveMeetingBrief,
   getLookups,
 } from "@/lib/api";
-import type { LookupData } from "@/lib/api";
+import type { LookupData, UpdatePotentialPayload } from "@/lib/api";
+import { reasonFieldForStage } from "@/lib/utils";
 import NewPotentialModal from "@/components/potentials/NewPotentialModal";
 import GlobalSearch from "@/components/layout/GlobalSearch";
 import type { CalendarEvent, MeetingBriefItem } from "@/lib/api";
@@ -107,6 +108,7 @@ export default function DashboardPage() {
   }, [refreshNextMeeting]);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [middlePanelOpen, setMiddlePanelOpen] = useState(true);
   const sidebarInitialized = useRef(false);
   useEffect(() => {
     if (!sidebarInitialized.current) {
@@ -495,18 +497,21 @@ export default function DashboardPage() {
     }
   }, [isMobile]);
 
-  const handleStageChange = useCallback(async (dealId: string, stage: string) => {
+  const handleStageChange = useCallback(async (dealId: string, stage: string, reason?: string) => {
     // Optimistically update the list
     setPotentialDeals((prev) =>
       prev.map((d) => (d.id === dealId ? { ...d, stage } : d))
     );
     try {
-      await updatePotential(dealId, { stage });
+      const payload: UpdatePotentialPayload = { stage };
+      const reasonField = reasonFieldForStage(stage);
+      if (reasonField && reason) payload[reasonField] = reason;
+      await updatePotential(dealId, payload);
     } catch {
       // Revert on failure by re-fetching
       getPotentials({ ...potentialFilters, includeTeam }).then((data) => setPotentialDeals(data.deals ?? [])).catch(() => {});
     }
-  }, [potentialFilters]);
+  }, [potentialFilters, includeTeam]);
 
   const sortedDeals = useMemo(() => {
     const sorted = [...potentialDeals];
@@ -734,10 +739,16 @@ export default function DashboardPage() {
 
         {/* Middle panel */}
         <div
-          className={`flex-shrink-0 border-r border-slate-200 overflow-hidden transition-all duration-200 ${
-            isMobile && mobileShowDetail ? "w-0 border-r-0" : isMobile ? "flex-1" : ""
+          className={`flex-shrink-0 overflow-hidden transition-all duration-200 ${
+            isMobile && mobileShowDetail
+              ? "w-0 border-r-0"
+              : isMobile
+              ? "flex-1 border-r border-slate-200"
+              : middlePanelOpen
+              ? "border-r border-slate-200"
+              : "w-0 border-r-0"
           }`}
-          style={!isMobile ? { width: "25%", minWidth: 280 } : undefined}
+          style={!isMobile && middlePanelOpen ? { width: "25%", minWidth: 280 } : undefined}
         >
           {isMobile && (
             <div className="flex h-11 items-center gap-2 border-b border-slate-200 px-2 flex-shrink-0">
@@ -799,9 +810,43 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Collapse/expand rail — desktop only */}
+        {!isMobile && (() => {
+          const collapsedLabel =
+            viewMode === "queue"
+              ? folders.find((f) => f.id === selectedFolderId)?.label || "Queue"
+              : viewMode === "accounts"
+              ? "Accounts"
+              : "Potentials";
+          return (
+            <button
+              type="button"
+              onClick={() => setMiddlePanelOpen((v) => !v)}
+              title={middlePanelOpen ? "Collapse list panel" : "Expand list panel"}
+              className={`shrink-0 flex flex-col items-center justify-center border-r border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors ${
+                middlePanelOpen ? "w-4" : "w-7 gap-2"
+              }`}
+            >
+              {middlePanelOpen ? (
+                <ChevronLeft className="h-3 w-3" />
+              ) : (
+                <>
+                  <ChevronRight className="h-3 w-3" />
+                  <span
+                    className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 whitespace-nowrap"
+                    style={{ writingMode: "vertical-rl" }}
+                  >
+                    {collapsedLabel}
+                  </span>
+                </>
+              )}
+            </button>
+          );
+        })()}
+
         {/* Detail panel */}
         <div
-          className={`border-l border-slate-200 overflow-hidden transition-all duration-200 ${
+          className={`overflow-hidden transition-all duration-200 ${
             isMobile && !mobileShowDetail ? "w-0 border-l-0" : "flex-1"
           }`}
         >

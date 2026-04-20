@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil, X } from "lucide-react";
 import type { PotentialDetail } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
+import { reasonFieldForStage } from "@/lib/utils";
 
 
 const STAGE_COLORS: Record<string, string> = {
@@ -58,7 +59,7 @@ function Field({ label, value }: { label: string; value: string | number | null 
   return (
     <div className="py-1">
       <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
-      <p className="text-sm text-slate-700">{display}</p>
+      <p className="text-xs text-slate-700">{display}</p>
     </div>
   );
 }
@@ -155,7 +156,7 @@ function EditableField({
       <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">{label}</p>
       <div
         onClick={startEdit}
-        className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
+        className="text-xs text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
       >
         {displayValue ?? "—"}
       </div>
@@ -325,7 +326,7 @@ function EditableTextarea({
       </div>
       <div
         onClick={startEditing}
-        className="text-sm text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
+        className="text-xs text-slate-700 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors"
       >
         {value ? <LinkifiedText text={value} /> : <span className="text-slate-400">—</span>}
       </div>
@@ -342,10 +343,11 @@ function EditableStage({
 }: {
   value: string | null | undefined;
   availableStages: string[];
-  onSave: (val: string) => Promise<void>;
+  onSave: (val: string, reason?: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -355,6 +357,7 @@ function EditableStage({
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
         setPending(null);
+        setReason("");
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -364,13 +367,20 @@ function EditableStage({
   function handleSelect(newStage: string) {
     if (newStage === (value ?? "")) { setOpen(false); return; }
     setPending(newStage);
+    setReason("");
   }
+
+  const reasonRequired = pending ? reasonFieldForStage(pending) !== null : false;
+  const canConfirm = !reasonRequired || reason.trim().length > 0;
 
   async function confirm() {
     if (!pending) return;
+    if (!canConfirm) return;
     setSaving(true);
     setOpen(false);
-    try { await onSave(pending); } finally { setSaving(false); setPending(null); }
+    try {
+      await onSave(pending, reasonRequired ? reason.trim() : undefined);
+    } finally { setSaving(false); setPending(null); setReason(""); }
   }
 
   const colorClass = STAGE_COLORS[value ?? ""] ?? "bg-slate-100 text-slate-600";
@@ -390,7 +400,7 @@ function EditableStage({
       {open && (
         <div className="absolute right-0 top-full mt-1 z-30 min-w-[170px] rounded-lg border border-slate-200 bg-white shadow-lg py-1">
           {pending ? (
-            <div className="px-3 py-2 space-y-2">
+            <div className="px-3 py-2 space-y-2 w-[260px]">
               <p className="text-[11px] text-slate-600">
                 Change stage to{" "}
                 <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
@@ -398,17 +408,28 @@ function EditableStage({
                 </span>
                 ?
               </p>
+              {reasonRequired && (
+                <textarea
+                  autoFocus
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason (required)"
+                  rows={3}
+                  className="w-full rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                />
+              )}
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={confirm}
-                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors"
+                  disabled={!canConfirm}
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                 >
                   Confirm
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPending(null)}
+                  onClick={() => { setPending(null); setReason(""); }}
                   className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
@@ -477,7 +498,7 @@ function EditableSelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group flex items-center gap-1 text-sm text-slate-700 rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors w-full text-left"
+        className="group flex items-center gap-1 text-xs text-slate-700 rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 transition-colors w-full text-left"
       >
         {saving ? <Loader2 className="h-3 w-3 animate-spin text-blue-500" /> : (value ?? "—")}
         {!saving && <Pencil className="h-2 w-2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0" />}
@@ -506,7 +527,7 @@ interface DetailsTabProps {
   detail: PotentialDetail;
   availableStages: string[];
   availableServices: string[];
-  onFieldSave: (field: keyof UpdatePotentialPayload, raw: string) => Promise<void>;
+  onFieldSave: (field: keyof UpdatePotentialPayload, raw: string, reason?: string) => Promise<void>;
 }
 
 export default function DetailsTab({ detail, availableStages, availableServices, onFieldSave }: DetailsTabProps) {
@@ -531,7 +552,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
               <span title="Platinum" className="text-base leading-none">🏆</span>
             )}
             <div className="ml-auto">
-              <EditableStage value={detail.stage} availableStages={availableStages} onSave={(v) => onFieldSave("stage", v)} />
+              <EditableStage value={detail.stage} availableStages={availableStages} onSave={(v, reason) => onFieldSave("stage", v, reason)} />
             </div>
           </div>
           <div className="p-4">
@@ -626,11 +647,11 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 <div className="col-span-2">
                   <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-0.5">Email *</p>
                   {contact.email ? (
-                    <a href={`mailto:${contact.email}`} className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700">
+                    <a href={`mailto:${contact.email}`} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
                       <Mail className="h-3 w-3" />{contact.email}
                     </a>
                   ) : (
-                    <span className="text-sm text-red-400">—</span>
+                    <span className="text-xs text-red-400">—</span>
                   )}
                 </div>
                 <Field label="Phone *" value={contact.phone} />

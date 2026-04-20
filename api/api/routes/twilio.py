@@ -123,17 +123,18 @@ async def twilio_recording_status_webhook(request: Request):
     form = await request.form()
     all_fields = {k: str(v) for k, v in form.items()}
     call_sid = str(form.get("CallSid", ""))
+    parent_call_sid = str(form.get("ParentCallSid", "")) or None
     recording_sid = str(form.get("RecordingSid", ""))
     recording_url = str(form.get("RecordingUrl", ""))
     recording_status = str(form.get("RecordingStatus", ""))
     logger.info(
-        "Twilio recording webhook received: call_sid=%s recording_sid=%s status=%s url=%s all_fields=%s",
-        call_sid, recording_sid, recording_status, recording_url, all_fields,
+        "Twilio recording webhook received: call_sid=%s parent_call_sid=%s recording_sid=%s status=%s url=%s all_fields=%s",
+        call_sid, parent_call_sid, recording_sid, recording_status, recording_url, all_fields,
     )
 
     if recording_status == "completed" and recording_url:
         try:
-            process_recording(call_sid, recording_sid, recording_url)
+            process_recording(call_sid, recording_sid, recording_url, parent_call_sid=parent_call_sid)
             logger.info("Recording processed successfully for call_sid=%s", call_sid)
         except Exception as e:
             logger.exception("Failed to process recording for call_sid=%s: %s", call_sid, e)

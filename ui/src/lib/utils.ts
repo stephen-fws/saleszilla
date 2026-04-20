@@ -5,6 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Stages that require a free-text reason before the user can confirm the change.
+ * Maps normalized stage (lowercase, trimmed) → the UpdatePotentialPayload field
+ * that holds the reason.
+ */
+export function reasonFieldForStage(stage: string): "not_an_inquiry_reason" | "disqualify_reason" | null {
+  const s = stage.trim().toLowerCase();
+  if (s === "not an inquiry") return "not_an_inquiry_reason";
+  if (s === "disqualified") return "disqualify_reason";
+  return null;
+}
+
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null) return "$0";
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;

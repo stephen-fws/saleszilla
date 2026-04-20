@@ -22,22 +22,48 @@ from api.services.activity_service import log_activity
 
 
 def get_team_user_ids(manager_user_id: str) -> list[str]:
-    """Return user_ids of direct reports — users whose reporting_to matches
-    the manager's email address. Returns an empty list if no reports found."""
+    """Return user_ids of the full reporting subtree under the manager — direct
+    reports, their reports, and so on transitively. Walks the `reporting_to`
+    hierarchy breadth-first. Returns an empty list if no reports found.
+
+    A CEO (root of the tree) sees all descendant users. Cycles in the
+    `reporting_to` data are handled via a visited set.
+    """
     with get_session() as session:
-        # First get the manager's email
         manager = session.get(User, manager_user_id)
         if not manager or not manager.email:
             return []
-        # Find users who report to this email
-        report_ids = session.execute(
-            select(User.user_id).where(
-                User.reporting_to == manager.email,
-                User.is_active == True,
-                User.user_id != manager_user_id,
-            )
-        ).scalars().all()
-        return list(report_ids)
+
+        # Load all active users once and build in-memory graph: BFS down the tree.
+        rows = session.execute(
+            select(User.user_id, User.email, User.reporting_to).where(User.is_active == True)
+        ).all()
+
+        uid_to_email: dict[str, str] = {}
+        tree: dict[str, list[str]] = {}  # manager_email (lower) → [subordinate_uid]
+        for uid, email, reports_to in rows:
+            if email:
+                uid_to_email[uid] = email.lower()
+            if reports_to:
+                tree.setdefault(reports_to.lower(), []).append(uid)
+
+        visited: set[str] = {manager_user_id}
+        team: list[str] = []
+        frontier = [manager.email.lower()]
+        while frontier:
+            next_frontier: list[str] = []
+            for mgr_email in frontier:
+                for sub_uid in tree.get(mgr_email, []):
+                    if sub_uid in visited:
+                        continue
+                    visited.add(sub_uid)
+                    team.append(sub_uid)
+                    sub_email = uid_to_email.get(sub_uid)
+                    if sub_email:
+                        next_frontier.append(sub_email)
+            frontier = next_frontier
+
+        return team
 
 
 def list_potentials(
@@ -247,6 +273,8 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
         "lead_source": "lead_source",
         "deal_type": "type",
         "deal_size": "deal_size",
+        "not_an_inquiry_reason": "not_an_inquiry_reason",
+        "disqualify_reason": "disqualify_reason",
     }
     _LABELS = {
         "title": "Title",
@@ -261,6 +289,8 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
         "lead_source": "Lead Source",
         "deal_type": "Type",
         "deal_size": "Size",
+        "not_an_inquiry_reason": "Not-an-Inquiry Reason",
+        "disqualify_reason": "Disqualify Reason",
     }
 
     changes: list[tuple[str, str, str]] = []  # (label, old, new)

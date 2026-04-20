@@ -107,6 +107,8 @@ class Potential(Base):
     type: Mapped[str | None] = mapped_column("Type", String(32), nullable=True)
     potential2close: Mapped[int | None] = mapped_column("Potential2Close", Integer, nullable=True)
     hot_potential: Mapped[str | None] = mapped_column("Hot_Potential", String(16), nullable=True)
+    not_an_inquiry_reason: Mapped[str | None] = mapped_column("Not_an_Inquiry_Reas", UnicodeText, nullable=True)
+    disqualify_reason: Mapped[str | None] = mapped_column("Reason to Disqualify", UnicodeText, nullable=True)
     created_time: Mapped[datetime | None] = mapped_column("Created Time", DateTime, nullable=True)
     modified_time: Mapped[datetime | None] = mapped_column("Modified Time", DateTime, nullable=True)
 

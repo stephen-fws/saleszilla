@@ -24,6 +24,14 @@ from core.models import (
     Account, Contact, CXActivity, CXNote, CXSentEmail, CXTodo,
     Potential, User,
 )
+from api.services.tool_scope import (
+    accessible_account_ids_subquery,
+    get_scope,
+    is_account_accessible,
+    is_contact_accessible,
+    is_potential_accessible,
+    potential_owner_clause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +133,10 @@ def search_potentials(
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
         )
 
+        owner_clause = potential_owner_clause()
+        if owner_clause is not None:
+            stmt = stmt.where(owner_clause)
+
         if stages:
             stmt = stmt.where(Potential.stage.in_(stages))
         if services:
@@ -208,6 +220,8 @@ def get_potential_details(potential_number_or_name: str) -> dict[str, Any]:
                 .limit(5)
             )
             rows = session.execute(stmt).all()
+            # Filter ambiguous matches to accessible ones only
+            rows = [(p, a, c) for p, a, c in rows if is_potential_accessible(session, p)]
             if not rows:
                 return {"error": "not_found", "query": potential_number_or_name}
             if len(rows) > 1:
@@ -218,6 +232,8 @@ def get_potential_details(potential_number_or_name: str) -> dict[str, Any]:
             row = rows[0]
 
         p, a, c = row
+        if not is_potential_accessible(session, p):
+            return {"error": "not_accessible", "query": potential_number_or_name}
         result = _serialise_potential(p, a, c)
         result["description"] = p.description
 
@@ -273,6 +289,10 @@ def search_accounts(
     with get_session() as session:
         stmt = select(Account)
 
+        accessible_accts = accessible_account_ids_subquery()
+        if accessible_accts is not None:
+            stmt = stmt.where(Account.account_id.in_(accessible_accts))
+
         if industry:
             stmt = stmt.where(Account.industry.ilike(f"%{industry}%"))
         if country:
@@ -327,6 +347,8 @@ def get_account_360(account_name_or_id: str) -> dict[str, Any]:
                 .where(Account.account_name.ilike(f"%{account_name_or_id}%"))
                 .limit(5)
             ).scalars().all()
+            # Drop inaccessible matches
+            accounts = [a for a in accounts if is_account_accessible(session, a)]
             if not accounts:
                 return {"error": "not_found", "query": account_name_or_id}
             if len(accounts) > 1:
@@ -335,6 +357,9 @@ def get_account_360(account_name_or_id: str) -> dict[str, Any]:
                     "matches": [{"account_id": a.account_id, "account_name": a.account_name, "industry": a.industry} for a in accounts],
                 }
             account = accounts[0]
+
+        if not is_account_accessible(session, account):
+            return {"error": "not_accessible", "query": account_name_or_id}
 
         result = _serialise_account(account)
         result["description"] = account.description
@@ -345,13 +370,17 @@ def get_account_360(account_name_or_id: str) -> dict[str, Any]:
         ).scalars().all()
         result["contacts"] = [_serialise_contact(c, account) for c in contacts]
 
-        # Potentials
-        pot_rows = session.execute(
+        # Potentials — scoped to the current user's subtree
+        pot_stmt = (
             select(Potential, Contact)
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
             .where(Potential.account_id == account.account_id)
             .order_by(Potential.modified_time.desc())
-        ).all()
+        )
+        owner_clause = potential_owner_clause()
+        if owner_clause is not None:
+            pot_stmt = pot_stmt.where(owner_clause)
+        pot_rows = session.execute(pot_stmt).all()
         result["potentials"] = [_serialise_potential(p, account, c) for p, c in pot_rows]
 
         # Aggregates
@@ -383,6 +412,17 @@ def search_contacts(
 
     with get_session() as session:
         stmt = select(Contact, Account).outerjoin(Account, Contact.account_id == Account.account_id)
+
+        scope = get_scope()
+        if scope is not None:
+            accessible_accts = accessible_account_ids_subquery()
+            if scope:
+                stmt = stmt.where(or_(
+                    Contact.contact_owner_id.in_(scope),
+                    Contact.account_id.in_(accessible_accts),
+                ))
+            else:
+                stmt = stmt.where(Contact.contact_id == "__NO_ACCESS__")
 
         if name_like:
             stmt = stmt.where(Contact.full_name.ilike(f"%{name_like}%"))
@@ -420,6 +460,8 @@ def get_contact_details(contact_name_or_email: str) -> dict[str, Any]:
             ))
             .limit(5)
         ).all()
+        # Filter to accessible contacts
+        rows = [(c, a) for c, a in rows if is_contact_accessible(session, c)]
         if not rows:
             return {"error": "not_found", "query": contact_name_or_email}
         if len(rows) > 1:
@@ -430,12 +472,16 @@ def get_contact_details(contact_name_or_email: str) -> dict[str, Any]:
         contact, account = rows[0]
         result = _serialise_contact(contact, account)
 
-        # Linked potentials
-        pot_rows = session.execute(
+        # Linked potentials — scoped
+        pot_stmt = (
             select(Potential)
             .where(Potential.contact_id == contact.contact_id)
             .order_by(Potential.modified_time.desc())
-        ).scalars().all()
+        )
+        owner_clause = potential_owner_clause()
+        if owner_clause is not None:
+            pot_stmt = pot_stmt.where(owner_clause)
+        pot_rows = session.execute(pot_stmt).scalars().all()
         result["potentials"] = [_serialise_potential(p, account, contact) for p in pot_rows]
         return result
 
@@ -479,6 +525,10 @@ def pipeline_summary(
             .group_by(group_col)
             .order_by(func.count(Potential.potential_id).desc())
         )
+
+        owner_clause = potential_owner_clause()
+        if owner_clause is not None:
+            stmt = stmt.where(owner_clause)
 
         if only_open:
             stmt = stmt.where(or_(Potential.stage.notin_(closed_stages), Potential.stage.is_(None)))
@@ -561,6 +611,8 @@ def revenue_summary(
 
     closed_stages = ["Closed", "Closed Won", "Closed Lost", "Lost", "Disqualified"]
 
+    owner_clause = potential_owner_clause()
+
     with get_session() as session:
         # Pipeline (open) value
         open_stmt = select(
@@ -568,6 +620,8 @@ def revenue_summary(
             func.sum(Potential.amount),
             func.sum(Potential.amount * Potential.probability / 100.0),
         ).where(or_(Potential.stage.notin_(closed_stages), Potential.stage.is_(None)))
+        if owner_clause is not None:
+            open_stmt = open_stmt.where(owner_clause)
         if start is not None:
             open_stmt = open_stmt.where(Potential.closing_date >= start)
         if end is not None:
@@ -584,6 +638,8 @@ def revenue_summary(
             func.count(Potential.potential_id),
             func.sum(Potential.amount),
         ).where(Potential.stage.in_(won_stages))
+        if owner_clause is not None:
+            won_stmt = won_stmt.where(owner_clause)
         if start is not None:
             won_stmt = won_stmt.where(Potential.closing_date >= start)
         if end is not None:
@@ -602,6 +658,8 @@ def revenue_summary(
                 func.count(Potential.potential_id),
                 func.sum(Potential.amount),
             ).where(Potential.stage.in_(lost_stages))
+            if owner_clause is not None:
+                lost_stmt = lost_stmt.where(owner_clause)
             if start is not None:
                 lost_stmt = lost_stmt.where(Potential.closing_date >= start)
             if end is not None:
@@ -660,6 +718,10 @@ def time_based_query(
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
         )
+
+        owner_clause = potential_owner_clause()
+        if owner_clause is not None:
+            stmt = stmt.where(owner_clause)
 
         if query_type == "closing_in_days":
             cutoff = now + timedelta(days=days)
@@ -821,6 +883,14 @@ def recent_activity(
                 CXActivity.is_active == True,
             )
         )
+        scope = get_scope()
+        if scope is not None:
+            if scope:
+                # Activities must be on a potential owned within scope.
+                # Activities without a linked potential are dropped (can't verify ownership).
+                stmt = stmt.where(Potential.potential_owner_id.in_(scope))
+            else:
+                stmt = stmt.where(CXActivity.id < 0)
         if target_potential_id:
             stmt = stmt.where(CXActivity.potential_id == target_potential_id)
         if target_user_ids is not None:
@@ -927,6 +997,8 @@ def get_potential_full_context(potential_number_or_name: str) -> dict[str, Any]:
                 .order_by(Potential.modified_time.desc())
                 .limit(5)
             ).scalars().all()
+            # Drop inaccessible matches
+            matches = [m for m in matches if is_potential_accessible(session, m)]
             if not matches:
                 return {"error": "not_found", "query": potential_number_or_name}
             if len(matches) > 1:
@@ -938,6 +1010,8 @@ def get_potential_full_context(potential_number_or_name: str) -> dict[str, Any]:
                     ],
                 }
             p = matches[0]
+        if not is_potential_accessible(session, p):
+            return {"error": "not_accessible", "query": potential_number_or_name}
         potential_id = p.potential_id
         potential_number = p.potential_number
 
@@ -964,6 +1038,13 @@ def list_owners(name_like: str | None = None) -> dict[str, Any]:
     """
     with get_session() as session:
         stmt = select(User).where(User.is_active == True)
+        # Restrict to the caller's own user + their reporting subtree
+        scope = get_scope()
+        if scope is not None:
+            if scope:
+                stmt = stmt.where(User.user_id.in_(scope))
+            else:
+                stmt = stmt.where(User.user_id == "__NO_ACCESS__")
         if name_like:
             stmt = stmt.where(or_(
                 User.name.ilike(f"%{name_like}%"),
