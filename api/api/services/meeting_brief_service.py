@@ -37,7 +37,7 @@ from api.services.agent_service import (
 logger = logging.getLogger(__name__)
 
 # Internal email domains — meetings with only internal attendees are dropped
-INTERNAL_DOMAINS = {"flatworldsolutions.com", "flatworld.com.ph", "botworkflat.onmicrosoft.com"}
+INTERNAL_DOMAINS = {"flatworldsolutions.com", "flatworldsolutions.com.ph"}
 
 CLOSED_STAGES = {"Closed", "Closed Won", "Closed Lost", "Lost", "Disqualified"}
 

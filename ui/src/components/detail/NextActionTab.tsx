@@ -95,6 +95,61 @@ function parseFREDraft(rawContent: string): { subject: string; body: string } {
   return { subject, body: htmlBody };
 }
 
+interface MeetingBriefData {
+  oneLiner: string | null;
+  agenda: string | null;
+  keyTalkingPoints: string[];
+  questionsToAsk: string[];
+}
+
+/**
+ * Parse the meeting-prep agent output into a structured object.
+ * The agent emits a JSON object (usually inside a ```json fence) with a
+ * `meeting_brief` key containing: one_liner, key_talking_points, agenda,
+ * questions_to_ask. Returns null when parsing fails so callers can fall back
+ * to a raw markdown render.
+ */
+function parseMeetingBrief(rawContent: string): MeetingBriefData | null {
+  if (!rawContent) return null;
+
+  // Extract JSON payload — prefer a ```json fence, fall back to any ``` fence,
+  // finally try the whole string.
+  const fenceMatch = rawContent.match(/```(?:json)?\s*\n([\s\S]*?)\n```/i);
+  const jsonText = fenceMatch ? fenceMatch[1] : rawContent;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+
+  // Unwrap `meeting_brief` key if present, otherwise treat the object as the brief itself.
+  const brief = (parsed as Record<string, unknown>).meeting_brief ?? parsed;
+  if (!brief || typeof brief !== "object") return null;
+  const b = brief as Record<string, unknown>;
+
+  const asString = (v: unknown): string | null =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+  const asStringArray = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
+
+  const data: MeetingBriefData = {
+    oneLiner: asString(b.one_liner),
+    agenda: asString(b.agenda),
+    keyTalkingPoints: asStringArray(b.key_talking_points),
+    questionsToAsk: asStringArray(b.questions_to_ask),
+  };
+
+  // If nothing parsed, treat as failure.
+  if (!data.oneLiner && !data.agenda && data.keyTalkingPoints.length === 0 && data.questionsToAsk.length === 0) {
+    return null;
+  }
+  return data;
+}
+
 function PriorMessage({ msg }: { msg: SyncEmailMessage }) {
   const [expanded, setExpanded] = useState(false);
   const isSent = msg.direction === "sent";
@@ -517,7 +572,49 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           <div>
             <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-2">AI Meeting Prep</p>
             <div className="rounded-lg border border-slate-200 p-4">
-              <MarkdownBlock content={completedResult.content} compact />
+              {(() => {
+                const brief = parseMeetingBrief(completedResult.content);
+                if (!brief) {
+                  // Fallback — LLM emitted something we couldn't parse, render as-is.
+                  return <MarkdownBlock content={completedResult.content} compact />;
+                }
+                return (
+                  <div className="space-y-4 text-xs text-slate-700">
+                    {brief.oneLiner && (
+                      <div>
+                        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1">Summary</p>
+                        <p className="text-slate-700 leading-relaxed">{brief.oneLiner}</p>
+                      </div>
+                    )}
+                    {brief.agenda && (
+                      <div>
+                        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1">Agenda</p>
+                        <p className="text-slate-700 leading-relaxed">{brief.agenda}</p>
+                      </div>
+                    )}
+                    {brief.keyTalkingPoints.length > 0 && (
+                      <div>
+                        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1">Key Talking Points</p>
+                        <ul className="list-disc pl-4 space-y-1.5 marker:text-slate-400">
+                          {brief.keyTalkingPoints.map((tp, i) => (
+                            <li key={i} className="leading-relaxed">{tp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {brief.questionsToAsk.length > 0 && (
+                      <div>
+                        <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1">Questions to Ask</p>
+                        <ol className="list-decimal pl-4 space-y-1.5 marker:text-slate-400">
+                          {brief.questionsToAsk.map((q, i) => (
+                            <li key={i} className="leading-relaxed">{q}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
