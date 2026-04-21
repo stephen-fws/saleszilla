@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 import core.config as config
 from core.database import get_session
@@ -305,18 +305,32 @@ def _trigger_agentflow(
 
 
 def _load_potential_data(potential_id: str) -> dict:
-    """Load potential + account + contact + owner data for trigger payload."""
+    """Load potential + account + contact + owner data for trigger payload.
+
+    Accepts either the UUID (Potentials.potential_id) or the 7-digit
+    potential_number — the external init endpoint can receive either form.
+    """
     with get_session() as session:
         row = session.execute(
             select(Potential, Account, Contact, User)
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
             .outerjoin(User, Potential.potential_owner_id == User.user_id)
-            .where(Potential.potential_id == potential_id)
+            .where(or_(
+                Potential.potential_id == potential_id,
+                Potential.potential_number == potential_id,
+            ))
         ).first()
         if not row:
+            logger.warning("_load_potential_data: no Potential found for identifier=%s (tried UUID and potential_number)", potential_id)
             return {}
         p, a, c, u = row
+        if not a:
+            logger.warning("_load_potential_data: Potential %s has no linked Account (account_id=%s)", potential_id, p.account_id)
+        if not c:
+            logger.warning("_load_potential_data: Potential %s has no linked Contact (contact_id=%s)", potential_id, p.contact_id)
+        if not u:
+            logger.warning("_load_potential_data: Potential %s has no linked User owner (potential_owner_id=%s)", potential_id, p.potential_owner_id)
         return {
             "owner_email": u.email if u else "",
             "customer_name": c.full_name if c else "",

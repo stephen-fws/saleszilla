@@ -209,7 +209,7 @@ CREATE TABLE CX_AgentInsights (
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     IsActive            BIT             NOT NULL DEFAULT 1,
-    CONSTRAINT UQ_AgentInsights_Potential_Agent_Event UNIQUE (PotentialId, AgentType, MSEventId)
+    CONSTRAINT UQ_AgentInsights_Potential_Agent_Event UNIQUE (PotentialId, AgentId, MSEventId)
 );
 CREATE INDEX IX_AgentInsights_Potential ON CX_AgentInsights (PotentialId, Status);
 PRINT 'Created CX_AgentInsights';
