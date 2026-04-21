@@ -1,26 +1,10 @@
 import { Building2, Users, Briefcase } from "lucide-react";
 import type { AccountSummary } from "@/types";
 
-const STAGE_COLORS: Record<string, string> = {
-  prospect: "bg-slate-100 text-slate-600",
-  qualification: "bg-blue-100 text-blue-700",
-  proposal: "bg-amber-100 text-amber-700",
-  negotiation: "bg-purple-100 text-purple-700",
-  "closed-won": "bg-emerald-100 text-emerald-700",
-  "closed-lost": "bg-red-100 text-red-700",
-};
-
 function formatValue(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
   return `$${value}`;
-}
-
-function formatStage(stage: string): string {
-  return stage
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 interface AccountsListProps {

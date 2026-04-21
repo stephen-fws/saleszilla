@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from "react";
-import { Briefcase, Building2, X, Plus, ChevronDown, Loader2, Users } from "lucide-react";
+import { Briefcase, Building2, X, Plus, Users } from "lucide-react";
 import type { PotentialDeal } from "@/types";
-import { groupByDateBucket, reasonFieldForStage } from "@/lib/utils";
+import { groupByDateBucket } from "@/lib/utils";
 
 const STAGE_COLORS: Record<string, string> = {
   // Real DB stage names
@@ -25,130 +24,6 @@ const STAGE_COLORS: Record<string, string> = {
   "closed-lost": "bg-red-100 text-red-700",
 };
 
-function StageSelector({
-  stage,
-  availableStages,
-  onStageChange,
-}: {
-  stage: string;
-  availableStages: string[];
-  onStageChange: (stage: string, reason?: string) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [saving, setSaving] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setPending(null);
-        setReason("");
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  function handleSelect(newStage: string) {
-    if (newStage === stage) { setOpen(false); return; }
-    setPending(newStage);
-    setReason("");
-  }
-
-  const reasonRequired = pending ? reasonFieldForStage(pending) !== null : false;
-  const canConfirm = !reasonRequired || reason.trim().length > 0;
-
-  async function confirm() {
-    if (!pending) return;
-    if (!canConfirm) return;
-    setSaving(true);
-    setOpen(false);
-    try {
-      await onStageChange(pending, reasonRequired ? reason.trim() : undefined);
-    } finally { setSaving(false); setPending(null); setReason(""); }
-  }
-
-  function cancel() {
-    setPending(null);
-    setReason("");
-  }
-
-  const colorClass = STAGE_COLORS[stage] ?? "bg-slate-100 text-slate-600";
-
-  return (
-    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        onClick={() => { setOpen((v) => !v); setPending(null); }}
-        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-75 ${colorClass}`}
-      >
-        {saving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : stage}
-        {!saving && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
-      </button>
-
-      {open && availableStages.length > 0 && (
-        <div className="absolute left-0 top-full mt-1 z-30 min-w-[170px] rounded-lg border border-slate-200 bg-white shadow-lg py-1">
-          {pending ? (
-            <div className="px-3 py-2 space-y-2 w-[260px]">
-              <p className="text-[11px] text-slate-600">
-                Change stage to{" "}
-                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
-                  {pending}
-                </span>
-                ?
-              </p>
-              {reasonRequired && (
-                <textarea
-                  autoFocus
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Reason (required)"
-                  rows={3}
-                  className="w-full rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
-                />
-              )}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={confirm}
-                  disabled={!canConfirm}
-                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
-                >
-                  Confirm
-                </button>
-                <button
-                  type="button"
-                  onClick={cancel}
-                  className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            availableStages.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => handleSelect(s)}
-                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                  s === stage ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <span className={`inline-block w-2 h-2 rounded-full ${STAGE_COLORS[s]?.split(" ")[0] ?? "bg-slate-300"}`} />
-                {s}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function formatValue(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -177,8 +52,10 @@ export default function PotentialsList({
   activeFilterCount = 0,
   onClearFilters,
   onNewDeal,
-  availableStages = [],
-  onStageChange,
+  // availableStages and onStageChange are accepted for API compatibility
+  // (DashboardPage passes them) — the actual stage change UI lives in DetailsTab.
+  availableStages: _availableStages,
+  onStageChange: _onStageChange,
   currentUserName,
 }: PotentialsListProps) {
   return (

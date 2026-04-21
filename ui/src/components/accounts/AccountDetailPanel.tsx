@@ -9,11 +9,9 @@ import {
   Globe,
   Loader2,
   Mail,
-  Pencil,
   Phone,
   User,
   Users,
-  X,
 } from "lucide-react";
 import { getAccountDetail, updateAccount, updateContact } from "@/lib/api";
 import type { UpdateAccountPayload, UpdateContactPayload } from "@/lib/api";
@@ -249,11 +247,9 @@ function OverviewTab({
 
 function ContactsTab({
   contacts,
-  potentials,
   onContactFieldSave,
 }: {
   contacts: AccountDetailContact[];
-  potentials: AccountDetailPotential[];
   onContactFieldSave: (contactId: string, field: keyof UpdateContactPayload, value: string) => Promise<void>;
 }) {
   if (contacts.length === 0) {
@@ -268,7 +264,6 @@ function ContactsTab({
   return (
     <div className="p-4 space-y-3">
       {contacts.map((contact) => {
-        const contactPotentials = potentials.filter((p) => p.contact?.id === contact.id);
         return (
           <div key={contact.id} className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-start gap-2.5 mb-3">
@@ -540,7 +535,7 @@ export default function AccountDetailPanel({ accountId, onPotentialNavigate }: A
 
       <div className="flex-1 overflow-y-auto">
         {activeTab === "overview" && <OverviewTab account={account} onFieldSave={handleFieldSave} />}
-        {activeTab === "contacts" && <ContactsTab contacts={account.contacts} potentials={account.potentials} onContactFieldSave={handleContactFieldSave} />}
+        {activeTab === "contacts" && <ContactsTab contacts={account.contacts} onContactFieldSave={handleContactFieldSave} />}
         {activeTab === "potentials" && <PotentialsTab potentials={account.potentials} onNavigate={onPotentialNavigate} />}
         {activeTab === "activity" && <ActivityTab activities={account.activities} />}
       </div>

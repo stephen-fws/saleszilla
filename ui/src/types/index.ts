@@ -127,6 +127,7 @@ export interface AccountDetail {
   industry: string | null;
   website: string | null;
   location: string | null;
+  phone: string | null;
   billingStreet: string | null;
   billingCity: string | null;
   billingState: string | null;

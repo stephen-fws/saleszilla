@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil, X } from "lucide-react";
+import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil } from "lucide-react";
 import type { PotentialDetail } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
 import { reasonFieldForStage } from "@/lib/utils";

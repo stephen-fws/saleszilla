@@ -296,10 +296,27 @@ export async function searchContacts(q: string, accountId?: string): Promise<Con
 export interface CreatePotentialPayload {
   // Account: existing ID or new object
   account_id?: string;
-  company?: { name: string; industry?: string; website?: string; country?: string };
+  company?: {
+    name: string;
+    phone?: string;
+    industry?: string;
+    website?: string;
+    billing_street?: string;
+    billing_city?: string;
+    billing_state?: string;
+    billing_code?: string;
+    country?: string;
+  };
   // Contact: existing ID or new object
   contact_id?: string;
-  contact?: { name: string; title?: string; email?: string; phone?: string };
+  contact?: {
+    name: string;
+    first_name?: string;
+    last_name?: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+  };
   potential_name: string;
   amount: number;
   stage?: string;
@@ -511,6 +528,7 @@ export async function getAccountDetail(id: string): Promise<AccountDetail> {
     industry: d.industry ?? null,
     website: d.website ?? null,
     location: d.location ?? null,
+    phone: d.phone ?? null,
     billingStreet: d.billing_street ?? null,
     billingCity: d.billing_city ?? null,
     billingState: d.billing_state ?? null,
@@ -598,6 +616,7 @@ export async function updateAccount(id: string, payload: UpdateAccountPayload): 
     industry: d.industry ?? null,
     website: d.website ?? null,
     location: d.location ?? null,
+    phone: d.phone ?? null,
     billingStreet: d.billing_street ?? null,
     billingCity: d.billing_city ?? null,
     billingState: d.billing_state ?? null,

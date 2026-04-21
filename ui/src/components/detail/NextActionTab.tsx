@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, Check, X, CalendarClock, Users, MapPin, Video, ExternalLink } from "lucide-react";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
-import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, createEmailDraft, getMeetingInfo } from "@/lib/api";
+import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo } from "@/lib/api";
 import type { MeetingInfo } from "@/lib/api";
 import type { SyncEmailThread, SyncEmailMessage } from "@/types";
 import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";

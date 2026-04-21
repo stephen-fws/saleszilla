@@ -82,7 +82,7 @@ export default function FolderPanel({
   accountFilters,
   onAccountFiltersChange,
   accountFilterOptions,
-  meetingBriefsCount,
+  meetingBriefsCount: _meetingBriefsCount,
   meetingBriefsLoading = false,
   includeTeam = false,
   onIncludeTeamChange,

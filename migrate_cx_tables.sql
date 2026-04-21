@@ -509,6 +509,56 @@ END
 GO
 
 -- ════════════════════════════════════════════════════════════════════════════
+-- 19. CX_FollowUpSchedule — follow-up cadence D3/D5/D8/D12 per potential
+-- ════════════════════════════════════════════════════════════════════════════
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'CX_FollowUpSchedule')
+BEGIN
+    CREATE TABLE CX_FollowUpSchedule (
+        Id                  INT IDENTITY(1,1) PRIMARY KEY,
+        PotentialId         VARCHAR(32)     NOT NULL,
+        PotentialNumber     VARCHAR(20)     NOT NULL,
+        TriggerMessageId    NVARCHAR(512)   NULL,
+        TriggerSentTime     DATETIME        NOT NULL,
+        DayOffset           INT             NOT NULL,
+        ScheduledTime       DATETIME        NOT NULL,
+        Status              VARCHAR(20)     NOT NULL DEFAULT 'pending',
+        FiredTime           DATETIME        NULL,
+        InsightId           INT             NULL,
+        CancelReason        VARCHAR(50)     NULL,
+        CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
+        UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE()
+    );
+    CREATE INDEX IX_FollowUpSchedule_Potential ON CX_FollowUpSchedule (PotentialId, DayOffset);
+    CREATE INDEX IX_FollowUpSchedule_Status_Scheduled ON CX_FollowUpSchedule (Status, ScheduledTime);
+    PRINT 'Created CX_FollowUpSchedule';
+END
+GO
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 20. CX_AgentDraftHistory — append-only audit log of agent drafts
+-- ════════════════════════════════════════════════════════════════════════════
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'CX_AgentDraftHistory')
+BEGIN
+    CREATE TABLE CX_AgentDraftHistory (
+        Id                  INT IDENTITY(1,1) PRIMARY KEY,
+        PotentialId         VARCHAR(20)     NOT NULL,
+        AgentId             VARCHAR(64)     NOT NULL,
+        AgentName           NVARCHAR(128)   NULL,
+        TriggerCategory     VARCHAR(32)     NULL,
+        Content             NVARCHAR(MAX)   NULL,
+        Status              VARCHAR(16)     NOT NULL,
+        Resolution          VARCHAR(16)     NULL,
+        TriggeredAt         DATETIME        NULL,
+        CompletedAt         DATETIME        NULL,
+        ResolvedAt          DATETIME        NOT NULL,
+        CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE()
+    );
+    CREATE INDEX IX_AgentDraftHistory_Potential ON CX_AgentDraftHistory (PotentialId, CreatedTime);
+    PRINT 'Created CX_AgentDraftHistory';
+END
+GO
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- Summary
 -- ════════════════════════════════════════════════════════════════════════════
 PRINT '';
@@ -532,5 +582,7 @@ PRINT '  15. CX_GlobalChatConversations';
 PRINT '  16. CX_GlobalChatMessages (+ConversationId)';
 PRINT '  17. CX_MeetingBriefDismissals';
 PRINT '  18. CX_Meetings';
+PRINT '  19. CX_FollowUpSchedule';
+PRINT '  20. CX_AgentDraftHistory';
 PRINT '============================================';
 GO
