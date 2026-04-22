@@ -7,12 +7,12 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, Check, X, CalendarClock, Users, MapPin, Video, ExternalLink } from "lucide-react";
+import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, X, CalendarClock, Users, MapPin, Video, ExternalLink, Paperclip } from "lucide-react";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
-import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo } from "@/lib/api";
+import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo, listDraftAttachments, openDraftAttachment, removeDraftAttachment } from "@/lib/api";
 import type { MeetingInfo } from "@/lib/api";
 import type { SyncEmailThread, SyncEmailMessage } from "@/types";
-import type { AgentResult, PotentialDetail, EmailDraft } from "@/types";
+import type { AgentResult, PotentialDetail, EmailDraft, DraftAttachment } from "@/types";
 import EmailComposer from "./EmailComposer";
 
 interface NextActionTabProps {
@@ -206,6 +206,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
   const [priorThread, setPriorThread] = useState<SyncEmailThread | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [meetingInfo, setMeetingInfo] = useState<MeetingInfo | null>(null);
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
@@ -299,7 +300,18 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
       }
     }).catch(() => {});
     getMeetingInfo(dealId).then(setMeetingInfo).catch(() => {});
+    listDraftAttachments(dealId).then(setDraftAttachments).catch(() => {});
   }, [dealId]);
+
+  // The attachment agent may finish on a different poll tick than the draft
+  // agent — refresh attachments whenever a draft agent newly completes so the
+  // composer picks up newly-arrived chips. Keyed on insight id to avoid
+  // re-running on every render (new object reference from .find()).
+  const completedInsightId = completedResult?.id ?? null;
+  useEffect(() => {
+    if (!completedInsightId) return;
+    listDraftAttachments(dealId).then(setDraftAttachments).catch(() => {});
+  }, [dealId, completedInsightId]);
 
   // Build the EmailDraft-like object for the composer
   const contactEmail = detail?.contact?.email ?? null;
@@ -345,11 +357,13 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
           contactName={contactName}
           signature={signature}
           isNextAction
+          initialDraftAttachments={draftAttachments}
           onClose={() => setComposerOpen(false)}
           onSent={async () => {
             setComposerOpen(false);
             setEmailSent(initialDraft.subject ?? "Email");
             setSavedDraft(null);
+            setDraftAttachments([]);
             // Mark next_action as actioned — user sent the email from here
             await resolveNextAction(dealId, "done").catch(() => {});
             onEmailSent?.();
@@ -481,28 +495,10 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
     return (
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="px-4 py-4 space-y-4">
-          {/* Header with skip/done */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-blue-600" />
-              <span className="text-xs font-semibold text-slate-700">Meeting Prep</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={async () => { await resolveNextAction(dealId, "skip"); load(); onEmailSent?.(); }}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
-              >
-                <X className="h-3 w-3" />
-                Skip
-              </button>
-              <button
-                onClick={async () => { await resolveNextAction(dealId, "done"); load(); onEmailSent?.(); }}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
-              >
-                <Check className="h-3 w-3" />
-                Done
-              </button>
-            </div>
+          {/* Header — Skip/Done removed; both actions live on the Panel 2 queue card */}
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-blue-600" />
+            <span className="text-xs font-semibold text-slate-700">Meeting Prep</span>
           </div>
 
           {/* Meeting details card */}
@@ -644,22 +640,7 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
                 )}
               </div>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={async () => { await resolveNextAction(dealId, "skip"); load(); onEmailSent?.(); }}
-                  title="Skip — not needed"
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                  Skip
-                </button>
-                <button
-                  onClick={async () => { await resolveNextAction(dealId, "done"); load(); onEmailSent?.(); }}
-                  title="Mark done — action completed"
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
-                >
-                  <Check className="h-3 w-3" />
-                  Done
-                </button>
+                {/* Skip + Done both live on the Panel 2 queue card — removed from here */}
                 <button
                   onClick={handleOpenComposer}
                   className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
@@ -679,6 +660,41 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
                 <span className="text-[10px] font-semibold text-slate-400 uppercase w-12 shrink-0 pt-0.5">Subject</span>
                 <span className="text-xs font-medium text-slate-800">{previewDraft.subject || "—"}</span>
               </div>
+              {draftAttachments.length > 0 && (
+                <div className="flex items-start gap-2">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase w-12 shrink-0 pt-1">Files</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {draftAttachments.map((a) => {
+                      const kb = Math.round((a.fileSize || 0) / 1024);
+                      return (
+                        <div key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700">
+                          <Paperclip className="h-3 w-3 text-indigo-400" />
+                          <button
+                            type="button"
+                            onClick={() => { openDraftAttachment(dealId, a.id, a.contentType).catch(() => {}); }}
+                            className="max-w-[200px] truncate underline-offset-2 hover:underline"
+                            title={`Preview ${a.filename}`}
+                          >
+                            {a.filename}
+                          </button>
+                          {kb > 0 && <span className="text-indigo-400">{kb}KB</span>}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setDraftAttachments((prev) => prev.filter((x) => x.id !== a.id));
+                              try { await removeDraftAttachment(dealId, a.id); } catch { /* non-fatal */ }
+                            }}
+                            className="text-indigo-400 hover:text-red-500 transition-colors"
+                            title="Remove"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="border-t border-slate-100 pt-3">
                 <div
                   className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"

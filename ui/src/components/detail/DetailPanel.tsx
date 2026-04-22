@@ -3,12 +3,14 @@ import {
   Loader2,
   Building2,
   User,
-  CheckCircle2,
   FolderOpen,
   Inbox,
   Bot,
   Phone,
   Headphones,
+  MoreVertical,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults, getAiHighlight } from "@/lib/api";
@@ -66,8 +68,8 @@ export default function DetailPanel({
   queueItemId,
   dealId,
   accountId,
-  folderType,
-  onComplete,
+  folderType: _folderType,
+  onComplete: _onComplete,
   onPotentialNavigate,
   onEmailSent,
   availableStages = [],
@@ -83,6 +85,23 @@ export default function DetailPanel({
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportCategory, setSupportCategory] = useState<string | undefined>(undefined);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the "more" menu on outside click
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!moreMenuRef.current?.contains(e.target as Node)) setMoreMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [moreMenuOpen]);
+
+  // Zoho Creator Work Order prefilled with the 7-digit potential_number
+  const contractUrl = detail?.potentialNumber
+    ? `https://app.zohocreator.com/flatworld/corp-dev/#Form:Work_Order?Potential_Number=${encodeURIComponent(detail.potentialNumber)}`
+    : null;
 
   const openSupport = useCallback((category?: string) => {
     setSupportCategory(category);
@@ -269,26 +288,41 @@ export default function DetailPanel({
               </button>
             )}
 
-            {/* Support button */}
+            {/* More menu — Create Contract + Support (Done lives on the Panel 2 queue card) */}
             {dealId && (
-              <button
-                onClick={() => { setSupportCategory(undefined); setSupportOpen(true); }}
-                title="Contact support"
-                className="flex-shrink-0 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-              >
-                <Headphones className="h-3.5 w-3.5" />
-              </button>
-            )}
-
-            {/* Complete button — queue mode only (not for emails-sent or meeting-briefs) */}
-            {queueItemId && onComplete && folderType !== "emails-sent" && folderType !== "meeting-briefs" && (
-              <button
-                onClick={onComplete}
-                className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Done
-              </button>
+              <div className="relative flex-shrink-0" ref={moreMenuRef}>
+                <button
+                  onClick={() => setMoreMenuOpen((v) => !v)}
+                  title="More actions"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </button>
+                {moreMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-slate-200 bg-white shadow-lg z-20 py-1">
+                    {contractUrl && (
+                      <a
+                        href={contractUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setMoreMenuOpen(false)}
+                        className="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+                      >
+                        <FileText className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="flex-1">Create Contract</span>
+                        <ExternalLink className="h-3 w-3 text-slate-300" />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => { setMoreMenuOpen(false); setSupportCategory(undefined); setSupportOpen(true); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <Headphones className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="flex-1 text-left">Contact Support</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ) : (

@@ -39,6 +39,12 @@ google-cloud-storage>=2.14.0
 pypdf>=4.0.0
 python-docx>=1.1.0
 
+# HTML → PDF conversion for draft attachments. Handles modern CSS (flexbox,
+# grid, :not, ::before/after, media queries). Requires libpango/cairo system
+# libs — installed in Dockerfile for production; Windows local dev needs the
+# GTK3 runtime installer. Imported lazily so startup is tolerant if missing.
+weasyprint>=62.0
+
 # Twilio (browser-based calling via Client SDK)
 twilio>=9.0.0
 

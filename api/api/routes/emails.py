@@ -9,8 +9,9 @@ from core.models import User
 from core.ms_graph import get_valid_ms_token, send_mail_via_graph
 from core.schemas import (
     CreateDraftRequest, UpdateDraftRequest, UserEmailDraftItem,
-    EmailDraftResponse, EmailThreadsResponse, ResponseModel, SendEmailRequest,
-    SentEmailResponse, SignatureRequest, UserSettingsResponse, UserSettingsUpdateRequest,
+    DraftAttachmentItem, EmailDraftResponse, EmailThreadsResponse, ResponseModel,
+    SendEmailRequest, SentEmailResponse, SignatureRequest, UserSettingsResponse,
+    UserSettingsUpdateRequest,
 )
 from api.services.email_service import get_email_draft, record_sent_email
 from api.services.user_draft_service import (
@@ -25,6 +26,13 @@ from api.services.access_control import require_potential_owner
 from api.services.user_service import load_user_tokens
 from api.services.email_thread_service import get_email_threads
 from api.services.activity_service import log_activity
+from api.services.draft_attachment_service import (
+    list_active as list_draft_attachments,
+    mark_removed as remove_draft_attachment,
+    load_for_send as load_draft_attachments_for_send,
+    mark_sent as mark_draft_attachments_sent,
+    get_content as get_draft_attachment_content,
+)
 
 router = APIRouter(tags=["emails"])
 
@@ -132,13 +140,36 @@ async def send_email(
     tokens = load_user_tokens(user.user_id)
     from_email = tokens.ms_email or user.email if tokens else user.email
 
-    # Convert attachments to Graph format
-    attachments_payload = None
+    # Convert manual attachments to Graph format
+    manual_payload = []
     if data.attachments:
-        attachments_payload = [
+        manual_payload = [
             {"name": a.name, "content_type": a.content_type, "content_bytes": a.content_bytes}
             for a in data.attachments
         ]
+
+    # Merge in agent-generated draft attachments (if any requested). Server loads
+    # the bytes from GCS authoritatively — client sends only ids.
+    draft_att_loaded: list[dict] = []
+    if data.draft_attachment_ids:
+        from core.database import get_session
+        from core.models import Potential
+        from sqlalchemy import select
+        with get_session() as _s:
+            pn = _s.execute(
+                select(Potential.potential_number).where(Potential.potential_id == potential_id)
+            ).scalar_one_or_none()
+        if pn:
+            all_loaded = load_draft_attachments_for_send(pn)
+            # Only include the ids the client actually asked for
+            requested = set(data.draft_attachment_ids)
+            draft_att_loaded = [a for a in all_loaded if a["id"] in requested]
+
+    draft_payload = [
+        {"name": a["name"], "content_type": a["content_type"], "content_bytes": a["content_bytes"]}
+        for a in draft_att_loaded
+    ]
+    attachments_payload = (manual_payload + draft_payload) or None
 
     try:
         message_id, thread_id, internet_message_id = await send_mail_via_graph(
@@ -154,6 +185,10 @@ async def send_email(
         )
     except Exception as exc:
         raise BotApiException(424, "ERR_EMAIL_SEND_FAILED", f"Failed to send email: {exc}")
+
+    # Mark draft attachments as sent only after successful Graph send
+    if draft_att_loaded:
+        mark_draft_attachments_sent([a["id"] for a in draft_att_loaded])
 
     result = record_sent_email(
         potential_id=potential_id,
@@ -203,6 +238,78 @@ async def send_email(
 
     # Activity is already logged inside email_service.send_email()
     return ResponseModel(message_code="MSG_EMAIL_SENT", data=result)
+
+
+# ── Draft attachments (agent-generated HTML, attached to NextAction draft) ──
+
+@router.get("/potentials/{potential_id}/draft-attachments")
+def list_active_draft_attachments(
+    potential_id: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[list[DraftAttachmentItem]]:
+    """Return active (not removed, not sent) draft attachments for this potential."""
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import Potential
+    from sqlalchemy import select
+    with get_session() as _s:
+        pn = _s.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none() or potential_id
+    rows = list_draft_attachments(pn)
+    return ResponseModel(data=[DraftAttachmentItem(**r) for r in rows])
+
+
+@router.delete("/potentials/{potential_id}/draft-attachments/{attachment_id}")
+def remove_draft_attachment_endpoint(
+    potential_id: str,
+    attachment_id: int,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Soft-remove a draft attachment (user clicked X in composer)."""
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import Potential
+    from sqlalchemy import select
+    with get_session() as _s:
+        pn = _s.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none() or potential_id
+    ok = remove_draft_attachment(attachment_id, pn)
+    if not ok:
+        raise BotApiException(404, "ERR_ATTACHMENT_NOT_FOUND", "Attachment not found for this potential.")
+    return ResponseModel(data={"ok": True})
+
+
+@router.get("/potentials/{potential_id}/draft-attachments/{attachment_id}/download")
+def download_draft_attachment(
+    potential_id: str,
+    attachment_id: int,
+    user: User = Depends(get_current_active_user),
+):
+    """Proxy-download a draft attachment's HTML content from GCS.
+
+    Returns inline so the browser renders the HTML instead of downloading it,
+    since the whole point of the attachment is for the user to preview it.
+    """
+    require_potential_owner(user.user_id, potential_id)
+    from core.database import get_session
+    from core.models import Potential
+    from sqlalchemy import select
+    from fastapi.responses import Response
+    with get_session() as _s:
+        pn = _s.execute(
+            select(Potential.potential_number).where(Potential.potential_id == potential_id)
+        ).scalar_one_or_none() or potential_id
+    result = get_draft_attachment_content(attachment_id, pn)
+    if not result:
+        raise BotApiException(404, "ERR_ATTACHMENT_NOT_FOUND", "Attachment not found or missing in storage.")
+    content, filename, content_type = result
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ── Next Action resolve (skip / done) ────────────────────────────────────────

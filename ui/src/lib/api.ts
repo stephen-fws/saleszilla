@@ -871,6 +871,7 @@ export async function sendEmail(dealId: string, data: {
   replyToMessageId?: string;
   draftId?: number;
   attachments?: EmailAttachment[];
+  draftAttachmentIds?: number[];
 }): Promise<void> {
   await protectedApi.post(`/potentials/${dealId}/send-email`, {
     to_email: data.toEmail,
@@ -887,7 +888,39 @@ export async function sendEmail(dealId: string, data: {
       content_type: a.contentType,
       content_bytes: a.contentBytes,
     })),
+    draft_attachment_ids: data.draftAttachmentIds,
   });
+}
+
+export async function listDraftAttachments(dealId: string): Promise<import("@/types").DraftAttachment[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/draft-attachments`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((a: any) => ({
+    id: a.id,
+    filename: a.filename,
+    contentType: a.content_type,
+    fileSize: a.file_size ?? 0,
+    createdTime: a.created_time,
+  }));
+}
+
+export async function removeDraftAttachment(dealId: string, attachmentId: number): Promise<void> {
+  await protectedApi.delete(`/potentials/${dealId}/draft-attachments/${attachmentId}`);
+}
+
+/**
+ * Fetch a draft attachment's HTML bytes and open it in a new browser tab.
+ * Uses a blob URL so the Bearer token doesn't need to be in the navigated URL.
+ */
+export async function openDraftAttachment(dealId: string, attachmentId: number, contentType = "text/html"): Promise<void> {
+  const res = await protectedApi.get(`/potentials/${dealId}/draft-attachments/${attachmentId}/download`, {
+    responseType: "blob",
+  });
+  const blob = new Blob([res.data], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  // Don't immediately revoke — the new tab is still loading. Let the browser GC it.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function getEmailThreads(dealId: string): Promise<{ threads: import("@/types").SyncEmailThread[]; totalMessages: number }> {

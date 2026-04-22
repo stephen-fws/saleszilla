@@ -2,7 +2,7 @@
 
 import logging
 
-from sqlalchemy import func, select, or_, text
+from sqlalchemy import func, select, or_
 
 logger = logging.getLogger(__name__)
 
@@ -338,8 +338,12 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
 
 
 def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetailResponse:
-    """Create potential, resolving account/contact by ID or creating new ones."""
-    from uuid import uuid4
+    """Create potential, resolving account/contact by ID or creating new ones.
+
+    Primary keys (Accounts.account_id, Contacts.contact_id, Potentials.potential_id,
+    Potentials."Potential Number") are DB-assigned. We do NOT set them here —
+    SQLAlchemy picks up the generated values after flush via OUTPUT INSERTED.
+    """
     from datetime import datetime as dt
 
     if not data.account_id and not data.company:
@@ -373,7 +377,6 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             ).scalar_one_or_none()
             if not account:
                 account = Account(
-                    account_id=uuid4().hex,
                     account_name=data.company.name,
                     phone=data.company.phone,
                     industry=data.company.industry,
@@ -396,7 +399,6 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
                 raise ValueError(f"Contact {data.contact_id} not found")
         else:
             contact = Contact(
-                contact_id=uuid4().hex,
                 first_name=data.contact.first_name,
                 last_name=data.contact.last_name,
                 full_name=data.contact.name,
@@ -417,11 +419,7 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             except ValueError:
                 pass
 
-        potential_number = _next_potential_number(session)
-
         potential = Potential(
-            potential_id=uuid4().hex,
-            potential_number=potential_number,
             potential_name=data.potential_name,
             amount=data.amount,
             stage=data.stage,
@@ -442,8 +440,14 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             modified_time=dt.utcnow(),
         )
         session.add(potential)
+        session.flush()
+        # potential_id (PK) is auto-populated by OUTPUT INSERTED; potential_number
+        # is server-generated but not a PK, so re-SELECT the row to pull it back.
+        session.refresh(potential, ["potential_number"])
         session.commit()
+        # Snapshot DB-assigned values before the session closes
         potential_id = potential.potential_id
+        potential_number = potential.potential_number
         account_id = account.account_id
         contact_id = contact.contact_id
 
@@ -504,13 +508,6 @@ def _potential_category(p: "Potential") -> str:
     return "Other"
 
 
-def _next_potential_number(session) -> str:
-    """Return max(potential_number) + 1 as a zero-padded 7-digit string."""
-    result = session.execute(
-        text("SELECT MAX(TRY_CAST([Potential Number] AS INT)) FROM Potentials")
-    ).scalar()
-    next_num = (result or 1000000) + 1
-    return str(next_num).zfill(7)
 
 
 def _build_location(a: Account) -> str | None:

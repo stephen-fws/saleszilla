@@ -476,6 +476,17 @@ class SendEmailRequest(BaseModel):
     reply_to_message_id: Optional[str] = None
     draft_id: Optional[int] = None
     attachments: Optional[list[AttachmentItem]] = None
+    # Agent-generated attachments held in CX_DraftAttachments; server loads
+    # bytes from GCS and merges into the Graph send payload.
+    draft_attachment_ids: Optional[list[int]] = None
+
+
+class DraftAttachmentItem(BaseModel):
+    id: int
+    filename: str
+    content_type: str
+    file_size: int
+    created_time: datetime
 
 
 class SentEmailResponse(BaseModel):

@@ -416,6 +416,16 @@ def process_webhook(payload_data: dict) -> None:
         if cfg.trigger_category == "stage_update" and final_status == "completed" and content:
             _apply_stage_update(session, external_id, content, now)
 
+    # Attachment agent: upload the HTML to GCS + register as a draft attachment.
+    # Runs OUTSIDE the insight-save session because it has its own transactional write.
+    # Empty/whitespace content is treated as "no attachment" (save_from_agent handles it).
+    if cfg.tab_type == "attachment" and final_status == "completed":
+        try:
+            from api.services.draft_attachment_service import save_from_agent
+            save_from_agent(external_id, agent_id, content or "")
+        except Exception:
+            logger.exception("attachment agent: failed to persist attachment for %s/%s", external_id, agent_id)
+
 
 def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:
     """

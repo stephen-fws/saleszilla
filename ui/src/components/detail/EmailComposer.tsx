@@ -43,8 +43,8 @@ const LineHeight = Extension.create({
     };
   },
 });
-import type { EmailDraft, EmailAttachment } from "@/types";
-import { createEmailDraft, updateEmailDraft, sendEmail } from "@/lib/api";
+import type { EmailDraft, EmailAttachment, DraftAttachment } from "@/types";
+import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, openDraftAttachment } from "@/lib/api";
 
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
@@ -261,6 +261,30 @@ function AttachChip({ file, onRemove }: { file: EmailAttachment; onRemove: () =>
   );
 }
 
+// Agent-generated attachment — rendered with a subtle indigo accent so the user
+// can tell it came from the system vs. files they attached themselves.
+// Filename is clickable → opens the HTML in a new tab for preview.
+function DraftAttachChip({ dealId, file, onRemove }: { dealId: string; file: DraftAttachment; onRemove: () => void }) {
+  const kb = Math.round((file.fileSize || 0) / 1024);
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700">
+      <Paperclip className="h-3 w-3 text-indigo-400" />
+      <button
+        type="button"
+        onClick={() => { openDraftAttachment(dealId, file.id, file.contentType).catch(() => {}); }}
+        className="max-w-[200px] truncate underline-offset-2 hover:underline"
+        title={`Preview ${file.filename}`}
+      >
+        {file.filename}
+      </button>
+      {kb > 0 && <span className="text-indigo-400">{kb}KB</span>}
+      <button type="button" onClick={onRemove} className="text-indigo-400 hover:text-red-500 transition-colors" title="Remove">
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 // ── Main composer ─────────────────────────────────────────────────────────────
 
 interface EmailComposerProps {
@@ -270,6 +294,7 @@ interface EmailComposerProps {
   contactName?: string | null;
   signature?: string | null;
   isNextAction?: boolean;
+  initialDraftAttachments?: DraftAttachment[];
   onClose: () => void;
   onSent: () => void;
   onDraftSaved: (draft: EmailDraft) => void;
@@ -278,6 +303,7 @@ interface EmailComposerProps {
 export default function EmailComposer({
   dealId, initialDraft, contactEmail, contactName, signature,
   isNextAction = false,
+  initialDraftAttachments = [],
   onClose, onSent, onDraftSaved,
 }: EmailComposerProps) {
   // id=0 is the "not yet persisted" sentinel from agent-generated drafts
@@ -302,6 +328,7 @@ export default function EmailComposer({
   };
   const [body, setBody] = useState(computeInitialBody);
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>(initialDraftAttachments);
   const [showCc, setShowCc] = useState((initialDraft?.ccEmails?.length ?? 0) > 0);
   const [showBcc, setShowBcc] = useState((initialDraft?.bccEmails?.length ?? 0) > 0);
   const [saving, setSaving] = useState(false);
@@ -380,6 +407,7 @@ export default function EmailComposer({
         bcc: bcc.length ? bcc : undefined,
         draftId: draftId ?? undefined,
         attachments: attachments.length ? attachments : undefined,
+        draftAttachmentIds: draftAttachments.length ? draftAttachments.map(a => a.id) : undefined,
         threadId: initialDraft?.replyToThreadId ?? undefined,
         replyToMessageId: initialDraft?.replyToMessageId ?? undefined,
       });
@@ -447,11 +475,24 @@ export default function EmailComposer({
         <RichEditor initialValue={body} onChange={setBody} placeholder="Write your email…" />
       </div>
 
-      {/* Attachments */}
-      {attachments.length > 0 && (
+      {/* Attachments — agent-generated draft attachments render first, then manual */}
+      {(draftAttachments.length > 0 || attachments.length > 0) && (
         <div className="shrink-0 flex flex-wrap gap-1.5 px-3 py-2 border-t border-slate-100">
+          {draftAttachments.map((a) => (
+            <DraftAttachChip
+              key={`d-${a.id}`}
+              dealId={dealId}
+              file={a}
+              onRemove={async () => {
+                // Optimistic remove; persist server-side so it doesn't re-appear on reopen
+                setDraftAttachments((prev) => prev.filter((x) => x.id !== a.id));
+                try { await removeDraftAttachment(dealId, a.id); }
+                catch { /* non-fatal — local state already updated */ }
+              }}
+            />
+          ))}
           {attachments.map((a, i) => (
-            <AttachChip key={i} file={a} onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} />
+            <AttachChip key={`m-${i}`} file={a} onRemove={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} />
           ))}
         </div>
       )}
@@ -495,7 +536,10 @@ export default function EmailComposer({
           Attach
         </button>
         <span className="ml-auto text-[10px] text-slate-400">
-          {attachments.length > 0 && `${attachments.length} file${attachments.length > 1 ? "s" : ""}`}
+          {(() => {
+            const total = attachments.length + draftAttachments.length;
+            return total > 0 ? `${total} file${total > 1 ? "s" : ""}` : "";
+          })()}
         </span>
       </div>
     </div>

@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wedding Image Editing — Flatworld Solutions</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #f8f9fa;
+    color: #333333;
+    line-height: 1.6;
+    padding: 24px 16px 48px;
+  }
+
+  .wrapper {
+    max-width: 680px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #1e3a5f;
+    padding: 32px 36px 28px;
+    color: #ffffff;
+  }
+  .header-eyebrow {
+    font-size: 11px;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    color: #e8913a;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.25;
+    margin-bottom: 10px;
+  }
+  .header p {
+    font-size: 14px;
+    color: rgba(255,255,255,0.78);
+    max-width: 480px;
+  }
+
+  /* ── SECTION WRAPPER ── */
+  .section {
+    padding: 28px 36px;
+    border-bottom: 1px solid #eef0f3;
+  }
+  .section:last-of-type { border-bottom: none; }
+
+  .section-label {
+    font-size: 10px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #2c5f8a;
+    margin-bottom: 14px;
+  }
+
+  h2.section-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 8px;
+  }
+
+  p.section-body {
+    font-size: 14px;
+    color: #444;
+    line-height: 1.7;
+  }
+
+  /* ── STYLE CARDS (before/after simulation) ── */
+  .styles-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 520px) {
+    .styles-grid { grid-template-columns: 1fr; }
+  }
+
+  .style-card {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e2e6ea;
+  }
+
+  .style-card-visual {
+    height: 100px;
+    position: relative;
+    display: flex;
+  }
+
+  .style-before, .style-after {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    padding: 6px 7px;
+  }
+
+  .style-tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.35);
+    color: #fff;
+  }
+
+  /* Light & Airy */
+  .style-card.airy .style-before {
+    background: linear-gradient(160deg, #b8a99a 0%, #9c8b7e 60%, #7a6b60 100%);
+  }
+  .style-card.airy .style-after {
+    background: linear-gradient(160deg, #fdf6f0 0%, #f5ece4 50%, #eedfd5 100%);
+  }
+
+  /* Film / Warm */
+  .style-card.film .style-before {
+    background: linear-gradient(160deg, #8a8a8a 0%, #6e6e6e 60%, #555 100%);
+  }
+  .style-card.film .style-after {
+    background: linear-gradient(160deg, #d4b896 0%, #c4a07a 50%, #b08860 100%);
+  }
+
+  /* Dark & Moody */
+  .style-card.moody .style-before {
+    background: linear-gradient(160deg, #9a9a9a 0%, #7a7a7a 60%, #5a5a5a 100%);
+  }
+  .style-card.moody .style-after {
+    background: linear-gradient(160deg, #2e2e3a 0%, #1e1e2a 50%, #141420 100%);
+  }
+
+  .style-divider {
+    width: 2px;
+    background: #fff;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
+  .style-card-body {
+    padding: 11px 12px 13px;
+    background: #fff;
+  }
+  .style-card-body h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 4px;
+  }
+  .style-card-body p {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+  }
+
+  /* ── CAPABILITY SNAPSHOT ── */
+  .capability-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 440px) {
+    .capability-grid { grid-template-columns: 1fr; }
+  }
+
+  .cap-item {
+    background: #f4f7fb;
+    border-radius: 7px;
+    padding: 14px 16px;
+    border-left: 3px solid #e8913a;
+  }
+  .cap-item h4 {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .cap-item p {
+    font-size: 13px;
+    color: #444;
+    line-height: 1.5;
+  }
+
+  /* ── SERVICES LIST ── */
+  .services-list {
+    list-style: none;
+    margin-top: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 20px;
+  }
+
+  @media (max-width: 440px) {
+    .services-list { grid-template-columns: 1fr; }
+  }
+
+  .services-list li {
+    font-size: 13px;
+    color: #333;
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.5;
+  }
+  .services-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #e8913a;
+  }
+
+  /* ── CASE STUDY CARDS ── */
+  .case-study-card {
+    background: #f4f7fb;
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    border-left: 4px solid #2c5f8a;
+  }
+  .case-study-card:last-child { margin-bottom: 0; }
+  .case-study-card .cs-tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #2c5f8a;
+    margin-bottom: 6px;
+  }
+  .case-study-card h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 6px;
+  }
+  .case-study-card p {
+    font-size: 13px;
+    color: #444;
+    line-height: 1.6;
+    margin-bottom: 8px;
+  }
+  .case-study-card .highlight {
+    display: inline-block;
+    background: #e8913a;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+  .case-study-card a {
+    font-size: 12px;
+    color: #2c5f8a;
+    text-decoration: none;
+    font-weight: 600;
+    border-bottom: 1px solid #c5d9ec;
+  }
+  .case-study-card a:hover { color: #1e3a5f; }
+
+  /* ── PROCESS STRIP ── */
+  .process-strip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    margin-top: 8px;
+    overflow-x: auto;
+  }
+
+  .process-step {
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+    position: relative;
+  }
+
+  .process-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 16px;
+    right: -1px;
+    width: 50%;
+    height: 2px;
+    background: #d0dce8;
+    z-index: 0;
+  }
+  .process-step:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    top: 16px;
+    left: -1px;
+    width: 50%;
+    height: 2px;
+    background: #d0dce8;
+    z-index: 0;
+  }
+
+  .process-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #1e3a5f;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .process-step p {
+    font-size: 11px;
+    color: #555;
+    line-height: 1.4;
+    padding: 0 4px;
+  }
+
+  /* ── CTA ── */
+  .cta-section {
+    background: #1e3a5f;
+    padding: 28px 36px;
+    color: #fff;
+  }
+  .cta-section h2 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .cta-section p {
+    font-size: 14px;
+    color: rgba(255,255,255,0.78);
+    margin-bottom: 18px;
+    max-width: 440px;
+  }
+  .cta-btn {
+    display: inline-block;
+    background: #e8913a;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 11px 22px;
+    border-radius: 5px;
+    text-decoration: none;
+    letter-spacing: 0.3px;
+  }
+  .cta-note {
+    font-size: 12px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 10px;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    padding: 16px 36px;
+    background: #f4f7fb;
+    border-top: 1px solid #e2e6ea;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .footer-brand {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e3a5f;
+  }
+  .footer-brand span {
+    color: #e8913a;
+  }
+  .footer-cert {
+    font-size: 11px;
+    color: #777;
+  }
+
+  /* ── PRINT ── */
+  @media print {
+    body { padding: 0; background: #fff; }
+    .wrapper { box-shadow: none; border-radius: 0; }
+    .cta-btn { background: #e8913a !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-eyebrow">Wedding Image Editing · Capability Brief</div>
+    <h1>Your Post-Shoot Workflow,<br>Handled — At Any Volume</h1>
+    <p>A snapshot of how Flatworld Solutions supports wedding photographers with style-matched editing, fast turnaround, and a team built for peak-season demand.</p>
+  </div>
+
+  <!-- EDITING STYLES -->
+  <div class="section">
+    <div class="section-label">Visual Style Capabilities</div>
+    <h2 class="section-title">We Edit to Your Style — Not Ours</h2>
+    <p class="section-body" style="margin-bottom:18px;">Every photographer has a signature look. Our editors are briefed to match your preset and aesthetic, not impose their own. Below are three of the most requested wedding editing styles we work with.</p>
+
+    <div class="styles-grid">
+
+      <!-- Light & Airy -->
+      <div class="style-card airy">
+        <div class="style-card-visual">
+          <div class="style-before">
+            <span class="style-tag">Before</span>
+          </div>
+          <div class="style-divider"></div>
+          <div class="style-after">
+            <span class="style-tag">After</span>
+          </div>
+        </div>
+        <div class="style-card-body">
+          <h3>☀ Light &amp; Airy</h3>
+          <p>Lifted shadows, soft highlights, cool-to-neutral skin tones, clean whites — the bright, romantic look.</p>
+        </div>
+      </div>
+
+      <!-- Film / Warm -->
+      <div class="style-card film">
+        <div class="style-card-visual">
+          <div class="style-before">
+            <span class="style-tag">Before</span>
+          </div>
+          <div class="style-divider"></div>
+          <div class="style-after">
+            <span class="style-tag">After</span>
+          </div>
+        </div>
+        <div class="style-card-body">
+          <h3>🎞 Film-Emulated</h3>
+          <p>Warm golden tones, faded blacks, grain texture — that timeless analog feel on digital files.</p>
+        </div>
+      </div>
+
+      <!-- Dark & Moody -->
+      <div class="style-card moody">
+        <div class="style-card-visual">
+          <div class="style-before">
+            <span class="style-tag">Before</span>
+          </div>
+          <div class="style-divider"></div>
+          <div class="style-after">
+            <span class="style-tag">After</span>
+          </div>
+        </div>
+        <div class="style-card-body">
+          <h3>🌑 Dark &amp; Moody</h3>
+          <p>Crushed blacks, rich shadows, desaturated cool tones — dramatic, editorial, deeply atmospheric.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- WHAT WE HANDLE -->
+  <div class="section">
+    <div class="section-label">Services Included</div>
+    <h2 class="section-title">Full Post-Production Coverage</h2>
+    <p class="section-body" style="margin-bottom:14px;">From culling through final delivery, our team handles every stage of the wedding editing workflow using Adobe Photoshop and Lightroom.</p>
+    <ul class="services-list">
+      <li>Image culling &amp; selection</li>
+      <li>Catalogue editing &amp; organisation</li>
+      <li>Exposure &amp; white balance correction</li>
+      <li>Color grading &amp; tone matching</li>
+      <li>Skin retouching &amp; blemish removal</li>
+      <li>Background cleanup &amp; object removal</li>
+      <li>Consistent preset application</li>
+      <li>Highlight &amp; shadow recovery</li>
+      <li>Batch processing for high volume</li>
+      <li>Advanced retouching on selects</li>
+      <li>File formatting &amp; export</li>
+      <li>Revision rounds included</li>
+    </ul>
+  </div>
+
+  <!-- VOLUME & TURNAROUND SNAPSHOT -->
+  <div class="section">
+    <div class="section-label">Volume &amp; Turnaround</div>
+    <h2 class="section-title">Built for Peak Season</h2>
+    <p class="section-body" style="margin-bottom:16px;">Whether you shoot 10 weddings a year or 60, our team scales with your calendar — not against it.</p>
+
+    <div class="capability-grid">
+      <div class="cap-item">
+        <h4>High-Volume Ready</h4>
+        <p>Thousands of images per wedding handled routinely — no bottlenecks during your busiest months.</p>
+      </div>
+      <div class="cap-item">
+        <h4>Rapid Turnaround</h4>
+        <p>Consistent, fast delivery so you can get galleries to clients quickly and protect your reputation.</p>
+      </div>
+      <div class="cap-item">
+        <h4>Dedicated Team</h4>
+        <p>A dedicated group of editors learns your style and maintains consistency across every shoot.</p>
+      </div>
+      <div class="cap-item">
+        <h4>Secure File Sharing</h4>
+        <p>Cloud-based intake and delivery — your RAW files are handled securely from upload to export.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKFLOW PROCESS -->
+  <div class="section">
+    <div class="section-label">How It Works</div>
+    <h2 class="section-title">Simple 5-Step Workflow</h2>
+    <p class="section-body" style="margin-bottom:18px;">Designed to slot into your existing post-shoot process with minimal friction.</p>
+    <div class="process-strip">
+      <div class="process-step">
+        <div class="process-dot">1</div>
+        <p>You upload<br>your files</p>
+      </div>
+      <div class="process-step">
+        <div class="process-dot">2</div>
+        <p>We brief<br>your style</p>
+      </div>
+      <div class="process-step">
+        <div class="process-dot">3</div>
+        <p>Editors<br>get to work</p>
+      </div>
+      <div class="process-step">
+        <div class="process-dot">4</div>
+        <p>QA review<br>by experts</p>
+      </div>
+      <div class="process-step">
+        <div class="process-dot">5</div>
+        <p>Edited files<br>delivered</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CASE STUDIES -->
+  <div class="section">
+    <div class="section-label">Proven Experience</div>
+    <h2 class="section-title">Wedding Photography Clients We've Supported</h2>
+    <p class="section-body" style="margin-bottom:18px;">These are real engagements — not hypotheticals. Each one reflects the kind of workflow we'd build for you.</p>
+
+    <div class="case-study-card">
+      <div class="cs-tag">Case Study · UK</div>
+      <h3>UK-Based Wedding Photographer</h3>
+      <p>Required image culling, catalogue editing, and advanced retouching across a high volume of wedding shoots. FWS assigned a dedicated team of 3 editors using Adobe Lightroom to ensure consistent quality and quick turnaround.</p>
+      <div class="highlight">Result: 50% reduction in operating costs</div><br>
+      <a href="https://www.flatworldsolutions.com/creative-services/case-studies/photo-retouching-services-to-a-uk-based-client.php" target="_blank">View full case study →</a>
+    </div>
+
+    <div class="case-study-card">
+      <div class="cs-tag">Case Study · Europe</div>
+      <h3>European Wedding Photographer</h3>
+      <p>Needed editing of thousands of images per wedding, including drone and multi-camera footage enhancement. FWS delivered high-quality, cost-effective outputs across 70 weddings using Adobe Photoshop and Lightroom.</p>
+      <a href="https://www.flatworldsolutions.com/digital-photography/case-study/video-photo-editing-for-photographer.php" target="_blank">View full case study →</a>
+    </div>
+
+    <div class="case-study-card">
+      <div class="cs-tag">Case Study · United States</div>
+      <h3>US Photography &amp; Videography Studio</h3>
+      <p>Required professional editing of wedding images and videos, highlight reels, full ceremony coverage, and social media content. FWS delivered end-to-end post-production using cloud-based collaboration tools for secure file sharing and streamlined revision management.</p>
+      <a href="https://files.botatwork.com/public.php/dav/files/jwKW3TBQJrdFs8F/1727131_Image_CaseStudy.pdf" target="_blank">View full case study →</a>
+    </div>
+
+  </div>
+
+  <!-- WHY FWS -->
+  <div class="section">
+    <div class="section-label">Why Flatworld Solutions</div>
+    <h2 class="section-title">What Makes This Different</h2>
+    <p class="section-body" style="margin-bottom:16px;">There are plenty of editing services out there. Here's what separates a long-term editing partner from a one-time vendor.</p>
+    <div class="capability-grid">
+      <div class="cap-item">
+        <h4>18+ Years Experience</h4>
+        <p>Deep expertise in photo editing across photography studios, agencies, and individual photographers worldwide.</p>
+      </div>
+      <div class="cap-item">
+        <h4>ISO/IEC 27001:2022 Certified</h4>
+        <p>Your client images are protected under internationally recognised information security standards.</p>
+      </div>
+      <div class="cap-item">
+        <h4>Free Trial Available</h4>
+        <p>Try us on a real batch before committing. See the quality for yourself with zero obligation.</p>
+      </div>
+      <div class="cap-item">
+        <h4>Competitive Pricing</h4>
+        <p>Pricing tailored to your volume and project scope — available upon request after a brief conversation.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-section">
+    <h2>Ready to See What We Can Do With Your Images?</h2>
+    <p>Send us a sample batch from a recent wedding and we'll return edited images in your style — no cost, no commitment. The work speaks for itself.</p>
+    <a href="mailto:info@flatworldsolutions.com" class="cta-btn">Request a Free Trial Edit</a>
+    <p class="cta-note">Or reply directly to this email — we'll set it up in minutes.</p>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-brand">Flatworld <span>Solutions</span></div>
+    <div class="footer-cert">ISO/IEC 27001:2022 Certified · Princeton, NJ · Bengaluru · Davao</div>
+  </div>
+
+</div>
+
+</body>
+</html>

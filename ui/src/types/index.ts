@@ -238,6 +238,14 @@ export interface EmailAttachment {
   sizeBytes: number;    // for display only
 }
 
+export interface DraftAttachment {
+  id: number;
+  filename: string;
+  contentType: string;
+  fileSize: number;
+  createdTime: string;
+}
+
 export interface AgentResult {
   id: number;
   potentialId: string;

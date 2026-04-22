@@ -37,6 +37,9 @@ PRINT '============================================';
 PRINT '  DROP phase — removing existing CX_ tables';
 PRINT '============================================';
 
+IF OBJECT_ID(N'CX_DraftAttachments', N'U') IS NOT NULL
+BEGIN DROP TABLE CX_DraftAttachments; PRINT 'Dropped CX_DraftAttachments'; END;
+
 IF OBJECT_ID(N'CX_AgentDraftHistory', N'U') IS NOT NULL
 BEGIN DROP TABLE CX_AgentDraftHistory; PRINT 'Dropped CX_AgentDraftHistory'; END;
 
@@ -499,12 +502,32 @@ CREATE INDEX IX_AgentDraftHistory_Potential ON CX_AgentDraftHistory (PotentialId
 PRINT 'Created CX_AgentDraftHistory';
 GO
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- 20. CX_DraftAttachments  (agent-generated HTML attachments for email drafts)
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE TABLE CX_DraftAttachments (
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    PotentialId     VARCHAR(32)     NOT NULL,   -- 7-digit potential_number
+    AgentId         VARCHAR(64)     NULL,        -- attachment agent that produced it
+    GcsPath         NVARCHAR(512)   NOT NULL,
+    Filename        NVARCHAR(256)   NOT NULL,
+    ContentType     VARCHAR(64)     NOT NULL DEFAULT 'text/html',
+    FileSize        INT             NULL,
+    IsRemoved       BIT             NOT NULL DEFAULT 0,  -- user removed in composer
+    IsSent          BIT             NOT NULL DEFAULT 0,  -- attached to a sent email
+    CreatedTime     DATETIME        NOT NULL DEFAULT GETDATE(),
+    UpdatedTime     DATETIME        NOT NULL DEFAULT GETDATE()
+);
+CREATE INDEX IX_DraftAttachments_Potential ON CX_DraftAttachments (PotentialId, IsSent, IsRemoved);
+PRINT 'Created CX_DraftAttachments';
+GO
+
 -- ============================================================================
 -- Done
 -- ============================================================================
 PRINT '';
 PRINT '============================================';
-PRINT 'Beta init complete — 19 CX_ tables recreated.';
+PRINT 'Beta init complete — 20 CX_ tables recreated.';
 PRINT '  1.  CX_OTPCodes';
 PRINT '  2.  CX_UserTokens';
 PRINT '  3.  CX_QueueItems';
@@ -524,6 +547,7 @@ PRINT '  16. CX_GlobalChatMessages';
 PRINT '  17. CX_Meetings';
 PRINT '  18. CX_FollowUpSchedule';
 PRINT '  19. CX_AgentDraftHistory';
+PRINT '  20. CX_DraftAttachments';
 PRINT '';
 PRINT 'Next: INSERT your agent registry rows into CX_AgentTypeConfig.';
 PRINT '============================================';
