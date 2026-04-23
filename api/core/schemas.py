@@ -332,6 +332,7 @@ class TodoItem(BaseModel):
     text: str
     status: str = "pending"
     is_completed: bool = False
+    source: str = "user"  # "user" | "agent"
     created_by_user_id: Optional[str] = None
     created_time: Optional[datetime] = None
 

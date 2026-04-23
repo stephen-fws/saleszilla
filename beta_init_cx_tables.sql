@@ -312,6 +312,10 @@ CREATE TABLE CX_Todos (
     Text                NVARCHAR(512)   NOT NULL,
     Status              VARCHAR(20)     NOT NULL DEFAULT 'pending',
     IsCompleted         BIT             NOT NULL DEFAULT 0,
+    -- "user" | "agent". Agent-created rows are reconciled by the todo_reconcile
+    -- agent. If a user edits an agent row, Source flips to "user" and the agent
+    -- no longer sees or touches it.
+    Source              VARCHAR(16)     NOT NULL DEFAULT 'user',
     CreatedByUserId     VARCHAR(32)     NULL,
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),

@@ -231,6 +231,10 @@ async def send_email(
                     to_email=data.to_email,
                     subject=data.subject,
                 ))
+                # NOTE: intentionally NOT triggering todo_reconcile here. The sync
+                # service will fire /webhooks/email-outbound for this same email
+                # shortly — that path calls trigger_todo_reconcile. Firing both
+                # would double the agent runs for every Salezilla-sent email.
         except Exception:
             # Non-fatal — sync service will re-trigger later
             import logging

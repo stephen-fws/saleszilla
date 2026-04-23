@@ -413,6 +413,7 @@ export async function getTodos(dealId: string): Promise<TodoItem[]> {
     text: r.text ?? "",
     status: (r.status ?? "pending") as TodoStatus,
     isCompleted: r.is_completed ?? false,
+    source: (r.source === "agent" ? "agent" : "user"),
     createdTime: r.created_time ?? null,
   }));
 }
@@ -420,7 +421,13 @@ export async function getTodos(dealId: string): Promise<TodoItem[]> {
 export async function addTodo(dealId: string, text: string): Promise<TodoItem> {
   const res = await protectedApi.post(`/potentials/${dealId}/todos`, { text });
   const r = res.data.data;
-  return { id: r.id, text: r.text ?? "", status: (r.status ?? "pending") as TodoStatus, isCompleted: r.is_completed ?? false, createdTime: r.created_time ?? null };
+  return {
+    id: r.id, text: r.text ?? "",
+    status: (r.status ?? "pending") as TodoStatus,
+    isCompleted: r.is_completed ?? false,
+    source: (r.source === "agent" ? "agent" : "user"),
+    createdTime: r.created_time ?? null,
+  };
 }
 
 export async function updateTodo(dealId: string, todoId: number, fields: { status?: TodoStatus; text?: string }): Promise<void> {

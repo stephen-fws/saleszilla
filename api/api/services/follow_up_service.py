@@ -20,7 +20,7 @@ Flow:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone as tzutil
+from datetime import date, datetime, time, timedelta, timezone as tzutil
 from zoneinfo import ZoneInfo
 
 import requests
@@ -437,6 +437,486 @@ def trigger_stage_update(potential_number: str) -> dict:
     return {"ok": True, "agents_created": len(su_configs)}
 
 
+def trigger_todo_reconcile(potential_number: str) -> dict:
+    """Fire the todo-reconcile graph for a potential. Called from both outbound
+    and inbound email webhooks. The agent reads the full email thread from the
+    sync table and reconciles against the existing agent-owned todos; we pass
+    those todos inline so it has the ids to reuse."""
+    from api.services.todo_reconcile_service import list_agent_todos_for_trigger
+
+    now = datetime.now(tzutil.utc)
+
+    with get_session() as session:
+        potential_uuid = _resolve_potential_uuid(session, potential_number)
+        if not potential_uuid:
+            logger.warning("trigger_todo_reconcile: unknown potential=%s", potential_number)
+            return {"ok": False, "reason": "unknown_potential"}
+
+        # Upsert pending insight rows for any todo_reconcile agents in config
+        tr_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "todo_reconcile",
+            )
+        ).scalars().all()
+        for cfg in tr_configs:
+            _upsert_pending_insight(session, potential_number, cfg, now)
+
+    if not config.AGENTFLOW_GRAPH_TODO_RECONCILE:
+        logger.warning("AGENTFLOW_GRAPH_TODO_RECONCILE not configured — skipped")
+        return {"ok": False, "reason": "graph_not_configured"}
+
+    existing_agent_todos = list_agent_todos_for_trigger(potential_number)
+    potential_data = _load_potential_data(potential_uuid)
+    url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
+    payload = {
+        "graph_id": config.AGENTFLOW_GRAPH_TODO_RECONCILE,
+        "entity": {
+            "entity_type": "sales_lead",
+            "external_id": potential_number,
+            "attributes": {
+                "potential_id": potential_number,
+                "customer_name": potential_data.get("customer_name", ""),
+                "contact_email": potential_data.get("contact_email", ""),
+                "company_name": potential_data.get("company_name", ""),
+                "company_website": potential_data.get("company_website", ""),
+                "service": potential_data.get("service", ""),
+                "entity_owner_email": potential_data.get("owner_email", ""),
+                "category": "todo_reconcile",
+            },
+        },
+        # Root-level structured input for the graph — kept out of entity.attributes
+        # so the array shape survives without JSON-in-string encoding.
+        "input_data": {
+            "existing_agent_todos": existing_agent_todos,
+        },
+        "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+        "callback_mode": "per_agent",
+    }
+    logger.info("trigger_todo_reconcile: POST %s potential=%s existing=%d", url, potential_number, len(existing_agent_todos))
+    try:
+        resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
+        logger.info("todo_reconcile agentflow response: status=%s", resp.status_code)
+    except Exception as exc:
+        logger.error("trigger_todo_reconcile: agentflow failed: %s", exc)
+
+    return {"ok": True, "agents_created": len(tr_configs), "existing_count": len(existing_agent_todos)}
+
+
+# ── Follow-up Inactive (weekly scan) ─────────────────────────────────────────
+
+def _most_recent_wednesday(d: date) -> date:
+    """Most recent Wednesday on or before `d`. Mon/Tue resolve to LAST week's Wed.
+    Wed → today; Thu/Fri/Sat/Sun → this week's Wed. Anchoring on the most
+    recent Wed lets a missed Wednesday run catch up on Thursday (same window)."""
+    # Python weekday(): Mon=0, Tue=1, Wed=2, Thu=3, …
+    days_since_wed = (d.weekday() - 2) % 7
+    return d - timedelta(days=days_since_wed)
+
+
+def _subtract_months(d: date, months: int) -> date:
+    """Subtract calendar months, clamping to the last day of the target month."""
+    import calendar
+    year, month = d.year, d.month - months
+    while month < 1:
+        month += 12
+        year -= 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+
+
+def compute_inactive_scan_window(today_date: date | None = None) -> tuple[datetime, datetime]:
+    """Window = the 7 calendar days ending at (most-recent-Wed − 3 months).
+    Returns (start, end_exclusive) as naive datetimes at midnight — DB's
+    [Modified Time] column is naive, compared in the same reference frame."""
+    anchor = _most_recent_wednesday(today_date or date.today())
+    end_date = _subtract_months(anchor, 3)
+    start_date = end_date - timedelta(days=7)
+    start = datetime.combine(start_date, time(0, 0))
+    end = datetime.combine(end_date, time(0, 0))  # exclusive upper bound
+    return start, end
+
+
+def _trigger_inactive_fu_agentflow(potential_id: str, potential_number: str, current_stage: str) -> None:
+    """Fire the inactive follow-up graph. Fire-and-forget; graph callback
+    updates the insight row via /agents/webhook."""
+    if not config.AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE:
+        logger.warning("AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE not configured — skipped for %s", potential_number)
+        return
+    potential_data = _load_potential_data(potential_id)
+    url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
+    payload = {
+        "graph_id": config.AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE,
+        "entity": {
+            "entity_type": "sales_lead",
+            "external_id": potential_number,
+            "attributes": {
+                "potential_id": potential_number,
+                "customer_name": potential_data.get("customer_name", ""),
+                "contact_email": potential_data.get("contact_email", ""),
+                "company_name": potential_data.get("company_name", ""),
+                "company_website": potential_data.get("company_website", ""),
+                "service": potential_data.get("service", ""),
+                "entity_owner_email": potential_data.get("owner_email", ""),
+                "category": "followUpInactive",
+                "current_stage": current_stage,
+            },
+        },
+        "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+        "callback_mode": "per_agent",
+    }
+    logger.info("inactive_fu: POST %s potential=%s stage=%s", url, potential_number, current_stage)
+    try:
+        resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
+        logger.info("inactive_fu agentflow response: status=%s", resp.status_code)
+    except Exception as exc:
+        logger.error("inactive_fu: agentflow trigger failed: %s", exc)
+
+
+def _fire_inactive_for_potential(snapshot: dict, now: datetime) -> None:
+    """Per-potential work: upsert pending insight rows, upsert queue item in
+    the follow-up-inactive folder, trigger the graph. Mirrors _fire_one() for
+    active FU but scoped to the inactive flow."""
+    pn = snapshot["potential_number"]
+    if not pn:
+        return
+
+    with get_session() as session:
+        # Previous Next Action drafts become stale — mark actioned so the new
+        # inactive draft takes over once the agent webhook arrives
+        _mark_pending_next_actions_actioned(session, pn, now)
+
+        # Pending insight rows per followUpInactive agent in the config registry
+        inactive_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "followUpInactive",
+            )
+        ).scalars().all()
+        for cfg in inactive_configs:
+            _upsert_pending_insight(session, pn, cfg, now)
+
+        # Upsert queue item in follow-up-inactive (also collapses any existing
+        # follow-up-active item so the potential lives in one place)
+        parts = [x for x in [snapshot["account_name"], snapshot["contact_name"]] if x]
+        subtitle = " · ".join(parts) if parts else ""
+
+        existing_qi = session.execute(
+            select(CXQueueItem).where(
+                CXQueueItem.potential_id == pn,
+                CXQueueItem.folder_type.in_(["follow-up-active", "follow-up-inactive"]),
+                CXQueueItem.status == "pending",
+                CXQueueItem.is_active == True,
+            )
+        ).scalar_one_or_none()
+
+        if existing_qi:
+            existing_qi.folder_type = "follow-up-inactive"
+            existing_qi.title = snapshot["potential_name"]
+            existing_qi.subtitle = subtitle
+            existing_qi.time_label = now.strftime("%Y-%m-%d")
+            existing_qi.updated_time = now
+            session.add(existing_qi)
+        else:
+            session.add(CXQueueItem(
+                potential_id=pn,
+                contact_id=snapshot["contact_id"],
+                account_id=snapshot["account_id"],
+                folder_type="follow-up-inactive",
+                title=snapshot["potential_name"],
+                subtitle=subtitle,
+                preview="Inactive follow-up",
+                time_label=now.strftime("%Y-%m-%d"),
+                priority="normal",
+                status="pending",
+                assigned_to_user_id=snapshot["owner_id"],
+                created_time=now,
+                updated_time=now,
+                is_active=True,
+            ))
+
+    # Fire graph AFTER the DB commit — webhook later updates the insight content
+    _trigger_inactive_fu_agentflow(
+        potential_id=snapshot["potential_id"],
+        potential_number=pn,
+        current_stage=snapshot["stage"],
+    )
+
+
+def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
+    """Weekly scan (scheduled every Wednesday, safe to run manually any day).
+
+    Identifies potentials in Sleeping / Contact Later whose [Modified Time]
+    falls in the 7-day window ending 3 months before the most recent Wednesday,
+    and fires the inactive follow-up graph for each.
+
+    anchor_date: optional override for testing. When provided, the window is
+    computed as if "today" were that date (the function still walks back to the
+    most recent Wednesday from it, so mid-week anchors produce sensible weeks).
+    """
+    INACTIVE_STAGES = ("Sleeping", "Contact Later")
+    start, end = compute_inactive_scan_window(anchor_date)
+    logger.info("inactive_fu scan: window=[%s, %s) stages=%s", start.isoformat(), end.isoformat(), INACTIVE_STAGES)
+
+    with get_session() as session:
+        rows = session.execute(
+            select(Potential, Account, Contact)
+            .outerjoin(Account, Potential.account_id == Account.account_id)
+            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+            .where(
+                Potential.stage.in_(INACTIVE_STAGES),
+                Potential.modified_time >= start,
+                Potential.modified_time < end,
+            )
+        ).all()
+        # Snapshot outside the session — downstream work opens its own sessions
+        snapshots = []
+        for p, a, c in rows:
+            snapshots.append({
+                "potential_id": p.potential_id,
+                "potential_number": p.potential_number,
+                "stage": p.stage or "",
+                "modified_time": p.modified_time,
+                "owner_id": p.potential_owner_id,
+                "potential_name": p.potential_name or "(untitled)",
+                "account_name": a.account_name if a else None,
+                "contact_name": c.full_name if c else None,
+                "contact_id": c.contact_id if c else None,
+                "account_id": a.account_id if a else None,
+            })
+
+    now = datetime.now(tzutil.utc)
+    triggered = skipped = 0
+    for s in snapshots:
+        if not s["potential_number"]:
+            skipped += 1
+            logger.warning("inactive_fu scan: skipping potential with no potential_number: %s", s["potential_id"])
+            continue
+        try:
+            _fire_inactive_for_potential(s, now)
+            triggered += 1
+        except Exception:
+            logger.exception("inactive_fu scan: failed for potential=%s", s["potential_number"])
+            skipped += 1
+
+    return {
+        "ok": True,
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "matched": len(snapshots),
+        "triggered": triggered,
+        "skipped": skipped,
+    }
+
+
+# ── News (daily Diamond/Platinum scan) ───────────────────────────────────────
+
+
+def _trigger_news_agentflow(potential_id: str, potential_number: str, category: str) -> None:
+    """Fire the news graph for one potential. Fire-and-forget.
+
+    The graph orchestrates A1 (news-check) → A2 (email body). A1's callback
+    tells Salezilla whether A2 will run; if A1 returns `news_selected: false`
+    we close out A2's pending insight. Otherwise A2's callback arrives later
+    with the email body that becomes the Next Action draft.
+
+    cutoff_date is passed under input_data so the agent's "news from the last
+    2 days (after {cutoff_date})" prompt has a deterministic server-controlled
+    boundary (= run-date − 2 days). Avoids any ambiguity about which clock
+    agentflow would otherwise use.
+    """
+    if not config.AGENTFLOW_GRAPH_NEWS:
+        logger.warning("AGENTFLOW_GRAPH_NEWS not configured — skipped for %s", potential_number)
+        return
+    potential_data = _load_potential_data(potential_id)
+    today = date.today()
+    cutoff_date = today - timedelta(days=2)
+    url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
+    payload = {
+        "graph_id": config.AGENTFLOW_GRAPH_NEWS,
+        "entity": {
+            "entity_type": "sales_lead",
+            "external_id": potential_number,
+            "attributes": {
+                "potential_id": potential_number,
+                "customer_name": potential_data.get("customer_name", ""),
+                "contact_email": potential_data.get("contact_email", ""),
+                "company_name": potential_data.get("company_name", ""),
+                "company_website": potential_data.get("company_website", ""),
+                "service": potential_data.get("service", ""),
+                "entity_owner_email": potential_data.get("owner_email", ""),
+                "category": "news",
+                "potential_category": category,  # "Diamond" | "Platinum"
+            },
+        },
+        # Root-level structured input the graph can consume directly
+        "input_data": {
+            "today_date": today.isoformat(),
+            "cutoff_date": cutoff_date.isoformat(),
+        },
+        "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
+        "callback_mode": "per_agent",
+    }
+    logger.info("news: POST %s potential=%s category=%s cutoff=%s", url, potential_number, category, cutoff_date.isoformat())
+    try:
+        resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
+        logger.info("news agentflow response: status=%s", resp.status_code)
+    except Exception as exc:
+        logger.error("news: agentflow trigger failed: %s", exc)
+
+
+
+
+def _fire_news_for_potential(snapshot: dict, now: datetime) -> None:
+    """Per-potential work: upsert pending insight rows + queue item + fire graph."""
+    pn = snapshot["potential_number"]
+    if not pn:
+        return
+
+    with get_session() as session:
+        news_configs = session.execute(
+            select(CXAgentTypeConfig).where(
+                CXAgentTypeConfig.is_active == True,
+                CXAgentTypeConfig.trigger_category == "news",
+            )
+        ).scalars().all()
+        for cfg in news_configs:
+            _upsert_pending_insight(session, pn, cfg, now)
+
+        # Upsert queue item in the "news" folder.
+        # NOTE: empty-content webhook later will cancel this item ("no news
+        # this cycle") so the folder doesn't clutter with false positives.
+        parts = [x for x in [snapshot["account_name"], snapshot["contact_name"]] if x]
+        subtitle = " · ".join(parts) if parts else ""
+
+        existing_qi = session.execute(
+            select(CXQueueItem).where(
+                CXQueueItem.potential_id == pn,
+                CXQueueItem.folder_type == "news",
+                CXQueueItem.status == "pending",
+                CXQueueItem.is_active == True,
+            )
+        ).scalar_one_or_none()
+
+        if existing_qi:
+            existing_qi.title = snapshot["potential_name"]
+            existing_qi.subtitle = subtitle
+            existing_qi.time_label = now.strftime("%Y-%m-%d")
+            existing_qi.updated_time = now
+            session.add(existing_qi)
+        else:
+            session.add(CXQueueItem(
+                potential_id=pn,
+                contact_id=snapshot["contact_id"],
+                account_id=snapshot["account_id"],
+                folder_type="news",
+                title=snapshot["potential_name"],
+                subtitle=subtitle,
+                preview=f"{snapshot['category']} — checking news",
+                time_label=now.strftime("%Y-%m-%d"),
+                priority="normal",
+                status="pending",
+                assigned_to_user_id=snapshot["owner_id"],
+                created_time=now,
+                updated_time=now,
+                is_active=True,
+            ))
+
+    _trigger_news_agentflow(
+        potential_id=snapshot["potential_id"],
+        potential_number=pn,
+        category=snapshot["category"],
+    )
+
+
+def run_news_scan() -> dict:
+    """Daily scan: fire the news graph for every active Diamond or Platinum
+    potential, skipping any where a recent news insight is still in-flight or
+    waiting on the user.
+
+    Stages excluded: Closed / Lost / Disqualified / Not an Inquiry / Low Value —
+    no point fetching news on dead deals. Sleeping and Contact Later stay in —
+    news is often what reactivates a parked Diamond deal.
+
+    Skip rule (prevents the 2-day agent overlap from wiping a pending draft):
+      Skip if ANY news insight exists with status IN ('pending','running','completed')
+      — i.e., still working OR user hasn't actioned it yet.
+      Fire if status is 'actioned'/'cancelled'/'error', or no news insight exists.
+    """
+    EXCLUDED_STAGES = ("Closed", "Lost", "Disqualified", "Not an Inquiry", "Low Value")
+
+    with get_session() as session:
+        # Diamond = potential2close == 1, Platinum = hot_potential == 'true'.
+        # `Hot_Potential` is a string column (Zoho legacy), so compare as lowercase.
+        rows = session.execute(
+            select(Potential, Account, Contact)
+            .outerjoin(Account, Potential.account_id == Account.account_id)
+            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+            .where(
+                (Potential.potential2close == 1) | (Potential.hot_potential.ilike("true")),
+                Potential.stage.notin_(EXCLUDED_STAGES),
+            )
+        ).all()
+
+        snapshots = []
+        for p, a, c in rows:
+            category = "Diamond" if (p.potential2close or 0) == 1 else "Platinum"
+            snapshots.append({
+                "potential_id": p.potential_id,
+                "potential_number": p.potential_number,
+                "category": category,
+                "owner_id": p.potential_owner_id,
+                "potential_name": p.potential_name or "(untitled)",
+                "account_name": a.account_name if a else None,
+                "contact_name": c.full_name if c else None,
+                "contact_id": c.contact_id if c else None,
+                "account_id": a.account_id if a else None,
+            })
+
+        # Pre-filter: pull potentials that already have an in-flight / unactioned
+        # news insight so we skip them this cycle.
+        pns = [s["potential_number"] for s in snapshots if s["potential_number"]]
+        busy_pns: set[str] = set()
+        if pns:
+            busy_rows = session.execute(
+                select(CXAgentInsight.potential_id)
+                .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+                .where(
+                    CXAgentInsight.potential_id.in_(pns),
+                    CXAgentInsight.is_active == True,
+                    CXAgentInsight.status.in_(("pending", "running", "completed")),
+                    CXAgentTypeConfig.trigger_category == "news",
+                )
+            ).all()
+            busy_pns = {r[0] for r in busy_rows}
+
+    logger.info("news scan: matched=%d busy=%d", len(snapshots), len(busy_pns))
+    now = datetime.now(tzutil.utc)
+    triggered = skipped = already_pending = 0
+    for s in snapshots:
+        pn = s["potential_number"]
+        if not pn:
+            skipped += 1
+            continue
+        if pn in busy_pns:
+            already_pending += 1
+            continue
+        try:
+            _fire_news_for_potential(s, now)
+            triggered += 1
+        except Exception:
+            logger.exception("news scan: failed for potential=%s", pn)
+            skipped += 1
+
+    return {
+        "ok": True,
+        "matched": len(snapshots),
+        "triggered": triggered,
+        "already_pending": already_pending,
+        "skipped": skipped,
+    }
+
+
 # ── Tick processing ──────────────────────────────────────────────────────────
 
 def _has_client_reply_since(potential_number: str, since: datetime) -> bool:
@@ -743,7 +1223,9 @@ def _trigger_followup_agentflow(potential_data: dict, day_offset: int, email_thr
 
 
 def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
-    """Fire a single due schedule. Returns one of: fired / cancelled / deferred."""
+    """Fire a single due schedule. Returns one of: fired / cancelled.
+    ("deferred" is no longer returned — working-hours gating was removed since
+    the tick only prepares drafts; send timing is the user's decision.)"""
     now = datetime.now(tzutil.utc)
 
     # Defensive re-check: client reply since the trigger?
@@ -769,11 +1251,9 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
                 session.add(r)
         return "cancelled"
 
-    # Working-hours check (potential owner's timezone)
-    with get_session() as session:
-        tz_name, start_t, end_t = _get_owner_working_window(session, schedule_row.potential_id)
-    if not _within_working_hours(now, tz_name, start_t, end_t):
-        return "deferred"
+    # No working-hours gate here: the tick only PREPARES a draft, it doesn't
+    # auto-send. Deferring would leave the draft un-prepared when the user logs
+    # in the next morning. Let it fire any time — the user sends on their own clock.
 
     # Fire: mark next_action actioned → create insight rows → queue item → trigger graph
     INACTIVE_STAGES = {"Sleeping", "Contact Later"}

@@ -20,7 +20,10 @@ from api.services.follow_up_service import (
     cancel_series_on_reply,
     trigger_reply_agent,
     trigger_stage_update,
+    trigger_todo_reconcile,
     process_due_schedules,
+    run_inactive_followup_scan,
+    run_news_scan,
     start_new_series,
 )
 
@@ -70,8 +73,9 @@ def post_email_outbound(
         to_email=data.to_email,
         subject=data.subject,
     ))
-    # Stage update — runs after sync table has the email
+    # Stage update + todo reconcile — both run after sync table has the email
     trigger_stage_update(data.potential_number)
+    trigger_todo_reconcile(data.potential_number)
     return ResponseModel(data=result)
 
 
@@ -92,8 +96,9 @@ def post_email_inbound(
     )
     cancel_result = cancel_series_on_reply(event)
     reply_result = trigger_reply_agent(event)
-    # Stage update — runs after sync table has the email
+    # Stage update + todo reconcile — both run after sync table has the email
     trigger_stage_update(data.potential_number)
+    trigger_todo_reconcile(data.potential_number)
     return ResponseModel(data={
         "fu_cancelled": cancel_result.get("cancelled", 0),
         "reply_agents_created": reply_result.get("agents_created", 0),
@@ -110,4 +115,46 @@ def post_tick(
     _require_webhook_key(x_api_key)
     result = process_due_schedules()
     logger.info("follow_up tick: %s", result)
+    return ResponseModel(data=result)
+
+
+@router.post("/internal/followups/inactive-scan")
+def post_inactive_scan(
+    anchor_date: str | None = None,
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> ResponseModel[dict]:
+    """Weekly scan for the inactive follow-up flow.
+
+    Scheduled every Wednesday via Cloud Scheduler; also callable manually any
+    day. Finds Sleeping / Contact Later potentials modified in the 7-day window
+    ending 3 months before the most recent Wednesday, and triggers the inactive
+    follow-up graph for each. Anchoring on the current week's Wednesday means a
+    Thursday make-up run produces the same window as the Wednesday run would.
+
+    anchor_date (optional, YYYY-MM-DD) — overrides "today" for the window
+    calculation. Useful for back-filling missed weeks or testing historical
+    windows.
+    """
+    _require_webhook_key(x_api_key)
+    parsed_anchor = None
+    if anchor_date:
+        try:
+            parsed_anchor = datetime.strptime(anchor_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise BotApiException(400, "ERR_INVALID_DATE", "anchor_date must be YYYY-MM-DD.")
+    result = run_inactive_followup_scan(parsed_anchor)
+    logger.info("inactive_fu scan: %s", result)
+    return ResponseModel(data=result)
+
+
+@router.post("/internal/news/scan")
+def post_news_scan(
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> ResponseModel[dict]:
+    """Daily scan for the news flow. Fires the AGENTFLOW_GRAPH_NEWS graph for
+    every active Diamond/Platinum potential. Graph orchestrates A1 (check) →
+    A2 (email body); empty callback = no news this cycle, queue item cancelled."""
+    _require_webhook_key(x_api_key)
+    result = run_news_scan()
+    logger.info("news scan: %s", result)
     return ResponseModel(data=result)

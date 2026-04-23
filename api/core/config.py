@@ -95,6 +95,9 @@ AGENTFLOW_GRAPH_MEETING_BRIEF: str = _graphs.get("meeting_brief", "")
 AGENTFLOW_GRAPH_FOLLOW_UP: str = _graphs.get("follow_up", "")
 AGENTFLOW_GRAPH_REPLY: str = _graphs.get("reply", "")
 AGENTFLOW_GRAPH_STAGE_UPDATE: str = _graphs.get("stage_update", "")
+AGENTFLOW_GRAPH_TODO_RECONCILE: str = _graphs.get("todo_reconcile", "")
+AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE: str = _graphs.get("follow_up_inactive", "")
+AGENTFLOW_GRAPH_NEWS: str = _graphs.get("news", "")
 
 # ── Twilio (calling) ─────────────────────────────────────────────────────────
 # Configured via a single TWILIO_CONFIG env var holding JSON, e.g.:

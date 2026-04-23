@@ -278,6 +278,7 @@ export interface TodoItem {
   text: string;
   status: TodoStatus;
   isCompleted: boolean;
+  source: "user" | "agent";
   createdTime: string | null;
 }
 

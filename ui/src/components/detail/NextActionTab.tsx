@@ -717,9 +717,15 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
                 Prior Conversation ({priorThread.messageCount} {priorThread.messageCount === 1 ? "message" : "messages"})
               </p>
               <div className="rounded-lg border border-slate-200 overflow-hidden divide-y divide-slate-100">
-                {priorThread.messages.map((msg) => (
-                  <PriorMessage key={msg.id} msg={msg} />
-                ))}
+                {[...priorThread.messages]
+                  .sort((a, b) => {
+                    const ta = a.sentTime ?? a.receivedTime ?? "";
+                    const tb = b.sentTime ?? b.receivedTime ?? "";
+                    return tb.localeCompare(ta);
+                  })
+                  .map((msg) => (
+                    <PriorMessage key={msg.id} msg={msg} />
+                  ))}
               </div>
             </div>
           )}

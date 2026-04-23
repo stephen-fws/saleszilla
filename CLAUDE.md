@@ -133,13 +133,14 @@ SQL Server database: **CRMSalesPotentialls**
 Key tables (ORM models in `api/core/models.py`):
 | Table | Primary Key | Notes |
 |---|---|---|
-| `Accounts` | `account_id` (str) | Company data, billing address, industry |
-| `Contacts` | `contact_id` (str) | Linked to Account, has title/email/phone/mobile/department |
-| `Potentials` | `potential_id` (str) | Deals — linked to Account + Contact. Has `Potential Number` (7-digit str), `Potential2Close` (INT), `Hot_Potential` (str) |
+| `Accounts` | `account_id` (str) | Company data, billing address, industry. **PK is DB-generated** (DEFAULT `NEWID()`-flattened-to-hex) — app never sets it on INSERT. |
+| `Contacts` | `contact_id` (str) | Linked to Account, has title/email/phone/mobile/department. **PK is DB-generated** — same pattern as Accounts. |
+| `Potentials` | `potential_id` (str) | Deals — linked to Account + Contact. Has `Potential Number` (7-digit str), `Potential2Close` (INT), `Hot_Potential` (str). **Both `Potential Id` and `Potential Number` are DB-generated**: UUID-hex default + `PotentialNumberSeq` SEQUENCE. App never sets them. |
 | `CXActivities` | `id` (int) | Activity log — linked to Account + Potential, `is_active` BIT |
 | `Users` | `user_id` (str) | App users, OTP login, MS OAuth tokens stored here |
-| `CX_AgentInsights` | `id` (int) | Agent results per potential — status: pending/running/completed/error. Has `MSEventId` for meeting briefs (NULL for regular agents). UNIQUE on `(PotentialId, AgentType, MSEventId)` |
-| `CX_AgentTypeConfig` | `agent_id` (str) | Registry of agents — maps agent_id to tab_type, content_type, sort_order |
+| `CX_AgentInsights` | `id` (int) | Agent results per potential — status: pending/running/completed/error. Has `MSEventId` for meeting briefs (NULL for regular agents). UNIQUE on `(PotentialId, AgentId, MSEventId)` — keyed on `AgentId` (not tab_type) so multiple agents emitting to the same tab (e.g. two `research` agents) coexist. |
+| `CX_AgentTypeConfig` | `agent_id` (str) | Registry of agents — maps agent_id to tab_type, content_type, sort_order. Supports `tab_type="attachment"` convention (not a UI tab — marks an agent as a draft-attachment producer). |
+| `CX_DraftAttachments` | `id` (int) | Agent-generated email attachments (typically PDFs converted from HTML by the attachment agent). Keyed on `potential_id` = 7-digit potential_number. `IsSent=0 AND IsRemoved=0` = active → shown as chip in NextAction composer. |
 | `CX_CallLogs` | `id` (int) | Call records — has `TwilioCallSid` for linking to Twilio calls, `RecordingUrl`/`RecordingFileId` for GCS recordings, `Transcript` for call transcription |
 | `CX_ChatMessages` | `id` (int) | Per-potential AI chat history — keyed on `potential_id` = **potential_number** (7-digit), not UUID |
 | `CX_GlobalChatConversations` | `id` (int) | Global chat threads per user — has `Title` (AI-generated after first response) |
@@ -597,7 +598,7 @@ Matched to `CX_AgentTypeConfig` by `agent_id`. Unknown agent_ids are ignored. `m
 
 ### When agents are triggered
 1. **Manual creation** (`NewPotentialModal`) — triggered automatically after commit
-2. **External service creation** — other team calls `POST /potentials/{id}/agents/init` with `x-api-key` header after inserting into DB
+2. **External service creation** — other team inserts directly into `Potentials` / `Accounts` / `Contacts` (PKs are DB-generated; they omit those columns), then calls `POST /potentials/{id}/agents/init` with `x-api-key` header. The `{id}` accepts **either** the UUID `potential_id` **or** the 7-digit `potential_number` — `_load_potential_data` matches both via `OR`.
 3. **User re-run** — `POST /potentials/{id}/agents/run` (authenticated, from Research/Solution tabs)
 
 ### UI behaviour
@@ -616,7 +617,7 @@ WEBHOOK_API_KEY     # validates incoming webhook + init calls — must be set in
 
 ### Potential Number
 - 7-digit zero-padded string stored in `Potential Number` column
-- Auto-assigned on creation: `MAX(TRY_CAST([Potential Number] AS INT)) + 1`, zero-padded to 7 digits via `zfill(7)`
+- **DB-generated**: `RIGHT('0000000' + CAST(NEXT VALUE FOR PotentialNumberSeq AS VARCHAR(10)), 7)` as column DEFAULT. Sequence starts at `MAX(existing) + 1`. App NEVER sets it on INSERT; SQLAlchemy fetches via OUTPUT INSERTED + `session.refresh(..., ["potential_number"])`. See `migrate_pk_autogeneration.sql`.
 - Used as `entity_id` and `data.potential_id` in agentflow payload
 - Displayed as `#XXXXXXX` badge in detail panel header (read-only)
 
@@ -903,6 +904,45 @@ New Inquiries → [FRE sent] → Emails Sent → [D3 fires] → Follow Up Active
 
 ---
 
+## Follow-Up Draft Attachments (`CX_DraftAttachments`)
+
+Optional agent-generated PDF attachments bolted onto follow-up drafts.
+
+### Architecture
+- **Scope**: `trigger_category="followUp"` only (not newEnquiry/reply/meeting_brief for now)
+- **Attachment agent**: registered in `CX_AgentTypeConfig` with `tab_type="attachment"`. The agentflow graph orders it **before** the follow-up draft agent so by the time the draft webhook arrives, we already know whether an attachment was produced.
+- **Optional contract**: if the attachment agent returns empty content (or fails), no attachment is created — the follow-up draft sends on its own. "Draft webhook arrived with no attachment" = definitive "no attachment this cycle".
+
+### Pipeline
+1. Attachment agent webhook arrives → `process_webhook` in `agent_service.py` detects `cfg.tab_type == "attachment"` and calls `save_from_agent()`.
+2. `save_from_agent()` strips markdown fences (```html ... ```), converts HTML → PDF via **WeasyPrint**, uploads to GCS, inserts `CX_DraftAttachments` row.
+3. NextActionTab fetches active attachments, renders indigo "Files" chips in the draft preview + EmailComposer. Clicking the filename opens the PDF in a new tab (via blob URL). Click ✕ → soft-removes (`IsRemoved=1`).
+4. On send, `send-email` merges `draft_attachment_ids` with any manual attachments → Graph `fileAttachment` payload → on success, `IsSent=1`.
+
+### Storage
+- GCS path: `{env}/draft-attachments/{potential_number}/{uid}_{filename}` (uid prevents same-second collisions)
+- User-visible filename: `{potential_number}-{unix_ts}.pdf` (no agent_id, kept simple per user pref)
+
+### HTML → PDF
+- **WeasyPrint** — handles modern CSS (flexbox, grid, `:not()`, `::before/after`, media queries). Agent HTML has all of these.
+- Requires native libs (`libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info fonts-liberation`) — installed in `api/Dockerfile`. Imported lazily.
+- **Local Windows dev**: WeasyPrint can't load GTK → `_html_to_pdf` returns `None` → `save_from_agent` logs a warning and skips. No attachment is created locally. PDF generation only works in Docker / Cloud Run.
+- xhtml2pdf was tried and rejected — can't handle `:not()`, flexbox, grid, etc.
+
+### Endpoints
+| Route | File | Purpose |
+|---|---|---|
+| `GET /potentials/{id}/draft-attachments` | `routes/emails.py` | Active attachment metadata |
+| `DELETE /potentials/{id}/draft-attachments/{attachment_id}` | `routes/emails.py` | Soft-remove (`IsRemoved=1`) |
+| `GET /potentials/{id}/draft-attachments/{attachment_id}/download` | `routes/emails.py` | Proxy-download PDF bytes from GCS, `Content-Disposition: inline` for browser preview |
+
+### UI
+- Pre-composer: chips visible in the Panel 3 draft preview (before "Open in Composer") so the user can preview/remove without opening the editor
+- In-composer: same chips rendered above the footer; removable
+- Removal is authoritative on the server; reopening the composer won't re-add a removed attachment
+
+---
+
 ## Email Threads (Emails Tab)
 
 ### Data sources (priority order)
@@ -942,9 +982,22 @@ New Inquiries → [FRE sent] → Emails Sent → [D3 fires] → Follow Up Active
 
 ---
 
+## Panel 3 Header Actions (`DetailPanel.tsx`)
+
+Right side of the Panel 3 header (per potential):
+- **Call** button — opens `CallDialog` (Twilio browser calling)
+- **⋮ (MoreVertical)** 3-dot menu → dropdown with:
+  - **Create Contract** → opens Zoho Creator Work Order form in a new tab: `https://app.zohocreator.com/flatworld/corp-dev/#Form:Work_Order?Potential_Number={potential_number}` (URL-encoded; 7-digit number only, no name)
+  - **Contact Support** → opens `SupportEmailModal`
+- Menu closes on outside-click or after selecting an item
+
+**Done / Skip buttons were removed from Panel 3** (both `DetailPanel` header and `NextActionTab`). Both actions live only on the Panel 2 queue card hover action now — single source of truth. After the user sends the email from the NextAction composer, `resolveNextAction(dealId, "done")` still auto-fires on success.
+
+---
+
 ## Support Email
 
-- **SupportEmailModal** — accessible via LifeBuoy icon in Panel 3 header (every potential)
+- **SupportEmailModal** — accessible via the **⋮ menu → Contact Support** in Panel 3 header (every potential)
 - Categories: Agent stuck, Research quality, Solution brief, Next action/FRE, Meeting brief, Email sending, AI chat, Call/Twilio, Data correction, Other
 - Sends via SendGrid to `SUPPORT_EMAIL_TO` (comma-separated list in env)
 - HTML email with potential context (deal #, company, contact, owner, stage, value, service)
@@ -1026,6 +1079,9 @@ AGENTFLOW_GRAPH_REPLY=<graph-id>
 | `GET /potentials/{id}/meeting-info` | `routes/emails.py` | Meeting details from CX_Meetings |
 | `GET /potentials/{id}/email-attachment` | `routes/emails.py` | Proxy attachment download from Graph |
 | `POST /potentials/{id}/next-action/resolve` | `routes/emails.py` | Skip/Done for Next Action (marks insight actioned) |
+| `GET /potentials/{id}/draft-attachments` | `routes/emails.py` | List active agent-generated draft attachments (PDFs) |
+| `DELETE /potentials/{id}/draft-attachments/{aid}` | `routes/emails.py` | Soft-remove a draft attachment (IsRemoved=1) |
+| `GET /potentials/{id}/draft-attachments/{aid}/download` | `routes/emails.py` | Proxy-download PDF bytes from GCS (Content-Disposition: inline) |
 
 ---
 
@@ -1035,6 +1091,7 @@ AGENTFLOW_GRAPH_REPLY=<graph-id>
 |---|---|
 | `CX_FollowUpSchedule` | Follow-up cadence D3/D5/D8/D12 per potential |
 | `CX_AgentDraftHistory` | Audit log of agent drafts before overwrite/resolve |
+| `CX_DraftAttachments` | Agent-generated PDF attachments for NextAction drafts (HTML→PDF via WeasyPrint) |
 | `CRM_Sales_Sync_Emails` | Email sync service data (view: `VW_CRM_Sales_Sync_Emails`) |
 | `service` | Master service list (read-only lookup) |
 | `Subservices` | Sub-services grouped by ServiceID (read-only lookup) |
@@ -1045,10 +1102,12 @@ AGENTFLOW_GRAPH_REPLY=<graph-id>
 - `CX_UserTokens` — added `WorkingHoursStart`, `WorkingHoursEnd`, `Timezone`
 - `CX_SentEmails` — added `InternetMessageId`
 - `CX_UserEmailDrafts` — added `IsNextAction` (BIT, default 0)
-- `CX_AgentTypeConfig` — `TriggerCategory` column drives agent selection (newEnquiry/followUp/reply/meeting_brief)
+- `CX_AgentTypeConfig` — `TriggerCategory` column drives agent selection (newEnquiry/followUp/reply/meeting_brief); `TabType="attachment"` marks an attachment-producing agent.
+- `CX_AgentInsights` — UNIQUE constraint changed from `(PotentialId, AgentType, MSEventId)` to `(PotentialId, AgentId, MSEventId)` so multiple agents emitting to the same tab can coexist.
 - `CX_QueueItems` — `PotentialId` now stores 7-digit potential_number (not UUID)
 - `CX_Meetings` — added `MeetingLink`; now populated by meeting brief binding logic
 - `CX_MeetingBriefDismissals` — **DROPPED** (replaced by CXQueueItem status)
+- `Accounts.[Account Id]`, `Contacts.[Contact Id]`, `Potentials.[Potential Id]`, `Potentials.[Potential Number]` — **DB-side autogenerated** now (via `NEWID()` default + `PotentialNumberSeq` sequence). App doesn't supply values on INSERT; see `migrate_pk_autogeneration.sql`.
 
 ---
 

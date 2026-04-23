@@ -293,8 +293,10 @@ export default function FolderPanel({
                 const IconComponent = ICON_MAP[folder.icon] || Inbox;
                 const isSelected = folder.id === selectedId;
                 const isMeetingBriefs = folder.id === "meeting-briefs";
-                // Temporarily disabled folders — revisit post-beta.
-                const isDisabled = folder.id === "follow-up-inactive" || folder.id === "news";
+                // All folders live. news is populated by the daily Diamond/
+                // Platinum news-scan job; follow-up-inactive by the weekly
+                // Wednesday inactive-scan job.
+                const isDisabled = false;
                 const displayCount = folder.count;
                 return (
                   <button

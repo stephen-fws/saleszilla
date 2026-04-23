@@ -149,9 +149,17 @@ function ConversationView({ thread, onReply, defaultCollapsed = false, dealId }:
             </div>
           )}
           <div>
-            {thread.messages.map((msg, i) => (
-              <MessageBubble key={msg.id} msg={msg} isLast={i === thread.messages.length - 1} dealId={dealId} />
-            ))}
+            {/* Newest-first within the thread. isLast means "most recent" — drives the
+                default-expanded state on MessageBubble, so after desc sort that's index 0. */}
+            {[...thread.messages]
+              .sort((a, b) => {
+                const ta = a.sentTime ?? a.receivedTime ?? "";
+                const tb = b.sentTime ?? b.receivedTime ?? "";
+                return tb.localeCompare(ta);
+              })
+              .map((msg, i) => (
+                <MessageBubble key={msg.id} msg={msg} isLast={i === 0} dealId={dealId} />
+              ))}
           </div>
           <div className="px-4 py-3">
             <button

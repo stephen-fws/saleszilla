@@ -311,7 +311,7 @@ class CXNote(Base):
 
 
 class CXTodo(Base):
-    """Action items per Potential."""
+    """Action items per Potential. Can be user-created or agent-reconciled."""
 
     __tablename__ = "CX_Todos"
 
@@ -320,6 +320,9 @@ class CXTodo(Base):
     text: Mapped[str] = mapped_column("Text", Unicode(512), nullable=False)
     status: Mapped[str] = mapped_column("Status", String(20), nullable=False, default="pending")
     is_completed: Mapped[bool] = mapped_column("IsCompleted", Boolean, nullable=False, default=False)
+    # "user" | "agent" — user-edited agent rows get flipped to "user" so the
+    # reconcile agent stops touching them.
+    source: Mapped[str] = mapped_column("Source", String(16), nullable=False, default="user")
     created_by_user_id: Mapped[str | None] = mapped_column("CreatedByUserId", String(32), nullable=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)

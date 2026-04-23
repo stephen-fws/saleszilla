@@ -37,6 +37,70 @@ def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentRes
 
 # ── ID resolver ───────────────────────────────────────────────────────────────
 
+def _handle_news_check_result(potential_number: str, content: str, now) -> None:
+    """A1 (news_check) decides whether A2 will run. Parse the JSON and if
+    `news_selected: false` we close out A2's pending insight + the news queue
+    item (A2 won't callback when skipped, so without this Salezilla would wait
+    on it forever)."""
+    import json as _json
+    from core.models import CXQueueItem
+
+    # Strip a possible ```json fence (same pattern as attachment/todo agents)
+    stripped = (content or "").strip()
+    if stripped.startswith("```"):
+        first_nl = stripped.find("\n")
+        if first_nl != -1:
+            stripped = stripped[first_nl + 1:]
+            if stripped.rstrip().endswith("```"):
+                stripped = stripped.rstrip()[:-3].strip()
+
+    try:
+        data = _json.loads(stripped) if stripped else {}
+    except (ValueError, TypeError):
+        logger.warning("news_check: invalid JSON for potential=%s: %s", potential_number, stripped[:200])
+        return
+
+    if not isinstance(data, dict):
+        return
+    # Only cancel on an explicit false; unknown/missing flag = leave A2 pending
+    if data.get("news_selected") is not False:
+        return
+
+    with get_session() as session:
+        # Mark A2's pending insights (trigger_category="news" + tab_type="next_action") as actioned
+        a2_rows = session.execute(
+            select(CXAgentInsight)
+            .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+            .where(
+                CXAgentInsight.potential_id == potential_number,
+                CXAgentInsight.status.in_(("pending", "running")),
+                CXAgentInsight.is_active == True,
+                CXAgentTypeConfig.trigger_category == "news",
+                CXAgentTypeConfig.tab_type == "next_action",
+            )
+        ).scalars().all()
+        for r in a2_rows:
+            r.status = "actioned"
+            r.error_message = "No news found (A1 news_selected=false)"
+            r.updated_time = now
+            session.add(r)
+
+        # Close out the news queue item
+        qi = session.execute(
+            select(CXQueueItem).where(
+                CXQueueItem.potential_id == potential_number,
+                CXQueueItem.folder_type == "news",
+                CXQueueItem.status == "pending",
+                CXQueueItem.is_active == True,
+            )
+        ).scalar_one_or_none()
+        if qi:
+            qi.status = "completed"
+            qi.updated_time = now
+            session.add(qi)
+    logger.info("news_check: A2 cancelled + queue item closed for potential=%s", potential_number)
+
+
 def _apply_stage_update(session, potential_number: str, content: str, now) -> None:
     """Parse the stage_update agent's JSON output and auto-update the Potential."""
     import json as _json
@@ -425,6 +489,25 @@ def process_webhook(payload_data: dict) -> None:
             save_from_agent(external_id, agent_id, content or "")
         except Exception:
             logger.exception("attachment agent: failed to persist attachment for %s/%s", external_id, agent_id)
+
+    # Todo reconciler agent: parse JSON array and upsert CX_Todos (agent-owned).
+    # Runs OUTSIDE the insight-save session — reconcile has its own writes.
+    if cfg.trigger_category == "todo_reconcile" and final_status == "completed" and content:
+        try:
+            from api.services.todo_reconcile_service import reconcile_from_agent
+            reconcile_from_agent(external_id, content)
+        except Exception:
+            logger.exception("todo_reconcile: failed for %s/%s", external_id, agent_id)
+
+    # News A1 (news_check): returns JSON { "news_selected": bool }. When false,
+    # A2 is skipped by the graph and will never callback — we must close out
+    # A2's pending insight + the queue item on our side. When true, nothing to
+    # do here; A2's callback lands later with the email body.
+    if cfg.tab_type == "news_check" and final_status == "completed":
+        try:
+            _handle_news_check_result(external_id, content or "", now)
+        except Exception:
+            logger.exception("news: failed to handle A1 callback for %s", external_id)
 
 
 def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:
