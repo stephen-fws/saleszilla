@@ -16,21 +16,26 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-# Values that Zoho-imported Account rows sometimes carry in place of a real
-# website (e.g., "N/A", "none"). Treat these as empty when sending payload to
-# agents so the agent's web-search / domain-lookup logic doesn't chase them.
-_NULLISH_WEBSITE_VALUES = {"", "null", "none", "n/a", "na", "nil", "-", "undefined"}
+# Values that Zoho-imported rows sometimes carry in place of a real string —
+# "null", "N/A", etc. Treat as empty when building agent payloads so agents
+# don't chase sentinels into web_search or URL-parse logic.
+_NULLISH_STRING_VALUES = {"", "null", "none", "n/a", "na", "nil", "-", "undefined"}
 
 
-def _clean_website(value: str | None) -> str:
-    """Normalise a website value for agent payloads. Returns '' if the stored
-    value is empty/whitespace or matches a known nullish sentinel (case-insensitive)."""
+def _clean_nullish(value: str | None) -> str:
+    """Normalise a string field for agent payloads. Returns '' if the input is
+    None, empty/whitespace, or matches a nullish sentinel (case-insensitive).
+    Otherwise returns the trimmed value."""
     if value is None:
         return ""
     stripped = value.strip()
-    if stripped.lower() in _NULLISH_WEBSITE_VALUES:
+    if stripped.lower() in _NULLISH_STRING_VALUES:
         return ""
     return stripped
+
+
+# Backwards-compat alias — older call sites used _clean_website.
+_clean_website = _clean_nullish
 
 
 def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentResultItem:
@@ -372,6 +377,7 @@ def _trigger_agentflow(
         "contact_phone": potential_data.get("contact_phone", ""),
         "company_name": potential_data.get("company_name", ""),
         "company_website": potential_data.get("company_website", ""),
+        "form_url": potential_data.get("form_url", ""),
         "customer_country": potential_data.get("customer_country", ""),
         "service": potential_data.get("service", ""),
         "sub_service": potential_data.get("sub_service", ""),
@@ -437,9 +443,10 @@ def _load_potential_data(potential_id: str) -> dict:
             "sub_service": p.sub_service or "",
             "company_name": a.account_name if a else "",
             "customer_country": (a.billing_country or a.country_fws) if a else "",
-            "company_website": _clean_website(a.website if a else ""),
+            "company_website": _clean_nullish(a.website if a else ""),
             "description": p.description or "",
             "lead_source": p.lead_source or "",
+            "form_url": _clean_nullish(p.form_url),
             "potential_number": p.potential_number or "",
         }
 
