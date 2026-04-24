@@ -44,9 +44,10 @@ def get_lookups(
         ).scalars().all()
         stages = [s.stage_name for s in stage_rows]
 
-        # Industries (distinct from CompanyEnrichmentData)
+        # Industries — curated list from the `industries` lookup table (not the
+        # enrichment data, which has thousands of noisy values)
         industry_rows = session.execute(
-            text("SELECT DISTINCT Industry FROM CompanyEnrichmentData WHERE Industry IS NOT NULL AND Industry != '' ORDER BY Industry")
+            text("SELECT industry FROM industries WHERE isactive = 1 AND industry IS NOT NULL AND industry != '' ORDER BY industry")
         ).all()
         industries = [r[0] for r in industry_rows]
 
