@@ -29,6 +29,7 @@ import AccountDetailPanel from "@/components/accounts/AccountDetailPanel";
 import CallDialog from "./CallDialog";
 import NextActionTab from "./NextActionTab";
 import SupportEmailModal from "@/components/support/SupportEmailModal";
+import { useAuthStore } from "@/store/authStore";
 
 // Queue folder → next_action trigger_category (1:1). Drives Next Action
 // filtering so meeting_brief and other drafts can coexist without colliding
@@ -91,6 +92,12 @@ export default function DetailPanel({
 }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>(initialTab ?? "details");
   const [detail, setDetail] = useState<PotentialDetail | null>(null);
+  // Read-only for reportee-owned potentials: Emails and Next Action tabs must
+  // not let the viewing manager compose/send/skip, because those actions would
+  // use the manager's MS token (wrong mailbox) and resolve the reportee's queue
+  // item under the manager's identity.
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+  const isOwner = !!(detail?.ownerId && currentUserId && detail.ownerId === currentUserId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentsRunning, setAgentsRunning] = useState(false);
@@ -374,6 +381,7 @@ export default function DetailPanel({
             // and other actions coexist without colliding. No mapping for "emails-sent"
             // or "all-potentials" → undefined → default lens (meeting-prefer).
             categoryHint={FOLDER_TO_CATEGORY[folderType] ?? undefined}
+            readOnly={!isOwner}
             onEmailSent={onEmailSent}
             onRequestSupport={openSupport}
           />
@@ -384,6 +392,7 @@ export default function DetailPanel({
             dealId={dealId}
             contactEmail={detail?.contact?.email ?? null}
             contactName={detail?.contact?.name ?? null}
+            readOnly={!isOwner}
           />
         )}
         {activeTab === "emails" && !dealId && <StubTab label="Email Thread" icon={Inbox} />}

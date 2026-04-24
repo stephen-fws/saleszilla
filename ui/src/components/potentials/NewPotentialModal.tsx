@@ -26,7 +26,26 @@ const SUB_SERVICES: Record<string, string[]> = {
   "Research & Analytics": ["Market Research", "Data Analytics", "Business Intelligence", "Competitive Analysis"],
 };
 
-const LEAD_SOURCES = ["Website", "Referral", "Cold Outreach", "Conference", "Partner", "LinkedIn", "Existing Client", "Other"];
+const LEAD_SOURCES = [
+  "Cold Call",
+  "Cold Email",
+  "Cross Selling",
+  "Email from Website",
+  "Phone Call Internal",
+  "Reference",
+  "Repeat Business",
+  "Website",
+  "Chat from website",
+  "Email Marketing",
+  "Phone call from website",
+  "Social Media",
+  "Affiliates",
+  "Referral by Boyne",
+  "Trade Shows",
+  "Upselling",
+  "Similar Customers",
+  "ABM",
+];
 const DEAL_TYPES = ["New Business", "Existing Business"];
 const DEAL_SIZES = ["Small", "Medium", "Large", "Enterprise"];
 const INDUSTRIES = [
@@ -191,11 +210,13 @@ export default function NewPotentialModal({
   const [dealValue, setDealValue] = useState("");
   const defaultStage = stages.includes("Open") ? "Open" : (stages[0] ?? "Open");
   const [stage, setStage] = useState(defaultStage);
-  const [probability, setProbability] = useState<number>(STAGE_PROBABILITY[defaultStage] ?? 20);
+  // Probability starts empty — sales rep fills it in if they want (not defaulted to the stage's canonical value)
+  const [probability, setProbability] = useState<string>("");
   const [service, setService] = useState("");
   const [subService, setSubService] = useState("");
   const [description, setDescription] = useState("");
   const [leadSource, setLeadSource] = useState("");
+  const [formUrl, setFormUrl] = useState("");
   const [dealType, setDealType] = useState("");
   const [dealSize, setDealSize] = useState("");
   const [closingDate, setClosingDate] = useState("");
@@ -224,9 +245,10 @@ export default function NewPotentialModal({
     setCtName(""); setCtLastName(""); setCtTitle(""); setCtEmail(""); setCtPhone("");
     setDealTitle(""); setDealValue("");
     const s0 = stages.includes("Open") ? "Open" : (stages[0] ?? "Open");
-    setStage(s0); setProbability(STAGE_PROBABILITY[s0] ?? 20);
+    setStage(s0);
+    setProbability("");  // empty by default — user can type a value if they know it
     setService(""); setSubService(""); setDescription("");
-    setLeadSource(""); setDealType(""); setDealSize("");
+    setLeadSource(""); setFormUrl(""); setDealType(""); setDealSize("");
     setClosingDate(""); setNextStep("");
     setShowAdvanced(false); setSaving(false); setError(null); setFieldErrors({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,7 +262,7 @@ export default function NewPotentialModal({
   }, [service, selectedAccount, accName]);
 
   useEffect(() => { setSubService(""); }, [service]);
-  useEffect(() => { setProbability(STAGE_PROBABILITY[stage] ?? 10); }, [stage]);
+  // Probability intentionally not auto-set from stage — left empty unless the user types a value
 
   // Reset supplemental fields when account changes
   useEffect(() => { setSuppWebsite(""); setSuppCountry(""); }, [selectedAccount]);
@@ -310,14 +332,20 @@ export default function NewPotentialModal({
     if (!validate()) return;
     setSaving(true); setError(null);
     try {
+      // Parse probability only if the user actually typed a number (empty → undefined)
+      const probTrimmed = probability.trim();
+      const probNum = probTrimmed === "" ? undefined : Number(probTrimmed);
+
       const payload: Parameters<typeof createPotential>[0] = {
         potential_name: dealTitle.trim(),
         amount: Number(dealValue),
-        stage, probability,
+        stage,
+        probability: probNum,
         service: service || undefined,
         sub_service: subService || undefined,
         description: description.trim() || undefined,
         lead_source: leadSource || undefined,
+        form_url: formUrl.trim() || undefined,
         closing_date: closingDate || undefined,
         next_step: nextStep.trim() || undefined,
         deal_type: dealType || undefined,
@@ -662,6 +690,18 @@ export default function NewPotentialModal({
               </div>
             </div>
 
+            {/* ── Form URL (optional) ── */}
+            <div>
+              <label className="text-[10px] text-slate-400 mb-1 block">Form URL</label>
+              <input
+                type="url"
+                value={formUrl}
+                onChange={(e) => setFormUrl(e.target.value)}
+                placeholder="https://… (optional)"
+                className={inputCls("")}
+              />
+            </div>
+
             {/* ── Customer Requirements (mandatory) ── */}
             <div>
               <label className={`text-[10px] uppercase font-semibold tracking-wider mb-1.5 block ${fieldErrors.description ? "text-red-500" : "text-slate-400"}`}>
@@ -685,9 +725,20 @@ export default function NewPotentialModal({
                   <div>
                     <label className="text-[10px] text-slate-400 mb-1 block">Probability %</label>
                     <div className="relative">
-                      <input type="number" min="0" max="100" value={probability}
-                        onChange={(e) => setProbability(Math.min(100, Math.max(0, Number(e.target.value))))}
-                        className={`${inputCls("")} pr-7`} />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={probability}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "") { setProbability(""); return; }
+                          const n = Math.min(100, Math.max(0, Number(v)));
+                          setProbability(String(n));
+                        }}
+                        placeholder="Optional"
+                        className={`${inputCls("")} pr-7`}
+                      />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
                     </div>
                   </div>

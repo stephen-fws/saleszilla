@@ -8,6 +8,12 @@ interface EmailsTabProps {
   dealId: string;
   contactEmail?: string | null;
   contactName?: string | null;
+  /**
+   * True when the viewing user is NOT the potential owner (e.g., a manager
+   * looking at a reportee's deal). Hides Reply / Compose controls because
+   * sending would use the viewer's MS mailbox instead of the owner's.
+   */
+  readOnly?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -87,11 +93,12 @@ function DraftCard({ draft, onEdit, onDelete }: {
 
 // ── Conversation view (Outlook reading-pane style) ──────────────────────────
 
-function ConversationView({ thread, onReply, defaultCollapsed = false, dealId }: {
+function ConversationView({ thread, onReply, defaultCollapsed = false, dealId, readOnly = false }: {
   thread: SyncEmailThread;
   onReply: () => void;
   defaultCollapsed?: boolean;
   dealId: string;
+  readOnly?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const lastMsg = thread.messages[thread.messages.length - 1];
@@ -161,15 +168,17 @@ function ConversationView({ thread, onReply, defaultCollapsed = false, dealId }:
                 <MessageBubble key={msg.id} msg={msg} isLast={i === 0} dealId={dealId} />
               ))}
           </div>
-          <div className="px-4 py-3">
-            <button
-              onClick={onReply}
-              className="w-full flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-colors"
-            >
-              <Reply className="h-3.5 w-3.5" />
-              Reply to this thread…
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="px-4 py-3">
+              <button
+                onClick={onReply}
+                className="w-full flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-colors"
+              >
+                <Reply className="h-3.5 w-3.5" />
+                Reply to this thread…
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -308,7 +317,7 @@ function MessageBubble({ msg, isLast, dealId }: { msg: SyncEmailMessage; isLast:
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function EmailsTab({ dealId, contactEmail, contactName }: EmailsTabProps) {
+export default function EmailsTab({ dealId, contactEmail, contactName, readOnly = false }: EmailsTabProps) {
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [threads, setThreads] = useState<SyncEmailThread[]>([]);
   const [loading, setLoading] = useState(true);
@@ -414,13 +423,15 @@ export default function EmailsTab({ dealId, contactEmail, contactName }: EmailsT
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
           </button>
-          <button
-            onClick={handleCompose}
-            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New
-          </button>
+          {!readOnly && (
+            <button
+              onClick={handleCompose}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New
+            </button>
+          )}
         </div>
       </div>
 
@@ -436,8 +447,8 @@ export default function EmailsTab({ dealId, contactEmail, contactName }: EmailsT
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Drafts — compact bar at top if any */}
-          {drafts.length > 0 && (
+          {/* Drafts — hidden entirely in read-only mode (drafts belong to the owner, not the manager viewing) */}
+          {!readOnly && drafts.length > 0 && (
             <div className="shrink-0 border-b border-slate-200 bg-amber-50/30">
               <div className="px-3 py-1.5">
                 <span className="text-[10px] uppercase font-semibold text-amber-600 tracking-wider">
@@ -461,6 +472,7 @@ export default function EmailsTab({ dealId, contactEmail, contactName }: EmailsT
                   onReply={() => handleReply(t)}
                   defaultCollapsed={threads.length > 1}
                   dealId={dealId}
+                  readOnly={readOnly}
                 />
               </div>
             ))}

@@ -1,4 +1,9 @@
-"""File upload/download/delete on Potentials — backed by Google Cloud Storage."""
+"""File upload/download/delete on Potentials — backed by Google Cloud Storage.
+
+CX_Files.PotentialId stores the 7-digit potential_number (business key), same
+convention as CX_QueueItems / CX_Todos / CX_Notes. Routes receive the UUID
+from the UI, so services resolve at the boundary.
+"""
 
 import logging
 import re
@@ -10,10 +15,27 @@ from sqlalchemy import select
 
 import core.config as config
 from core.database import get_session
-from core.models import CXFile
+from core.models import CXFile, Potential
 from core.schemas import FileItem
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_potential_number(identifier: str) -> str:
+    """UUID (from UI) → 7-digit potential_number. Returns identifier unchanged
+    if it already looks like a potential_number."""
+    if not identifier:
+        return identifier
+    if identifier.isdigit() and len(identifier) <= 10:
+        return identifier
+    with get_session() as session:
+        row = session.execute(
+            select(Potential.potential_number).where(Potential.potential_id == identifier)
+        ).first()
+        if row and row[0]:
+            return row[0]
+        logger.warning("file_service: no potential_number for id=%s (treating as raw)", identifier)
+        return identifier
 
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
 SIGNED_URL_TTL = timedelta(minutes=30)
@@ -67,9 +89,10 @@ def _to_item(f: CXFile, include_url: bool = False) -> FileItem:
 # ── Service functions ─────────────────────────────────────────────────────────
 
 def list_files(potential_id: str) -> list[FileItem]:
+    pn = _resolve_potential_number(potential_id)
     with get_session() as session:
         stmt = select(CXFile).where(
-            CXFile.potential_id == potential_id,
+            CXFile.potential_id == pn,
             CXFile.is_active == True,
         ).order_by(CXFile.created_time.desc())
         rows = list(session.execute(stmt).scalars().all())
@@ -85,8 +108,10 @@ def save_file(
     mime_type: str | None,
     user_id: str | None = None,
 ) -> FileItem:
+    pn = _resolve_potential_number(potential_id)
     now = datetime.now(timezone.utc)
-    gcs_path = _gcs_path(potential_id, file_name)
+    # GCS path keyed on potential_number for consistency with the DB row key.
+    gcs_path = _gcs_path(pn, file_name)
 
     # Upload to GCS
     bucket = _get_bucket()
@@ -97,12 +122,12 @@ def save_file(
     # Save metadata to DB
     with get_session() as session:
         db_file = CXFile(
-            potential_id=potential_id,
+            potential_id=pn,
             file_name=file_name,
             mime_type=mime_type,
             file_size=len(file_content),
             storage_path=gcs_path,
-            uploaded_by_user_id=user_id,
+            created_by_user_id=user_id,
             created_time=now,
             updated_time=now,
             is_active=True,

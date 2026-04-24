@@ -223,8 +223,12 @@ def get_account_detail(account_id: str) -> AccountDetailResponse | None:
         )
 
 
-def update_account(account_id: str, data: dict) -> AccountDetailResponse | None:
-    """Patch editable fields on an account and return the updated detail."""
+def update_account(account_id: str, data: dict, user_id: str | None = None) -> AccountDetailResponse | None:
+    """Patch editable fields on an account and return the updated detail.
+
+    user_id is recorded in Accounts.[Modified By] so the audit trail shows who
+    made the change (handy when managers edit a reportee's account).
+    """
     from datetime import datetime as dt
     field_map = {
         "name": "account_name",
@@ -248,6 +252,8 @@ def update_account(account_id: str, data: dict) -> AccountDetailResponse | None:
             if key in data and data[key] is not None:
                 setattr(account, col, data[key])
         account.modified_time = dt.utcnow()
+        if user_id:
+            account.modified_by = user_id
         session.commit()
     return get_account_detail(account_id)
 

@@ -16,6 +16,23 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Values that Zoho-imported Account rows sometimes carry in place of a real
+# website (e.g., "N/A", "none"). Treat these as empty when sending payload to
+# agents so the agent's web-search / domain-lookup logic doesn't chase them.
+_NULLISH_WEBSITE_VALUES = {"", "null", "none", "n/a", "na", "nil", "-", "undefined"}
+
+
+def _clean_website(value: str | None) -> str:
+    """Normalise a website value for agent payloads. Returns '' if the stored
+    value is empty/whitespace or matches a known nullish sentinel (case-insensitive)."""
+    if value is None:
+        return ""
+    stripped = value.strip()
+    if stripped.lower() in _NULLISH_WEBSITE_VALUES:
+        return ""
+    return stripped
+
+
 def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentResultItem:
     return AgentResultItem(
         id=insight.id,
@@ -420,7 +437,7 @@ def _load_potential_data(potential_id: str) -> dict:
             "sub_service": p.sub_service or "",
             "company_name": a.account_name if a else "",
             "customer_country": (a.billing_country or a.country_fws) if a else "",
-            "company_website": a.website if a else "",
+            "company_website": _clean_website(a.website if a else ""),
             "description": p.description or "",
             "lead_source": p.lead_source or "",
             "potential_number": p.potential_number or "",

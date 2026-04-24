@@ -70,8 +70,10 @@ class PotentialItem(BaseModel):
     service: Optional[str] = None
     sub_service: Optional[str] = None
     owner_name: Optional[str] = None
+    owner_id: Optional[str] = None  # user_id of the potential owner — UI uses this to gate write actions on reportee-owned potentials
     closing_date: Optional[datetime] = None
     lead_source: Optional[str] = None
+    form_url: Optional[str] = None
     deal_size: Optional[str] = None
     deal_type: Optional[str] = None
     created_time: Optional[datetime] = None
@@ -90,6 +92,7 @@ class UpdatePotentialRequest(BaseModel):
     service: Optional[str] = None
     sub_service: Optional[str] = None
     lead_source: Optional[str] = None
+    form_url: Optional[str] = None
     deal_type: Optional[str] = None
     deal_size: Optional[str] = None
     not_an_inquiry_reason: Optional[str] = None
@@ -143,6 +146,7 @@ class CreatePotentialRequest(BaseModel):
     service: Optional[str] = None
     sub_service: Optional[str] = None
     lead_source: Optional[str] = None
+    form_url: Optional[str] = None
     closing_date: Optional[str] = None   # YYYY-MM-DD
     next_step: Optional[str] = None
     description: Optional[str] = None

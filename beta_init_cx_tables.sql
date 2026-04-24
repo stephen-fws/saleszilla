@@ -336,7 +336,7 @@ CREATE TABLE CX_Files (
     MimeType            VARCHAR(128)    NULL,
     FileSize            INT             NULL,
     StoragePath         NVARCHAR(512)   NOT NULL,
-    UploadedByUserId    VARCHAR(32)     NULL,
+    CreatedByUserId     VARCHAR(32)     NULL,
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     IsActive            BIT             NOT NULL DEFAULT 1

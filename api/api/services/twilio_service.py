@@ -323,6 +323,11 @@ def process_recording(
         logger.error("Failed to download recording %s: %s", media_url, e)
         return
 
+    # CXCallLog.potential_id holds the UUID; CX_Files.PotentialId keys on
+    # potential_number (7-digit). Resolve at the boundary.
+    from api.services.file_service import _resolve_potential_number
+    pn = _resolve_potential_number(potential_id)
+
     # Save to GCS via the existing file service pattern
     now = datetime.now(timezone.utc)
     file_name = f"call_recording_{call_sid}.mp3"
@@ -331,7 +336,7 @@ def process_recording(
         from google.cloud import storage as gcs_storage
         client = gcs_storage.Client()
         bucket = client.bucket(config.GCS_BUCKET_NAME)
-        gcs_path = f"{config.GCS_ENV}/potentials/{potential_id}/files/{file_name}"
+        gcs_path = f"{config.GCS_ENV}/potentials/{pn}/files/{file_name}"
         blob = bucket.blob(gcs_path)
         blob.upload_from_string(audio_bytes, content_type=content_type)
         logger.info("Uploaded recording to GCS: %s", gcs_path)
@@ -342,12 +347,12 @@ def process_recording(
     # Create CXFile row
     with get_session() as session:
         file_row = CXFile(
-            potential_id=potential_id,
+            potential_id=pn,
             file_name=file_name,
             mime_type=content_type,
             file_size=len(audio_bytes),
             storage_path=gcs_path,
-            uploaded_by_user_id=None,  # system upload
+            created_by_user_id=None,  # system upload (call recording)
             created_time=now,
             updated_time=now,
             is_active=True,

@@ -166,8 +166,10 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
     service: p.service ?? null,
     subService: p.sub_service ?? null,
     ownerName: p.owner_name ?? null,
+    ownerId: p.owner_id ?? null,
     closingDate: p.closing_date ?? null,
     leadSource: p.lead_source ?? null,
+    formUrl: p.form_url ?? null,
     nextStep: d.next_step ?? null,
     description: d.description ?? null,
     dealType: p.deal_type ?? null,
@@ -211,6 +213,7 @@ export interface UpdatePotentialPayload {
   service?: string;
   sub_service?: string;
   lead_source?: string;
+  form_url?: string;
   deal_type?: string;
   deal_size?: string;
   not_an_inquiry_reason?: string;
@@ -233,8 +236,10 @@ export async function updatePotential(id: string, payload: UpdatePotentialPayloa
     service: p.service ?? null,
     subService: p.sub_service ?? null,
     ownerName: p.owner_name ?? null,
+    ownerId: p.owner_id ?? null,
     closingDate: p.closing_date ?? null,
     leadSource: p.lead_source ?? null,
+    formUrl: p.form_url ?? null,
     nextStep: d.next_step ?? null,
     description: d.description ?? null,
     dealType: p.deal_type ?? null,
@@ -324,6 +329,7 @@ export interface CreatePotentialPayload {
   service?: string;
   sub_service?: string;
   lead_source?: string;
+  form_url?: string;
   closing_date?: string;  // YYYY-MM-DD
   next_step?: string;
   description?: string;
@@ -347,8 +353,10 @@ export async function createPotential(payload: CreatePotentialPayload): Promise<
     service: p.service ?? null,
     subService: p.sub_service ?? null,
     ownerName: p.owner_name ?? null,
+    ownerId: p.owner_id ?? null,
     closingDate: p.closing_date ?? null,
     leadSource: p.lead_source ?? null,
+    formUrl: p.form_url ?? null,
     nextStep: d.next_step ?? null,
     description: d.description ?? null,
     dealType: p.deal_type ?? null,

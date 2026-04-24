@@ -154,10 +154,13 @@ Key tables (ORM models in `api/core/models.py`):
 
 ## Authentication
 
-- **OTP login**: `POST /auth/otp/send` (email) → `POST /auth/otp/verify` (email + 6-digit code) → returns `access_token` + `refresh_token`
-- **JWT**: access token stored in `localStorage` as `sz_access_token`; refresh token as `sz_refresh_token`
+- **OTP login**: `POST /auth/otp/send` (email) → `POST /auth/otp/verify` (email + 6-digit code) → returns `access_token` + `refresh_token`. Currently disabled in the UI — MS SSO is the only active login path.
+- **MS SSO** (primary): `GET /auth/sso/connect` → Microsoft OAuth → `/auth/sso/callback` → issues JWT + persists MS tokens in `CX_UserTokens`.
+- **JWT**: access token stored in `localStorage` as `sz_access_token` (default 60 min), refresh token as `sz_refresh_token` (default 30 days). Keys in `api/core/config.py`.
+- **MS tokens**: separate from Salezilla's JWT. Stored in `CX_UserTokens.access_token` / `refresh_token` / `token_expiry`. MS access tokens live ~1hr (Azure default); `get_valid_ms_token()` auto-refreshes if expiring within 5 min. When MS refresh fails (expired / revoked), returns 424 `ERR_MICROSOFT_NOT_CONNECTED` → user redirected to re-OAuth.
 - **Auto-refresh**: `protectedApi` intercepts 401 → calls `GET /auth/refresh` with refresh token → retries original request transparently. Multiple concurrent 401s are queued and replayed after one refresh.
-- **Force logout**: clears tokens + redirects to `/login` if refresh fails
+- **Force logout**: clears tokens + redirects to `/login` if refresh fails.
+- **Consent preview**: first Microsoft sign-in per browser shows an in-page step listing the scopes Salezilla will request (mailbox / calendar / directory / profile) before redirecting to Microsoft's own consent dialog. Gated by `localStorage.sz_ms_consent_seen` so it only appears once.
 
 ---
 
@@ -943,6 +946,122 @@ Optional agent-generated PDF attachments bolted onto follow-up drafts.
 
 ---
 
+## Follow-Up Inactive (weekly Wednesday scan)
+
+Separate from the active follow-up cadence (D3/D5/D8/D12). Revives potentials that went to `Sleeping` or `Contact Later` about 3 months ago and haven't been touched since.
+
+### Endpoint
+- `POST /internal/followups/inactive-scan` — x-api-key gated. Cloud Scheduler hits it every Wednesday; manually triggerable with optional `?anchor_date=YYYY-MM-DD` override for back-fill / testing.
+
+### Window
+- Anchor = most recent Wednesday on or before run date (so Wed through Tue all resolve to the same anchor — a missed Wednesday can be rerun on Thursday and pick up the same target week).
+- `end = anchor − 3 months`, `start = end − 7 days`. Query: `Potentials.[Modified Time] >= start AND < end`.
+- Additional filter: `Stage IN ('Sleeping', 'Contact Later')`.
+
+### Per-potential flow
+1. `_mark_pending_next_actions_actioned` — any prior unactioned non-meeting-brief action is auto-skipped (insight + QI).
+2. Pending insight rows created for every `CXAgentTypeConfig` row with `trigger_category="followUpInactive"`.
+3. Queue item upserted in `follow-up-inactive` folder (always — no stage branching).
+4. POST to `AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE` — graph reads thread from sync table, drafts email, webhook lands → Next Action renders the draft.
+
+---
+
+## News (daily Diamond/Platinum scan)
+
+Surfaces topical news for high-priority potentials and drafts a tailored reach-out email.
+
+### Endpoint
+- `POST /internal/news/scan` — x-api-key gated. Cloud Scheduler daily; manually triggerable.
+
+### Scope
+```sql
+WHERE (Potential2Close = 1 OR Hot_Potential ILIKE 'true')
+  AND Stage NOT IN ('Closed', 'Lost', 'Disqualified', 'Not an Inquiry', 'Low Value')
+```
+Sleeping and Contact Later **are included** — news often revives parked Diamond deals.
+
+### Idempotency — skip-if-unactioned
+Potentials with any `trigger_category="news"` insight in `pending` / `running` / `completed` (i.e., user hasn't actioned yet) are skipped. Prevents the agent's 2-day lookback overlap from wiping a pending draft on successive daily runs.
+
+### Two-agent graph (A1 → A2)
+- **A1 (registered)** — `tab_type="news_check"`, `content_type="json"`. Returns `{"news_selected": true|false}` after web-searching the company. The graph runs A2 only when `news_selected=true`.
+- **A2 (registered)** — `tab_type="next_action"`, `content_type="markdown"`. Returns email body. Only callbacks when A1 was true.
+- When A1 says `false`, Salezilla's webhook handler (`_handle_news_check_result`) flips A2's pending insight to `actioned` with `error_message="No news found (A1 news_selected=false)"` and closes the `news` queue item. Without this, A2 would never callback → insight stuck pending.
+
+### Payload (root `input_data`)
+```json
+{
+  "graph_id": "<AGENTFLOW_GRAPH_NEWS>",
+  "entity": {
+    "entity_type": "sales_lead",
+    "external_id": "<potential_number>",
+    "attributes": {
+      "potential_id": "...", "customer_name": "...", "contact_email": "...",
+      "company_name": "...", "company_website": "...", "service": "...",
+      "entity_owner_email": "...",
+      "category": "news",
+      "potential_category": "Diamond"   // or "Platinum"
+    }
+  },
+  "input_data": {
+    "today_date":  "2026-04-24",
+    "cutoff_date": "2026-04-22"         // today - 2 days
+  },
+  "callback_connection": "salezilla_webhook",
+  "callback_mode": "per_agent"
+}
+```
+
+### Required setup
+1. `AGENTFLOW_CONFIG.graphs.news = "<graph-id>"`
+2. Two rows in `CX_AgentTypeConfig`:
+   - A1: `tab_type='news_check'`, `trigger_category='news'`, `content_type='json'`
+   - A2: `tab_type='next_action'`, `trigger_category='news'`, `content_type='markdown'`
+
+---
+
+## Next Action Supersede & Folder-Driven Display
+
+Handles how multiple overlapping next-actions coexist on the same potential, and which one Panel 3 shows.
+
+### Supersede rule — "one active action per potential"
+At most ONE unactioned next-action insight per potential at a time, **except `meeting_brief` which is additive**.
+
+When any of these fire (`_fire_one` active FU / `trigger_reply_agent` / `_fire_inactive_for_potential` / `_fire_news_for_potential` / newEnquiry on potential creation), they call `_mark_pending_next_actions_actioned` **first**. That function:
+- Finds every `tab_type="next_action"` insight for the potential where `trigger_category != "meeting_brief"` AND `status NOT IN ('actioned','skipped')`.
+- Flips each to `status="skipped"`, snapshots to `CX_AgentDraftHistory` with `resolution="skipped"`.
+- Closes their pending queue items in the set `{new-inquiries, follow-up-active, follow-up-inactive, reply, news}` (meeting-briefs excluded).
+
+### Meeting brief is additive
+`fire_meeting_brief` **does NOT** call `_mark_pending_next_actions_actioned`. A meeting-brief insight and its `meeting-briefs` queue item coexist with any pre-existing FRE / reply / FU state. On expiry (`_expire_meeting_briefs`) only the meeting-brief insight + its QI close; the underlying FRE / reply / FU resumes visibility automatically.
+
+### Queue folder = trigger_category, 1:1
+Never branch folder routing on `potential.stage`. Each category owns exactly one folder:
+| trigger_category | folder |
+|---|---|
+| `newEnquiry` | `new-inquiries` |
+| `followUp` | `follow-up-active` |
+| `followUpInactive` | `follow-up-inactive` |
+| `reply` | `reply` |
+| `meeting_brief` | `meeting-briefs` |
+| `news` | `news` |
+
+### Folder-driven Next Action (Panel 3)
+Panel 3's Next Action tab is **scoped by the folder that opened it**, so PO1 appearing in both `reply` and `meeting-briefs` folders shows DIFFERENT content depending on which folder the user clicked.
+
+Plumbing:
+- `DashboardPage` passes `currentFolderType` → `DetailPanel` → `NextActionTab` as `categoryHint`.
+- `NextActionTab` passes `categoryHint` to `getAgentResults(dealId, "next_action", categoryHint)` — backend filters to that trigger_category only.
+- `NextActionTab`'s post-send auto-resolve calls `resolveNextAction(dealId, "done", category)` — scopes the insight flip + QI close to just that one category.
+
+**Default lens** (no folder context — Potentials list / Accounts / Global Search navigation): prefer `meeting_brief` if one is completed (time-bound), else the first completed non-meeting insight.
+
+### Backend APIs
+- `GET /potentials/{id}/agent-results?tab_type=next_action&trigger_category=<cat>` — scoped fetch.
+- `POST /potentials/{id}/next-action/resolve?action=<skip|done>&category=<cat>` — scoped resolve. Without `category`: legacy "resolve all + close every managed folder QI".
+
+---
+
 ## Email Threads (Emails Tab)
 
 ### Data sources (priority order)
@@ -1054,10 +1173,30 @@ Replaced by `CXQueueItem` status changes via `resolve_next_action`.
 
 ## Additional Environment Variables (new)
 
+All agentflow graph ids are read from the consolidated `AGENTFLOW_CONFIG` JSON env var (not individual env vars). Structure:
+
+```json
+{
+  "base_url": "https://...",
+  "api_key": "...",
+  "callback_connection": "salezilla_webhook",
+  "graphs": {
+    "new_potential":      "<uuid>",
+    "meeting_brief":      "<uuid>",
+    "follow_up":          "<uuid>",
+    "reply":              "<uuid>",
+    "stage_update":       "<uuid>",
+    "todo_reconcile":     "<uuid>",
+    "follow_up_inactive": "<uuid>",
+    "news":               "<uuid>"
+  }
+}
+```
+
+Resolved in `core/config.py` as `AGENTFLOW_GRAPH_*` attributes. Other env vars:
+
 ```
 SUPPORT_EMAIL_TO=email1@domain.com,email2@domain.com
-AGENTFLOW_GRAPH_FOLLOW_UP=<graph-id>
-AGENTFLOW_GRAPH_REPLY=<graph-id>
 ```
 
 ---
@@ -1082,6 +1221,10 @@ AGENTFLOW_GRAPH_REPLY=<graph-id>
 | `GET /potentials/{id}/draft-attachments` | `routes/emails.py` | List active agent-generated draft attachments (PDFs) |
 | `DELETE /potentials/{id}/draft-attachments/{aid}` | `routes/emails.py` | Soft-remove a draft attachment (IsRemoved=1) |
 | `GET /potentials/{id}/draft-attachments/{aid}/download` | `routes/emails.py` | Proxy-download PDF bytes from GCS (Content-Disposition: inline) |
+| `POST /internal/followups/inactive-scan` | `routes/follow_ups.py` | Weekly Wednesday scan — triggers inactive-FU graph for Sleeping/Contact Later potentials modified ~3 months ago. Optional `?anchor_date=YYYY-MM-DD` override |
+| `POST /internal/news/scan` | `routes/follow_ups.py` | Daily scan — triggers 2-agent news graph (A1 check → A2 email) for Diamond/Platinum active potentials. Skip-if-unactioned prevents re-wipe |
+| `GET /potentials/{id}/agent-results?trigger_category=<cat>` | `routes/agents.py` | Optional category filter so Next Action tab can scope to one folder's insight |
+| `POST /potentials/{id}/next-action/resolve?category=<cat>` | `routes/emails.py` | Optional category scope — resolves just that insight + its folder's QI. Without `category`: legacy resolve-all |
 
 ---
 
@@ -1100,11 +1243,12 @@ AGENTFLOW_GRAPH_REPLY=<graph-id>
 
 ### Schema changes to existing tables
 - `CX_UserTokens` — added `WorkingHoursStart`, `WorkingHoursEnd`, `Timezone`
-- `CX_SentEmails` — added `InternetMessageId`
+- `CX_SentEmails` — added `InternetMessageId`, `CcEmails`, `BccEmails` (so Salezilla-sent threads surface CC/BCC even before Graph resolves the conversation)
 - `CX_UserEmailDrafts` — added `IsNextAction` (BIT, default 0)
-- `CX_AgentTypeConfig` — `TriggerCategory` column drives agent selection (newEnquiry/followUp/reply/meeting_brief); `TabType="attachment"` marks an attachment-producing agent.
-- `CX_AgentInsights` — UNIQUE constraint changed from `(PotentialId, AgentType, MSEventId)` to `(PotentialId, AgentId, MSEventId)` so multiple agents emitting to the same tab can coexist.
+- `CX_AgentTypeConfig` — `TriggerCategory` drives agent selection. Current categories: `newEnquiry`, `followUp`, `followUpInactive`, `reply`, `meeting_brief`, `news`, `stage_update`, `todo_reconcile`. `TabType` values include `next_action`, `research`, `solution_brief`, `attachment` (PDF producer for drafts), `news_check` (A1 gate for news flow), and `todos` (todo reconciler).
+- `CX_AgentInsights` — UNIQUE constraint changed from `(PotentialId, AgentType, MSEventId)` to `(PotentialId, AgentId, MSEventId)` so multiple agents emitting to the same tab can coexist. `status` can be `pending` / `running` / `completed` / `error` / `actioned` / **`skipped`** (auto-superseded by a newer action).
 - `CX_QueueItems` — `PotentialId` now stores 7-digit potential_number (not UUID)
+- `CX_Todos` — added `Source VARCHAR(16) NOT NULL DEFAULT 'user'` (`"user"` | `"agent"`). User edits to an agent-created row flip source to `"user"` so the reconciler stops touching it. `PotentialId` now 7-digit potential_number (same convention as other CX_* tables).
 - `CX_Meetings` — added `MeetingLink`; now populated by meeting brief binding logic
 - `CX_MeetingBriefDismissals` — **DROPPED** (replaced by CXQueueItem status)
 - `Accounts.[Account Id]`, `Contacts.[Contact Id]`, `Potentials.[Potential Id]`, `Potentials.[Potential Number]` — **DB-side autogenerated** now (via `NEWID()` default + `PotentialNumberSeq` sequence). App doesn't supply values on INSERT; see `migrate_pk_autogeneration.sql`.

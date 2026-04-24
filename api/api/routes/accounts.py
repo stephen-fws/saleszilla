@@ -51,7 +51,7 @@ def patch_account(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[AccountDetailResponse]:
     require_account_owner(user.user_id, account_id)
-    result = update_account(account_id, data.model_dump(exclude_none=True))
+    result = update_account(account_id, data.model_dump(exclude_none=True), user_id=user.user_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Account not found.")
     return ResponseModel(data=result)

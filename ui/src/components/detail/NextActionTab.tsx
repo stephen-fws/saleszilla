@@ -26,6 +26,13 @@ interface NextActionTabProps {
    * backend returns all next_action categories and we pick a default below.
    */
   categoryHint?: string;
+  /**
+   * True when the viewing user is NOT the potential owner. Hides all
+   * write actions (Open in Composer, Skip/Done on meeting prep, etc.) so
+   * a manager can READ the draft but can't send/resolve on behalf of
+   * a reportee (doing so would use the manager's own MS token/mailbox).
+   */
+  readOnly?: boolean;
   onEmailSent?: () => void;
   onRequestSupport?: (category?: string) => void;
 }
@@ -213,7 +220,7 @@ function PriorMessage({ msg }: { msg: SyncEmailMessage }) {
   );
 }
 
-export default function NextActionTab({ dealId, detail, categoryHint, onEmailSent, onRequestSupport }: NextActionTabProps) {
+export default function NextActionTab({ dealId, detail, categoryHint, readOnly = false, onEmailSent, onRequestSupport }: NextActionTabProps) {
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -679,13 +686,18 @@ export default function NextActionTab({ dealId, detail, categoryHint, onEmailSen
               </div>
               <div className="flex items-center gap-1.5">
                 {/* Skip + Done both live on the Panel 2 queue card — removed from here */}
-                <button
-                  onClick={handleOpenComposer}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  <Mail className="h-3 w-3" />
-                  Open in Composer
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={handleOpenComposer}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <Mail className="h-3 w-3" />
+                    Open in Composer
+                  </button>
+                )}
+                {readOnly && (
+                  <span className="text-[10px] text-slate-400 italic">Read-only — owned by {detail?.ownerName ?? "another user"}</span>
+                )}
               </div>
             </div>
 

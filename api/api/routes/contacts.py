@@ -104,6 +104,7 @@ def patch_contact(
             if key in updates:
                 setattr(contact, col, updates[key])
         contact.modified_time = datetime.utcnow()
+        contact.modified_by = user.user_id
         session.commit()
         session.refresh(contact)
 

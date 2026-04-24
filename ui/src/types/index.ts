@@ -293,8 +293,10 @@ export interface PotentialDetail {
   service: string | null;
   subService: string | null;
   ownerName: string | null;
+  ownerId: string | null;  // user_id of the potential owner — UI compares against current user to gate write actions
   closingDate: string | null;
   leadSource: string | null;
+  formUrl: string | null;
   nextStep: string | null;
   description: string | null;
   dealType: string | null;

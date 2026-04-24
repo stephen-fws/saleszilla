@@ -135,8 +135,10 @@ def list_potentials(
                 service=p.service,
                 sub_service=p.sub_service,
                 owner_name=p.potential_owner_name,
+                owner_id=p.potential_owner_id,
                 closing_date=p.closing_date,
                 lead_source=p.lead_source,
+                form_url=p.form_url,
                 deal_size=p.deal_size,
                 deal_type=p.type,
                 created_time=p.created_time,
@@ -193,8 +195,10 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
             service=p.service,
             sub_service=p.sub_service,
             owner_name=p.potential_owner_name,
+            owner_id=p.potential_owner_id,
             closing_date=p.closing_date,
             lead_source=p.lead_source,
+            form_url=p.form_url,
             deal_size=p.deal_size,
             deal_type=p.type,
             created_time=p.created_time,
@@ -271,6 +275,7 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
         "service": "service",
         "sub_service": "sub_service",
         "lead_source": "lead_source",
+        "form_url": "form_url",
         "deal_type": "type",
         "deal_size": "deal_size",
         "not_an_inquiry_reason": "not_an_inquiry_reason",
@@ -287,6 +292,7 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
         "service": "Service",
         "sub_service": "Sub-service",
         "lead_source": "Lead Source",
+        "form_url": "Form URL",
         "deal_type": "Type",
         "deal_size": "Size",
         "not_an_inquiry_reason": "Not-an-Inquiry Reason",
@@ -368,6 +374,7 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
                     account.industry = data.company.industry; changed = True
                 if changed:
                     account.modified_time = dt.utcnow()
+                    account.modified_by = user.user_id
                     session.add(account)
                     session.flush()
         else:
@@ -386,6 +393,8 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
                     billing_state=data.company.billing_state,
                     billing_code=data.company.billing_code,
                     billing_country=data.company.country,
+                    created_by=user.user_id,
+                    modified_by=user.user_id,
                     created_time=dt.utcnow(),
                     modified_time=dt.utcnow(),
                 )
@@ -406,6 +415,8 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
                 email=data.contact.email,
                 phone=data.contact.phone,
                 account_id=account.account_id,
+                created_by=user.user_id,
+                modified_by=user.user_id,
                 created_time=dt.utcnow(),
                 modified_time=dt.utcnow(),
             )
@@ -427,6 +438,7 @@ def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetai
             service=data.service,
             sub_service=data.sub_service,
             lead_source=data.lead_source,
+            form_url=data.form_url,
             next_step=data.next_step,
             description=data.description,
             type=data.deal_type,

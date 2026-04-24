@@ -32,6 +32,9 @@ from core.models import (
     Account, Contact, CXAgentDraftHistory, CXAgentInsight, CXAgentTypeConfig,
     CXFollowUpSchedule, CXQueueItem, CXUserToken, Potential, User,
 )
+# Shared website normaliser — imported here so both _load_potential_data
+# implementations (agent_service + this file) scrub the same nullish sentinels.
+from api.services.agent_service import _clean_website as _clean_website_for_agent
 
 logger = logging.getLogger(__name__)
 
@@ -1047,7 +1050,8 @@ def _load_potential_data(potential_id: str) -> dict:
             "sub_service": p.sub_service or "",
             "company_name": a.account_name if a else "",
             "customer_country": (a.billing_country or a.country_fws) if a else "",
-            "company_website": a.website if a else "",
+            # Reuse the agent_service sanitiser so "null" / "N/A" / etc. become ''
+            "company_website": _clean_website_for_agent(a.website if a else ""),
             "description": p.description or "",
             "lead_source": p.lead_source or "",
             "potential_number": p.potential_number or "",
