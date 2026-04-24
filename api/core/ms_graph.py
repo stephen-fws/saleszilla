@@ -317,7 +317,7 @@ def fetch_thread_by_conversation_id(
         mm = me_resp.json()
         me_email = (mm.get("mail") or mm.get("userPrincipalName") or "").lower()
 
-    select_fields = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,sentDateTime,receivedDateTime,body,hasAttachments"
+    select_fields = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,bccRecipients,sentDateTime,receivedDateTime,body,hasAttachments"
     # Note: $orderby is NOT supported alongside $filter on conversationId
     # (Graph returns InefficientFilter). Sort in Python instead.
     resp = req.get(GRAPH_MESSAGES_URL, params={
@@ -343,6 +343,12 @@ def fetch_thread_by_conversation_id(
             (r.get("emailAddress") or {}).get("address", "")
             for r in (m.get("ccRecipients") or [])
         ]
+        # bccRecipients is only populated for items in the user's own Sent folder.
+        # For received messages, BCC is (by design) invisible to the recipient.
+        bcc_list = [
+            (r.get("emailAddress") or {}).get("address", "")
+            for r in (m.get("bccRecipients") or [])
+        ]
         direction = "sent" if me_email and from_addr.lower() == me_email else "received"
         body = (m.get("body") or {}).get("content") or ""
 
@@ -363,6 +369,7 @@ def fetch_thread_by_conversation_id(
             "from_email": from_addr,
             "to_email": ", ".join([t for t in to_list if t]),
             "cc": ", ".join([c for c in cc_list if c]) or None,
+            "bcc": ", ".join([b for b in bcc_list if b]) or None,
             "subject": m.get("subject") or "",
             "sent_time": m.get("sentDateTime"),
             "received_time": m.get("receivedDateTime"),

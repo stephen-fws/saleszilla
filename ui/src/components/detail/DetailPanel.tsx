@@ -30,6 +30,19 @@ import CallDialog from "./CallDialog";
 import NextActionTab from "./NextActionTab";
 import SupportEmailModal from "@/components/support/SupportEmailModal";
 
+// Queue folder → next_action trigger_category (1:1). Drives Next Action
+// filtering so meeting_brief and other drafts can coexist without colliding
+// in the same Panel 3 slot. Folders without a Next Action mapping (emails-sent,
+// "all-potentials" for non-queue views) resolve to undefined → default lens.
+const FOLDER_TO_CATEGORY: Record<string, string | undefined> = {
+  "new-inquiries":       "newEnquiry",
+  "follow-up-active":    "followUp",
+  "follow-up-inactive":  "followUpInactive",
+  "reply":               "reply",
+  "meeting-briefs":      "meeting_brief",
+  "news":                "news",
+};
+
 interface DetailPanelProps {
   queueItemId: string | null;
   dealId: string | null;
@@ -68,7 +81,7 @@ export default function DetailPanel({
   queueItemId,
   dealId,
   accountId,
-  folderType: _folderType,
+  folderType,
   onComplete: _onComplete,
   onPotentialNavigate,
   onEmailSent,
@@ -352,7 +365,19 @@ export default function DetailPanel({
         {activeTab === "notes" && dealId && <NotesTab dealId={dealId} />}
         {activeTab === "todos" && dealId && <TodosTab dealId={dealId} />}
 
-        {activeTab === "action" && dealId && <NextActionTab dealId={dealId} detail={detail} onEmailSent={onEmailSent} onRequestSupport={openSupport} />}
+        {activeTab === "action" && dealId && (
+          <NextActionTab
+            dealId={dealId}
+            detail={detail}
+            // Folder-driven Next Action: when the user opens Panel 3 via a queue
+            // folder, scope the tab to that folder's trigger_category so meeting_brief
+            // and other actions coexist without colliding. No mapping for "emails-sent"
+            // or "all-potentials" → undefined → default lens (meeting-prefer).
+            categoryHint={FOLDER_TO_CATEGORY[folderType] ?? undefined}
+            onEmailSent={onEmailSent}
+            onRequestSupport={openSupport}
+          />
+        )}
         {activeTab === "research" && dealId && <AgentResultTab dealId={dealId} tabType="research" emptyLabel="No research results yet" emptyDescription="AI research agents will populate this tab after analysing the potential" onRequestSupport={openSupport} />}
         {activeTab === "emails" && dealId && (
           <EmailsTab

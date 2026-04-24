@@ -945,6 +945,7 @@ export async function getEmailThreads(dealId: string): Promise<{ threads: import
       fromEmail: m.from_email ?? "",
       toEmail: m.to_email ?? "",
       cc: m.cc ?? null,
+      bcc: m.bcc ?? null,
       subject: m.subject ?? "",
       body: m.body ?? null,
       direction: m.direction ?? "received",
@@ -997,8 +998,14 @@ export async function downloadEmailAttachment(dealId: string, messageId: string,
   URL.revokeObjectURL(a.href);
 }
 
-export async function resolveNextAction(dealId: string, action: "done" | "skip" = "done"): Promise<void> {
-  await protectedApi.post(`/potentials/${dealId}/next-action/resolve?action=${action}`);
+export async function resolveNextAction(
+  dealId: string,
+  action: "done" | "skip" = "done",
+  category?: string,  // trigger_category of the insight being resolved (scopes to one folder)
+): Promise<void> {
+  const params: Record<string, string> = { action };
+  if (category) params.category = category;
+  await protectedApi.post(`/potentials/${dealId}/next-action/resolve`, null, { params });
 }
 
 export interface MeetingInfo {
@@ -1045,8 +1052,14 @@ export async function saveEmailSignature(signature: string | null): Promise<void
 
 // ── Agents ──────────────────────────────────────────────────────────────────
 
-export async function getAgentResults(dealId: string, tabType: string): Promise<AgentResult[]> {
-  const res = await protectedApi.get(`/potentials/${dealId}/agent-results`, { params: { tab_type: tabType } });
+export async function getAgentResults(
+  dealId: string,
+  tabType: string,
+  triggerCategory?: string,  // optional — scopes Next Action rendering to a single folder's category
+): Promise<AgentResult[]> {
+  const params: Record<string, string> = { tab_type: tabType };
+  if (triggerCategory) params.trigger_category = triggerCategory;
+  const res = await protectedApi.get(`/potentials/${dealId}/agent-results`, { params });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (res.data.data ?? []).map((r: any): AgentResult => ({
     id: r.id,

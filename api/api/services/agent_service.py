@@ -223,7 +223,21 @@ def get_agent_config(agent_id: str) -> CXAgentTypeConfig | None:
 
 # ── Result queries ────────────────────────────────────────────────────────────
 
-def get_insights_for_tab(potential_id: str, tab_type: str) -> list[AgentResultItem]:
+def get_insights_for_tab(
+    potential_id: str,
+    tab_type: str,
+    trigger_category: str | None = None,
+) -> list[AgentResultItem]:
+    """Return insights for a tab, optionally scoped to a single trigger_category.
+
+    When trigger_category is set, the tab renders only insights from that
+    workflow (e.g., the Next Action tab filtered to "reply" when the user
+    opened Panel 3 via the Reply folder). This lets meeting_brief and other
+    next_actions coexist without visually colliding.
+
+    Also excludes "skipped" insights — those were superseded by a newer action
+    and shouldn't show up even in the unfiltered view.
+    """
     potential_id = _resolve_potential_number(potential_id)
     with get_session() as session:
         stmt = (
@@ -232,11 +246,13 @@ def get_insights_for_tab(potential_id: str, tab_type: str) -> list[AgentResultIt
             .where(
                 CXAgentInsight.potential_id == potential_id,
                 CXAgentInsight.is_active == True,
-                CXAgentInsight.status != "actioned",
+                CXAgentInsight.status.notin_(("actioned", "skipped")),
                 CXAgentTypeConfig.tab_type == tab_type,
             )
             .order_by(CXAgentTypeConfig.sort_order)
         )
+        if trigger_category:
+            stmt = stmt.where(CXAgentTypeConfig.trigger_category == trigger_category)
         rows = session.execute(stmt).all()
         return [_to_result_item(i, c) for i, c in rows]
 

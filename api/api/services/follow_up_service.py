@@ -601,17 +601,18 @@ def _fire_inactive_for_potential(snapshot: dict, now: datetime) -> None:
         parts = [x for x in [snapshot["account_name"], snapshot["contact_name"]] if x]
         subtitle = " · ".join(parts) if parts else ""
 
+        # 1:1 with trigger_category: followUpInactive → follow-up-inactive.
+        # Any prior follow-up-active QI was already closed by _mark_pending_next_actions_actioned.
         existing_qi = session.execute(
             select(CXQueueItem).where(
                 CXQueueItem.potential_id == pn,
-                CXQueueItem.folder_type.in_(["follow-up-active", "follow-up-inactive"]),
+                CXQueueItem.folder_type == "follow-up-inactive",
                 CXQueueItem.status == "pending",
                 CXQueueItem.is_active == True,
             )
         ).scalar_one_or_none()
 
         if existing_qi:
-            existing_qi.folder_type = "follow-up-inactive"
             existing_qi.title = snapshot["potential_name"]
             existing_qi.subtitle = subtitle
             existing_qi.time_label = now.strftime("%Y-%m-%d")
@@ -774,6 +775,11 @@ def _fire_news_for_potential(snapshot: dict, now: datetime) -> None:
         return
 
     with get_session() as session:
+        # A new action is taking over — supersede any prior unactioned non-
+        # meeting-brief action (FRE/FU/reply) and close its QI. Meeting-briefs
+        # untouched (they coexist with whatever news surfaces).
+        _mark_pending_next_actions_actioned(session, pn, now)
+
         news_configs = session.execute(
             select(CXAgentTypeConfig).where(
                 CXAgentTypeConfig.is_active == True,
@@ -1048,23 +1054,68 @@ def _load_potential_data(potential_id: str) -> dict:
         }
 
 
+# Queue folders whose lifecycle is tied to non-meeting-brief next_action
+# insights. When a new action supersedes a prior one, the pending QI in any of
+# these folders closes. Meeting-briefs is intentionally excluded — it coexists
+# with other actions and only closes via its own expiry/resolve paths.
+_SKIPPABLE_FOLDERS = (
+    "new-inquiries",
+    "follow-up-active",
+    "follow-up-inactive",
+    "reply",
+    "news",
+)
+
+
 def _mark_pending_next_actions_actioned(session, potential_number: str, now: datetime) -> int:
-    """Flip all non-actioned next_action insights for this potential to actioned."""
+    """Supersede any prior unactioned next_action for this potential when a new
+    action fires.
+
+    Design rule: at most ONE active next_action per potential at a time, EXCEPT
+    `meeting_brief` which is additive (coexists with whatever else is in flight
+    and never supersedes or gets superseded at fire-time).
+
+    On call:
+      - All non-meeting-brief next_action insights that aren't already
+        actioned/skipped get status='skipped' (audit-logged via _snapshot_draft
+        with resolution='skipped').
+      - Their corresponding queue items in the non-meeting folders (listed in
+        _SKIPPABLE_FOLDERS) get status='skipped' too — the new trigger will
+        create its own pending QI right after.
+
+    Meeting-brief insights and the meeting-briefs queue item are never touched.
+    """
     rows = session.execute(
         select(CXAgentInsight)
         .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
         .where(
             CXAgentInsight.potential_id == potential_number,
             CXAgentTypeConfig.tab_type == "next_action",
-            CXAgentInsight.status != "actioned",
+            CXAgentTypeConfig.trigger_category != "meeting_brief",
+            CXAgentInsight.status.notin_(("actioned", "skipped")),
             CXAgentInsight.is_active == True,
         )
     ).scalars().all()
     for r in rows:
-        _snapshot_draft(session, r, "replaced", now)
-        r.status = "actioned"
+        _snapshot_draft(session, r, "skipped", now)
+        r.status = "skipped"
         r.updated_time = now
         session.add(r)
+
+    # Close the matching pending queue items (excluding meeting-briefs)
+    qis = session.execute(
+        select(CXQueueItem).where(
+            CXQueueItem.potential_id == potential_number,
+            CXQueueItem.folder_type.in_(_SKIPPABLE_FOLDERS),
+            CXQueueItem.status == "pending",
+            CXQueueItem.is_active == True,
+        )
+    ).scalars().all()
+    for qi in qis:
+        qi.status = "skipped"
+        qi.updated_time = now
+        session.add(qi)
+
     return len(rows)
 
 
@@ -1272,25 +1323,27 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
 
         if potential:
             p, a, c = potential
-            folder = "follow-up-inactive" if (p.stage or "") in INACTIVE_STAGES else "follow-up-active"
+            # Active FU always lives in follow-up-active. The separate
+            # followUpInactive trigger_category (weekly scan) owns follow-up-inactive.
+            # Folder routing is 1:1 with trigger_category — never branches on stage.
+            folder = "follow-up-active"
             deal_title = p.potential_name or "(untitled)"
             company = a.account_name if a else None
             contact_name = c.full_name if c else None
             parts = [x for x in [company, contact_name] if x]
             subtitle = " · ".join(parts) if parts else ""
 
-            # Upsert: one queue item per potential per follow-up folder
+            # Upsert: one pending queue item per potential in the active-FU folder
             existing_qi = session.execute(
                 select(CXQueueItem).where(
                     CXQueueItem.potential_id == schedule_row.potential_number,
-                    CXQueueItem.folder_type.in_(["follow-up-active", "follow-up-inactive"]),
+                    CXQueueItem.folder_type == "follow-up-active",
                     CXQueueItem.status == "pending",
                     CXQueueItem.is_active == True,
                 )
             ).scalar_one_or_none()
 
             if existing_qi:
-                existing_qi.folder_type = folder
                 existing_qi.title = deal_title
                 existing_qi.subtitle = subtitle
                 existing_qi.time_label = now.strftime("%Y-%m-%d")

@@ -18,6 +18,14 @@ import EmailComposer from "./EmailComposer";
 interface NextActionTabProps {
   dealId: string;
   detail: PotentialDetail | null;
+  /**
+   * Scopes Next Action rendering to one trigger_category (folder-driven lens).
+   * When the user opens Panel 3 via the Reply folder, categoryHint="reply" →
+   * only the reply insight is fetched/rendered, and Skip/Done/Send resolve
+   * just that insight. When undefined (e.g., entered via Potentials list), the
+   * backend returns all next_action categories and we pick a default below.
+   */
+  categoryHint?: string;
   onEmailSent?: () => void;
   onRequestSupport?: (category?: string) => void;
 }
@@ -182,16 +190,30 @@ function PriorMessage({ msg }: { msg: SyncEmailMessage }) {
           )}
         </div>
       </button>
-      {expanded && msg.body && (
-        <div className="mt-2 ml-8 text-xs text-slate-600 leading-relaxed prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: msg.body }}
-        />
+      {expanded && (
+        <div className="mt-2 ml-8 space-y-2">
+          {/* Outlook-style recipient list — only shown when expanded */}
+          <div className="text-[10px] text-slate-500 space-y-0.5">
+            <div><span className="font-semibold text-slate-600">To:</span> {msg.toEmail || "—"}</div>
+            {msg.cc && (
+              <div><span className="font-semibold text-slate-600">CC:</span> {msg.cc}</div>
+            )}
+            {msg.bcc && (
+              <div><span className="font-semibold text-slate-600">BCC:</span> {msg.bcc}</div>
+            )}
+          </div>
+          {msg.body && (
+            <div className="text-xs text-slate-600 leading-relaxed prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: msg.body }}
+            />
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSupport }: NextActionTabProps) {
+export default function NextActionTab({ dealId, detail, categoryHint, onEmailSent, onRequestSupport }: NextActionTabProps) {
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -210,7 +232,20 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasPending = results.some((r) => r.status === "pending" || r.status === "running");
-  const completedResult = results.find((r) => r.status === "completed" && r.content);
+
+  // completedResult picks which insight to render in the tab. When categoryHint
+  // is set, the fetch is already scoped to one category and we just take the
+  // first completed one. When no hint (e.g., entry via Potentials list / search),
+  // prefer meeting_brief (time-bound) over other categories. Falls back to the
+  // first completed result otherwise.
+  const completedResult = (() => {
+    const completed = results.filter((r) => r.status === "completed" && r.content);
+    if (completed.length === 0) return undefined;
+    if (categoryHint) return completed[0];
+    const mb = completed.find((r) => r.triggerCategory === "meeting_brief");
+    return mb ?? completed[0];
+  })();
+
   const errorResult = results.find((r) => r.status === "error");
   const stuck = hasPending && results
     .filter((r) => r.status === "pending" || r.status === "running")
@@ -223,14 +258,14 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
 
   const load = useCallback(async () => {
     try {
-      const data = await getAgentResults(dealId, "next_action");
+      const data = await getAgentResults(dealId, "next_action", categoryHint);
       setResults(data);
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [dealId]);
+  }, [dealId, categoryHint]);
 
   useEffect(() => {
     load();
@@ -364,8 +399,11 @@ export default function NextActionTab({ dealId, detail, onEmailSent, onRequestSu
             setEmailSent(initialDraft.subject ?? "Email");
             setSavedDraft(null);
             setDraftAttachments([]);
-            // Mark next_action as actioned — user sent the email from here
-            await resolveNextAction(dealId, "done").catch(() => {});
+            // Mark just THIS category's next_action as actioned. The other
+            // pending actions (e.g., a meeting_brief coexisting with a reply)
+            // stay live — the user sent the reply, not resolved the meeting.
+            const resolveCategory = categoryHint ?? completedResult?.triggerCategory ?? undefined;
+            await resolveNextAction(dealId, "done", resolveCategory || undefined).catch(() => {});
             onEmailSent?.();
           }}
           onDraftSaved={(draft) => setSavedDraft(draft)}

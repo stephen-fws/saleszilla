@@ -63,6 +63,8 @@ def record_sent_email(
     to_name: str | None,
     subject: str,
     body: str,
+    cc_emails: str | None = None,   # comma-separated CC addresses
+    bcc_emails: str | None = None,  # comma-separated BCC addresses
     thread_id: str | None = None,
     internet_message_id: str | None = None,
     draft_id: int | None = None,
@@ -76,7 +78,9 @@ def record_sent_email(
         sent = CXSentEmail(
             potential_id=potential_id, contact_id=contact_id, account_id=account_id,
             draft_id=draft_id, from_email=from_email, from_name=from_name,
-            to_email=to_email, to_name=to_name, subject=subject, body=body,
+            to_email=to_email, to_name=to_name,
+            cc_emails=cc_emails, bcc_emails=bcc_emails,
+            subject=subject, body=body,
             thread_id=thread_id, internet_message_id=internet_message_id,
             sent_by_user_id=user_id, sent_time=now,
             created_time=now, updated_time=now, is_active=True,

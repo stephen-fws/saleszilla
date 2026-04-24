@@ -270,10 +270,20 @@ function MessageBubble({ msg, isLast, dealId }: { msg: SyncEmailMessage; isLast:
           {collapsed ? (
             <p className="text-[10px] text-slate-400 truncate mt-0.5">{bodyPreview(msg.body, 100)}</p>
           ) : (
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              To: {msg.toEmail}{msg.cc ? ` · CC: ${msg.cc}` : ""}
-              <span className="text-slate-400 ml-2">{fullDate(ts)}</span>
-            </p>
+            // Outlook-style header: To / CC / BCC each on their own line when expanded.
+            // Only show CC/BCC when populated. BCC is only present for user-sent items.
+            <div className="text-[10px] text-slate-500 mt-0.5 space-y-0.5">
+              <div>
+                <span className="font-semibold text-slate-600">To:</span> {msg.toEmail}
+                <span className="text-slate-400 ml-2">{fullDate(ts)}</span>
+              </div>
+              {msg.cc && (
+                <div><span className="font-semibold text-slate-600">CC:</span> {msg.cc}</div>
+              )}
+              {msg.bcc && (
+                <div><span className="font-semibold text-slate-600">BCC:</span> {msg.bcc}</div>
+              )}
+            </div>
           )}
         </div>
       </button>

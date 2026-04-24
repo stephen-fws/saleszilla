@@ -285,6 +285,8 @@ class CXSentEmail(Base):
     from_name: Mapped[str | None] = mapped_column("FromName", Unicode(128), nullable=True)
     to_email: Mapped[str] = mapped_column("ToEmail", String(256), nullable=False)
     to_name: Mapped[str | None] = mapped_column("ToName", Unicode(128), nullable=True)
+    cc_emails: Mapped[str | None] = mapped_column("CcEmails", UnicodeText, nullable=True)
+    bcc_emails: Mapped[str | None] = mapped_column("BccEmails", UnicodeText, nullable=True)
     subject: Mapped[str] = mapped_column("Subject", Unicode(512), nullable=False)
     body: Mapped[str] = mapped_column("Body", UnicodeText, nullable=False)
     thread_id: Mapped[str | None] = mapped_column("ThreadId", String(512), nullable=True)

@@ -1,13 +1,28 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, ArrowLeft, ShieldCheck, Loader2, KeyRound } from "lucide-react";
+import { Mail, ArrowLeft, ShieldCheck, Loader2, KeyRound, Check } from "lucide-react";
 import { sendOTP, verifyOTP, getMe } from "@/lib/api";
 import { tokenStore } from "@/lib/tokenStore";
 import { useAuthStore } from "@/store/authStore";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
 
-type Step = "choose" | "email" | "otp";
+// localStorage flag — once set, skip the permissions preview on future logins
+const CONSENT_SEEN_KEY = "sz_ms_consent_seen";
+
+// Each item has a `label` that matches the vocabulary Microsoft uses on its own
+// consent screen, and a `detail` that sets expectations about how Salezilla
+// actually uses the grant. We don't claim the permission is narrower than it
+// really is — just explain our product behavior. Stays in sync with
+// api/core/ms_graph.py MAIL_SCOPES.
+const MS_PERMISSIONS: { label: string; detail: string }[] = [
+  { label: "Mailbox access",    detail: "Read threads tied to your potentials; send email only when you click Send." },
+  { label: "Calendar access",   detail: "Show upcoming meetings and let you create or update events." },
+  { label: "Directory search",  detail: "Autocomplete colleagues when inviting attendees to meetings." },
+  { label: "Profile",           detail: "Identify you when you sign in." },
+];
+
+type Step = "choose" | "ms-consent" | "email" | "otp";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -19,13 +34,26 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSSOLogin = () => {
+  const redirectToMicrosoft = () => {
     const callbackUrl = `${window.location.origin}/auth/callback`;
     const nonce = crypto.randomUUID();
     sessionStorage.setItem("sso_nonce", nonce);
+    try { localStorage.setItem(CONSENT_SEEN_KEY, "1"); } catch { /* ignore */ }
     window.location.assign(
       `${API_BASE}/auth/sso/connect?callback_url=${encodeURIComponent(callbackUrl)}&nonce=${nonce}`
     );
+  };
+
+  const handleSSOLogin = () => {
+    // First time in this browser → show the permissions-preview step.
+    // Subsequent logins → jump straight to Microsoft.
+    let seen = false;
+    try { seen = localStorage.getItem(CONSENT_SEEN_KEY) === "1"; } catch { /* ignore */ }
+    if (seen) {
+      redirectToMicrosoft();
+    } else {
+      setStep("ms-consent");
+    }
   };
 
   const handleSendOTP = async (e: React.FormEvent) => {
@@ -133,6 +161,50 @@ export default function LoginPage() {
 
               <p className="text-[10px] text-slate-400 text-center mt-2">
                 OTP login disabled — use Microsoft sign-in above
+              </p>
+            </>
+          )}
+
+          {/* ── Step: MS permissions preview (shown once per browser) ── */}
+          {step === "ms-consent" && (
+            <>
+              <h2 className="text-lg font-semibold text-slate-900 mb-1">Permissions required</h2>
+              <p className="text-sm text-slate-500 mb-5">
+                Microsoft will grant Salezilla the following. Here's how we use each:
+              </p>
+
+              <ul className="space-y-2.5 mb-5">
+                {MS_PERMISSIONS.map(({ label, detail }) => (
+                  <li key={label} className="flex items-start gap-2.5">
+                    <div className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 leading-snug">{label}</p>
+                      <p className="text-xs text-slate-500 leading-snug mt-0.5">{detail}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                onClick={redirectToMicrosoft}
+                className="w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-medium
+                           hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+              >
+                <MicrosoftIcon />
+                Continue to Microsoft
+              </button>
+
+              <button
+                onClick={() => setStep("choose")}
+                className="w-full mt-2 py-2 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+
+              <p className="text-[10px] text-slate-400 text-center mt-3 leading-relaxed">
+                You can revoke access anytime from your Microsoft account settings.
               </p>
             </>
           )}

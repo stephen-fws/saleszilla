@@ -555,6 +555,7 @@ class EmailMessage(BaseModel):
     from_email: str
     to_email: str
     cc: Optional[str] = None
+    bcc: Optional[str] = None  # populated for user-sent Graph items only; None for received
     subject: str
     body: Optional[str] = None
     direction: str                       # "sent" | "received"

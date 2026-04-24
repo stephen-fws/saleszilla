@@ -274,6 +274,8 @@ CREATE TABLE CX_SentEmails (
     FromName            NVARCHAR(128)   NULL,
     ToEmail             VARCHAR(256)    NOT NULL,
     ToName              NVARCHAR(128)   NULL,
+    CcEmails            NVARCHAR(MAX)   NULL,
+    BccEmails           NVARCHAR(MAX)   NULL,
     Subject             NVARCHAR(512)   NOT NULL,
     Body                NVARCHAR(MAX)   NOT NULL,
     ThreadId            VARCHAR(512)    NULL,

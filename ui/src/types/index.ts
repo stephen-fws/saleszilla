@@ -390,6 +390,7 @@ export interface SyncEmailMessage {
   fromEmail: string;
   toEmail: string;
   cc: string | null;
+  bcc: string | null;  // populated only for user-sent items from Graph; null for received
   subject: string;
   body: string | null;
   direction: "sent" | "received";

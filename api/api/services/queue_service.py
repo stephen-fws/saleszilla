@@ -95,7 +95,10 @@ def _expire_meeting_briefs(session) -> None:
             qi.updated_time = now
             expired_qis.append(qi)
 
-    # Mark meeting_brief next_action insights as actioned for expired potentials
+    # Mark meeting_brief next_action insights as actioned for expired potentials.
+    # Meeting brief is additive (never skipped prior non-MB actions at fire time),
+    # so expiry only affects its own insight row + its own queue item. Any FRE /
+    # FU / reply that was pending alongside is unaffected and resumes visibility.
     if expired_qis:
         mb_agent_ids = set(session.execute(
             select(CXAgentTypeConfig.agent_id).where(
@@ -203,3 +206,5 @@ def resolve_queue_item(item_id: int, status: str) -> bool:
 def complete_queue_item(item_id: int) -> bool:
     """Backwards-compatible alias — marks as 'completed'."""
     return resolve_queue_item(item_id, "completed")
+
+

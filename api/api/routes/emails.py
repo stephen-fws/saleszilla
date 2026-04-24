@@ -196,6 +196,8 @@ async def send_email(
         from_name=user.name,
         to_email=data.to_email,
         to_name=data.to_name,
+        cc_emails=", ".join(data.cc) if data.cc else None,
+        bcc_emails=", ".join(data.bcc) if data.bcc else None,
         subject=data.subject,
         body=data.body,
         thread_id=thread_id,
@@ -318,14 +320,35 @@ def download_draft_attachment(
 
 # ── Next Action resolve (skip / done) ────────────────────────────────────────
 
+# trigger_category → queue folder (1:1). Used when resolve_next_action is
+# scoped to a specific category (e.g., user clicked Skip while viewing the
+# Reply folder's Next Action — only the reply insight + reply QI should close).
+_CATEGORY_FOLDER = {
+    "newEnquiry":       "new-inquiries",
+    "followUp":         "follow-up-active",
+    "followUpInactive": "follow-up-inactive",
+    "reply":            "reply",
+    "meeting_brief":    "meeting-briefs",
+    "news":             "news",
+}
+
+
 @router.post("/potentials/{potential_id}/next-action/resolve")
 def resolve_next_action(
     potential_id: str,
     action: str = "done",
+    category: str | None = None,
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
-    """Mark all active next_action insights as actioned. Called when user clicks
-    Skip or Done on the Next Action tab."""
+    """Mark next_action insights as actioned. Called when user clicks Skip or
+    Done on the Next Action tab, or when the composer auto-completes on send.
+
+    `category` scopes the resolution to a single trigger_category so meeting_brief
+    and other next_actions coexist cleanly: Skip on the Reply view only closes
+    the reply insight + reply QI; the meeting_brief insight + meeting-briefs QI
+    stay live. If `category` is omitted, falls back to the legacy "resolve all
+    next_actions + all managed folder QIs" behavior.
+    """
     require_potential_owner(user.user_id, potential_id)
     from core.database import get_session
     from core.models import CXAgentInsight, CXAgentTypeConfig, CXQueueItem, CXUserEmailDraft, Potential
@@ -337,17 +360,21 @@ def resolve_next_action(
             select(Potential.potential_number).where(Potential.potential_id == potential_id)
         ).scalar_one_or_none() or potential_id
 
-        # Snapshot + mark next_action insights as actioned
+        # Snapshot + mark next_action insights as actioned (scoped to category if set)
         from core.models import CXAgentDraftHistory
+        insight_filter = [
+            CXAgentInsight.potential_id == pn,
+            CXAgentTypeConfig.tab_type == "next_action",
+            CXAgentInsight.status.notin_(("actioned", "skipped")),
+            CXAgentInsight.is_active == True,
+        ]
+        if category:
+            insight_filter.append(CXAgentTypeConfig.trigger_category == category)
+
         rows = session.execute(
             select(CXAgentInsight)
             .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
-            .where(
-                CXAgentInsight.potential_id == pn,
-                CXAgentTypeConfig.tab_type == "next_action",
-                CXAgentInsight.status != "actioned",
-                CXAgentInsight.is_active == True,
-            )
+            .where(*insight_filter)
         ).scalars().all()
         for r in rows:
             # Snapshot before resolving
@@ -369,7 +396,7 @@ def resolve_next_action(
             r.updated_time = now
             session.add(r)
 
-        # Soft-delete any next_action drafts
+        # Soft-delete any next_action drafts (potential-scoped; no category key on drafts)
         na_drafts = session.execute(
             select(CXUserEmailDraft).where(
                 CXUserEmailDraft.potential_id == potential_id,
@@ -383,8 +410,16 @@ def resolve_next_action(
             d.updated_time = now
             session.add(d)
 
-        # Complete any pending queue items — use potential_number (7-digit) to match
-        for folder in ("follow-up-active", "follow-up-inactive", "new-inquiries", "reply", "meeting-briefs"):
+        # Close the matching queue item(s). If category is set: just the one
+        # folder. Otherwise: all managed folders (legacy behavior).
+        if category:
+            target_folders = [f for f in [_CATEGORY_FOLDER.get(category)] if f]
+        else:
+            target_folders = [
+                "follow-up-active", "follow-up-inactive", "new-inquiries",
+                "reply", "meeting-briefs", "news",
+            ]
+        for folder in target_folders:
             qi = session.execute(
                 select(CXQueueItem).where(
                     CXQueueItem.potential_id == pn,
@@ -398,7 +433,7 @@ def resolve_next_action(
                 qi.updated_time = now
                 session.add(qi)
 
-    return ResponseModel(data={"ok": True, "action": action, "resolved": len(rows)})
+    return ResponseModel(data={"ok": True, "action": action, "category": category, "resolved": len(rows)})
 
 
 # ── Attachment download (proxy through backend) ─────────────────────────────

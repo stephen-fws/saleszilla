@@ -74,12 +74,14 @@ def run_agents(
 def get_agent_results(
     potential_id: str,
     tab_type: str | None = Query(default=None),
+    trigger_category: str | None = Query(default=None),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[AgentResultItem]]:
-    """Get agent results for a potential, optionally filtered by tab_type."""
+    """Get agent results for a potential, optionally filtered by tab_type
+    and/or trigger_category (e.g., Next Action tab scoped to just "reply")."""
     require_potential_owner(user.user_id, potential_id)
     if tab_type:
-        return ResponseModel(data=get_insights_for_tab(potential_id, tab_type))
+        return ResponseModel(data=get_insights_for_tab(potential_id, tab_type, trigger_category))
     return ResponseModel(data=get_all_insights(potential_id))
 
 
