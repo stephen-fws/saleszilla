@@ -178,6 +178,9 @@ export default function DashboardPage() {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null);
   const [loadingFolders, setLoadingFolders] = useState(true);
+  // Tracks the lightweight background refresh (after Skip/Done, send-email,
+  // tab-focus, etc.) so the sidebar can show a subtle spinner.
+  const [refreshingFolders, setRefreshingFolders] = useState(false);
   const [loadingQueue, setLoadingQueue] = useState(false);
 
   // Potentials state
@@ -233,6 +236,7 @@ export default function DashboardPage() {
 
   // Fetch folders — on mount + refreshable
   const refreshFolders = useCallback(async () => {
+    setRefreshingFolders(true);
     try {
       const data = await getFolders();
       const list = data.folders ?? [];
@@ -240,6 +244,8 @@ export default function DashboardPage() {
       return list;
     } catch {
       return [];
+    } finally {
+      setRefreshingFolders(false);
     }
   }, []);
 
@@ -276,9 +282,27 @@ export default function DashboardPage() {
     } catch { /* ignore */ }
   }, [selectedFolderId, viewMode]);
 
+  const refreshPotentialsList = useCallback(async () => {
+    if (viewMode !== "potentials") return;
+    try {
+      const data = await getPotentials({ ...potentialFilters, includeTeam });
+      setPotentialDeals(data.deals ?? []);
+      setFilterOptions(data.filterOptions ?? { owners: [], services: [], stages: [] });
+    } catch { /* ignore */ }
+  }, [viewMode, potentialFilters, includeTeam]);
+
+  // Bumping this triggers DetailPanel to refetch the deal (timeline,
+  // agent results, etc.) without forcing a full unmount/remount.
+  const [detailRefreshKey, setDetailRefreshKey] = useState(0);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshFolders(), refreshQueueItems()]);
-  }, [refreshFolders, refreshQueueItems]);
+    await Promise.all([
+      refreshFolders(),
+      refreshQueueItems(),
+      refreshPotentialsList(),
+    ]);
+    setDetailRefreshKey((k) => k + 1);
+  }, [refreshFolders, refreshQueueItems, refreshPotentialsList]);
 
   // Fetch queue items when folder changes
   useEffect(() => {
@@ -684,6 +708,7 @@ export default function DashboardPage() {
               selectedId={selectedFolderId || ""}
               onSelect={handleFolderSelect}
               loading={loadingFolders}
+              refreshing={refreshingFolders}
               viewMode={viewMode}
               onViewModeChange={handleViewModeChange}
               potentialCount={sortedDeals.length}
@@ -716,6 +741,7 @@ export default function DashboardPage() {
               selectedId={selectedFolderId || ""}
               onSelect={handleFolderSelect}
               loading={loadingFolders}
+              refreshing={refreshingFolders}
               viewMode={viewMode}
               onViewModeChange={handleViewModeChange}
               potentialCount={sortedDeals.length}
@@ -886,6 +912,7 @@ export default function DashboardPage() {
               folderType={viewMode === "queue" ? currentFolderType : "all-potentials"}
               onComplete={handleComplete}
               onEmailSent={refreshAll}
+              refreshKey={detailRefreshKey}
               onPotentialNavigate={(dealId) => {
                 setViewMode("potentials");
                 setSelectedDealId(dealId);

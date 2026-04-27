@@ -259,13 +259,13 @@ def update_account(account_id: str, data: dict, user_id: str | None = None) -> A
 
 
 def _get_account_filter_options(session) -> AccountFilterOptions:
-    """Filter sidebar industries come from the curated `industries` table so the
-    Panel 1 list stays consistent with the New Potential dropdown. Legacy
-    Zoho-imported accounts whose industry strings aren't in the curated list
-    will simply return zero matches when filtered — acceptable tradeoff."""
-    from sqlalchemy import text
+    """Filter sidebar industries are the distinct industries actually present
+    on Accounts — so every option produces at least one match."""
     industries = [r[0] for r in session.execute(
-        text("SELECT industry FROM industries WHERE isactive = 1 AND industry IS NOT NULL AND industry != '' ORDER BY industry")
+        select(Account.industry)
+        .where(Account.industry.isnot(None), Account.industry != "")
+        .distinct()
+        .order_by(Account.industry)
     ).all()]
     return AccountFilterOptions(industries=industries)
 

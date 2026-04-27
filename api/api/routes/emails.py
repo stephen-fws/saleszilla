@@ -23,6 +23,12 @@ from api.services.user_settings_service import (
     update_settings as update_user_settings,
 )
 from api.services.access_control import require_potential_owner
+from api.services.attachment_policy import (
+    first_blocked_name,
+    total_attachment_bytes,
+    format_bytes,
+    MAX_ATTACHMENT_TOTAL_BYTES,
+)
 from api.services.user_service import load_user_tokens
 from api.services.email_thread_service import get_email_threads
 from api.services.activity_service import log_activity
@@ -136,6 +142,18 @@ async def send_email(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[SentEmailResponse]:
     require_potential_owner(user.user_id, potential_id)
+
+    # Defence-in-depth: reject Outlook-blocked extensions before we hand off
+    # to Graph. UI blocks these on file-pick; this guards direct API callers.
+    if data.attachments:
+        blocked = first_blocked_name([a.name for a in data.attachments])
+        if blocked:
+            raise BotApiException(
+                400,
+                "ERR_BLOCKED_ATTACHMENT",
+                f"{blocked} — file type not allowed by Outlook (blocked attachment).",
+            )
+
     ms_token = await get_valid_ms_token(user.user_id)
     tokens = load_user_tokens(user.user_id)
     from_email = tokens.ms_email or user.email if tokens else user.email
@@ -170,6 +188,18 @@ async def send_email(
         for a in draft_att_loaded
     ]
     attachments_payload = (manual_payload + draft_payload) or None
+
+    # Total-size guard. Outlook silently strips oversize sends, so an explicit
+    # 4xx here is the only way the user gets a clear failure.
+    if attachments_payload:
+        total_bytes = total_attachment_bytes(attachments_payload)
+        if total_bytes > MAX_ATTACHMENT_TOTAL_BYTES:
+            raise BotApiException(
+                400,
+                "ERR_ATTACHMENT_TOO_LARGE",
+                f"Attachments total {format_bytes(total_bytes)} — exceeds Outlook's "
+                f"{format_bytes(MAX_ATTACHMENT_TOTAL_BYTES)} limit. Remove some files and try again.",
+            )
 
     try:
         message_id, thread_id, internet_message_id = await send_mail_via_graph(

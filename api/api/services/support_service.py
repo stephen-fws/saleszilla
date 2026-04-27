@@ -1,15 +1,15 @@
-"""Support email: build contextual email body + send via SendGrid."""
+"""Support email: build contextual email body + send on behalf of the
+logged-in user via Microsoft Graph."""
 
 import logging
 from html import escape
 
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from sqlalchemy import select
 
 import core.config as config
 from core.database import get_session
 from core.models import Account, Contact, Potential, User
+from core.ms_graph import get_valid_ms_token, send_mail_via_graph
 
 logger = logging.getLogger(__name__)
 
@@ -124,15 +124,18 @@ def _build_email_body(
     """
 
 
-def send_support_email(
+async def send_support_email(
     potential_id: str,
     category: str,
     user_message: str,
     reporter: User,
 ) -> bool:
-    if not config.SENDGRID_API_KEY:
-        logger.error("SENDGRID_API_KEY not set — cannot send support email")
-        return False
+    """Send the support email as the reporter via Microsoft Graph.
+
+    The reporter's MS mailbox sends; the configured SUPPORT_EMAIL_TO list
+    becomes the recipients (first → To, rest → CC). The reporter is BCC'd a
+    copy of their own ticket for their records.
+    """
     if not config.SUPPORT_EMAIL_TO:
         logger.error("SUPPORT_EMAIL_TO not configured — cannot send support email")
         return False
@@ -145,17 +148,31 @@ def send_support_email(
 
     html_body = _build_email_body(category_label, user_message, reporter, ctx)
 
-    message = Mail(
-        from_email=config.SENDGRID_FROM_EMAIL,
-        to_emails=config.SUPPORT_EMAIL_TO,
-        subject=subject,
-        html_content=html_body,
-    )
+    recipients = list(config.SUPPORT_EMAIL_TO)
+    to_address = recipients[0]
+    cc_addresses = recipients[1:] or None
+    bcc_addresses = [reporter.email] if reporter.email else None
+
     try:
-        sg = SendGridAPIClient(config.SENDGRID_API_KEY)
-        resp = sg.send(message)
-        logger.info("Support email sent to %s — status %s", config.SUPPORT_EMAIL_TO, resp.status_code)
-        return resp.status_code in (200, 201, 202)
+        ms_token = await get_valid_ms_token(reporter.user_id)
+    except Exception as exc:
+        logger.error("Cannot get MS token for support email (user=%s): %s", reporter.user_id, exc)
+        return False
+
+    try:
+        message_id, _, _ = await send_mail_via_graph(
+            access_token=ms_token,
+            to_address=to_address,
+            subject=subject,
+            body_html=html_body,
+            cc_addresses=cc_addresses,
+            bcc_addresses=bcc_addresses,
+        )
+        logger.info(
+            "Support email sent via Graph (from=%s to=%s cc=%s message_id=%s)",
+            reporter.email, to_address, cc_addresses, message_id,
+        )
+        return True
     except Exception as exc:
         logger.error("Failed to send support email for potential=%s: %s", potential_id, exc)
         return False

@@ -25,14 +25,14 @@ def get_support_categories() -> ResponseModel[dict]:
 
 
 @router.post("/support/email")
-def post_support_email(
+async def post_support_email(
     data: SupportEmailRequest = Body(),
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
     require_potential_owner(user.user_id, data.potential_id)
     if data.category not in SUPPORT_CATEGORIES:
         raise BotApiException(400, "ERR_INVALID_CATEGORY", "Unknown support category.")
-    ok = send_support_email(
+    ok = await send_support_email(
         potential_id=data.potential_id,
         category=data.category,
         user_message=(data.message or "").strip(),

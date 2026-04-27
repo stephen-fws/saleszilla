@@ -414,6 +414,11 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
             onEmailSent?.();
           }}
           onDraftSaved={(draft) => setSavedDraft(draft)}
+          onDiscarded={() => {
+            // Drop the saved draft so the agent's preview shows again.
+            setSavedDraft(null);
+            setComposerOpen(false);
+          }}
         />
       </div>
     );

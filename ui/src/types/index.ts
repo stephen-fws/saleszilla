@@ -227,6 +227,9 @@ export interface EmailDraft {
   replyToThreadId: string | null;
   replyToMessageId: string | null;
   status: string;
+  // User-uploaded attachments persisted with the draft (Save Draft).
+  // Distinct from agent-generated PDF attachments (DraftAttachment).
+  attachments: EmailAttachment[] | null;
   createdTime: string | null;
   updatedTime: string | null;
 }

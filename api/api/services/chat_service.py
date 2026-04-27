@@ -112,12 +112,14 @@ def build_context_prompt(potential_id: str) -> str:
     """Assemble a rich system prompt with all available context for a potential."""
     lines: list[str] = []
 
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines.append(
         "You are an expert sales assistant AI embedded in Salezilla, an AI-powered CRM.\n"
         "You have full context about the sales potential below. Use it to help the salesperson "
         "with insights, drafting emails, strategising next steps, answering questions about the potential, "
         "and anything else they need.\n"
         "Be concise, specific, and actionable. Always reference actual data from the context.\n"
+        f"\nToday's date: {today}\n"
     )
 
     with get_session() as session:

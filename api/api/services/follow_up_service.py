@@ -34,7 +34,11 @@ from core.models import (
 )
 # Shared website normaliser — imported here so both _load_potential_data
 # implementations (agent_service + this file) scrub the same nullish sentinels.
-from api.services.agent_service import _clean_website as _clean_website_for_agent
+from api.services.activity_service import log_agent_trigger
+from api.services.agent_service import (
+    _clean_website as _clean_website_for_agent,
+    _derive_website_from_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +370,7 @@ def trigger_reply_agent(event: InboundEvent) -> dict:
             "callback_mode": "per_agent",
         }
         logger.info("trigger_reply_agent: POST %s potential=%s", url, event.potential_number)
+        log_agent_trigger(event.potential_number, "reply")
         try:
             resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
             logger.info("reply agent agentflow response: status=%s", resp.status_code)
@@ -431,6 +436,7 @@ def trigger_stage_update(potential_number: str) -> dict:
             "callback_mode": "per_agent",
         }
         logger.info("trigger_stage_update: POST %s potential=%s", url, potential_number)
+        log_agent_trigger(potential_number, "stage_update")
         try:
             resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
             logger.info("stage_update agentflow response: status=%s", resp.status_code)
@@ -500,6 +506,7 @@ def trigger_todo_reconcile(potential_number: str) -> dict:
         "callback_mode": "per_agent",
     }
     logger.info("trigger_todo_reconcile: POST %s potential=%s existing=%d", url, potential_number, len(existing_agent_todos))
+    log_agent_trigger(potential_number, "todo_reconcile")
     try:
         resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
         logger.info("todo_reconcile agentflow response: status=%s", resp.status_code)
@@ -573,6 +580,7 @@ def _trigger_inactive_fu_agentflow(potential_id: str, potential_number: str, cur
         "callback_mode": "per_agent",
     }
     logger.info("inactive_fu: POST %s potential=%s stage=%s", url, potential_number, current_stage)
+    log_agent_trigger(potential_number, "followUpInactive")
     try:
         resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
         logger.info("inactive_fu agentflow response: status=%s", resp.status_code)
@@ -767,6 +775,7 @@ def _trigger_news_agentflow(potential_id: str, potential_number: str, category: 
         "callback_mode": "per_agent",
     }
     logger.info("news: POST %s potential=%s category=%s cutoff=%s", url, potential_number, category, cutoff_date.isoformat())
+    log_agent_trigger(potential_number, "news")
     try:
         resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
         logger.info("news agentflow response: status=%s", resp.status_code)
@@ -1055,8 +1064,12 @@ def _load_potential_data(potential_id: str) -> dict:
             "sub_service": p.sub_service or "",
             "company_name": a.account_name if a else "",
             "customer_country": (a.billing_country or a.country_fws) if a else "",
-            # Reuse the agent_service sanitiser so "null" / "N/A" / etc. become ''
-            "company_website": _clean_website_for_agent(a.website if a else ""),
+            # Account.website is rarely populated; fall back to the contact
+            # email's domain (free providers excluded). Same logic as agent_service.
+            "company_website": (
+                _clean_website_for_agent(a.website if a else "")
+                or _derive_website_from_email(c.email if c else "")
+            ),
             "description": p.description or "",
             "lead_source": p.lead_source or "",
             "form_url": _clean_website_for_agent(p.form_url),
@@ -1277,6 +1290,7 @@ def _trigger_followup_agentflow(potential_data: dict, day_offset: int, email_thr
         "callback_mode": "per_agent",
     }
     logger.info("follow_up: POST %s day=%d potential=%s", url, day_offset, potential_number)
+    log_agent_trigger(potential_number, "followUp")
     try:
         resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
         logger.info("follow_up agentflow response: status=%s", resp.status_code)

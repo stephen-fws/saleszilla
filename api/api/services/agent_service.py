@@ -38,6 +38,38 @@ def _clean_nullish(value: str | None) -> str:
 _clean_website = _clean_nullish
 
 
+# Free / personal email providers — emails from these domains are not customer
+# websites, so we don't fall back to them when Account.website is missing.
+_FREE_EMAIL_DOMAINS = frozenset({
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com", "yahoo.co.uk", "yahoo.co.in", "yahoo.com.au", "yahoo.fr", "yahoo.ca", "ymail.com",
+    "outlook.com", "hotmail.com", "live.com", "msn.com",
+    "aol.com",
+    "icloud.com", "me.com", "mac.com",
+    "protonmail.com", "proton.me",
+    "mail.com", "gmx.com", "gmx.de",
+    "yandex.com", "yandex.ru",
+    "fastmail.com", "inbox.com",
+    "rediffmail.com",
+    "qq.com", "163.com", "126.com", "sina.com",
+})
+
+
+def _derive_website_from_email(email: str | None) -> str:
+    """Extract a usable customer domain from an email address.
+
+    Returns '' for missing/malformed emails or for free/personal providers
+    (gmail/yahoo/outlook/etc.) since those domains aren't customer websites.
+    """
+    if not email or "@" not in email:
+        return ""
+    domain = email.rsplit("@", 1)[1].strip().lower().rstrip(".")
+    if not domain or domain in _FREE_EMAIL_DOMAINS:
+        return ""
+    return domain
+
+
 def _to_result_item(insight: CXAgentInsight, cfg: CXAgentTypeConfig) -> AgentResultItem:
     return AgentResultItem(
         id=insight.id,
@@ -239,8 +271,17 @@ def list_active_configs(trigger_category: str | None = None) -> list[CXAgentType
 
 
 def get_agent_config(agent_id: str) -> CXAgentTypeConfig | None:
+    """Return any active config row for this agent_id.
+
+    PK is composite (agent_id, trigger_category) — an agent may be registered
+    for multiple categories. The webhook only reads tab_type/content_type/
+    agent_name from cfg (identical across rows for the same agent), so picking
+    any row is correct.
+    """
     with get_session() as session:
-        return session.get(CXAgentTypeConfig, agent_id)
+        return session.execute(
+            select(CXAgentTypeConfig).where(CXAgentTypeConfig.agent_id == agent_id).limit(1)
+        ).scalar_one_or_none()
 
 
 # ── Result queries ────────────────────────────────────────────────────────────
@@ -363,11 +404,21 @@ def _trigger_agentflow(
     potential_data: dict,
     graph_id: str,
     extra_attrs: dict | None = None,
+    category: str | None = None,
 ) -> None:
-    """POST to agentflow /external/execute to kick off a graph. Fire-and-forget."""
+    """POST to agentflow /external/execute to kick off a graph. Fire-and-forget.
+
+    `category` is the trigger_category (newEnquiry / followUp / meeting_brief
+    / etc.) — used purely to write a friendly timeline entry.
+    """
     if not graph_id:
         logger.warning("Skipping agentflow trigger: no graph_id provided (potential=%s)", potential_id)
         return
+
+    # Timeline entry — fire BEFORE the POST so failures still leave breadcrumb.
+    if category:
+        from api.services.activity_service import log_agent_trigger
+        log_agent_trigger(potential_id, category)
 
     url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
     potential_number = potential_data.get("potential_number") or potential_id
@@ -443,7 +494,13 @@ def _load_potential_data(potential_id: str) -> dict:
             "sub_service": p.sub_service or "",
             "company_name": a.account_name if a else "",
             "customer_country": (a.billing_country or a.country_fws) if a else "",
-            "company_website": _clean_nullish(a.website if a else ""),
+            # Account.website is rarely populated (DB owner confirmed it won't
+            # be filled going forward), so fall back to the contact email's
+            # domain — skipping free providers like gmail / yahoo.
+            "company_website": (
+                _clean_nullish(a.website if a else "")
+                or _derive_website_from_email(c.email if c else "")
+            ),
             "description": p.description or "",
             "lead_source": p.lead_source or "",
             "form_url": _clean_nullish(p.form_url),
@@ -520,6 +577,14 @@ def process_webhook(payload_data: dict) -> None:
         if cfg.trigger_category == "stage_update" and final_status == "completed" and content:
             _apply_stage_update(session, external_id, content, now)
 
+    # Timeline entry — fires after the insight save commits, so the user sees
+    # "AI agent completed: X" in the same place as their other actions.
+    try:
+        from api.services.activity_service import log_agent_completed
+        log_agent_completed(external_id, cfg.agent_name, cfg.tab_type, final_status)
+    except Exception:
+        logger.exception("Failed to log agent completion for %s/%s", external_id, agent_id)
+
     # Attachment agent: upload the HTML to GCS + register as a draft attachment.
     # Runs OUTSIDE the insight-save session because it has its own transactional write.
     # Empty/whitespace content is treated as "no attachment" (save_from_agent handles it).
@@ -560,7 +625,12 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
     # Always fire the agentflow trigger — independent of whether config rows exist
     potential_data = _load_potential_data(potential_id)
     logger.info("Loaded potential data: %s", potential_data)
-    _trigger_agentflow(potential_id, potential_data, graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL)
+    _trigger_agentflow(
+        potential_id,
+        potential_data,
+        graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL,
+        category="newEnquiry",
+    )
 
     # DB insights are keyed on potential_number (7-digit business key), not UUID
     pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
@@ -629,7 +699,12 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
         triggered_by=triggered_by,
     )
 
-    _trigger_agentflow(potential_id, potential_data, graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL)
+    _trigger_agentflow(
+        potential_id,
+        potential_data,
+        graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL,
+        category=cfg.trigger_category or "newEnquiry",
+    )
 
     # Return the pending row
     results = get_insights_for_tab(pn, cfg.tab_type)
@@ -871,6 +946,7 @@ def fire_meeting_brief(
         potential_data,
         graph_id=config.AGENTFLOW_GRAPH_MEETING_BRIEF,
         extra_attrs=extra_attrs,
+        category="meeting_brief",
     )
 
     return first_insight

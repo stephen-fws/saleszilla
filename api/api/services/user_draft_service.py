@@ -7,7 +7,49 @@ from sqlalchemy import select
 
 from core.database import get_session
 from core.models import CXUserEmailDraft, CXUserToken
-from core.schemas import CreateDraftRequest, UpdateDraftRequest, UserEmailDraftItem
+from core.schemas import CreateDraftRequest, DraftAttachmentInline, UpdateDraftRequest, UserEmailDraftItem
+
+
+def _decode_attachments(raw: str | None) -> list[DraftAttachmentInline] | None:
+    """Parse the JSON-encoded attachments column. Returns None if absent or
+    malformed — never raises, so a corrupt row doesn't break draft loading."""
+    if not raw:
+        return None
+    try:
+        items = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(items, list):
+        return None
+    out: list[DraftAttachmentInline] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        try:
+            out.append(DraftAttachmentInline(
+                name=it.get("name", ""),
+                content_type=it.get("content_type", "application/octet-stream"),
+                content_bytes=it.get("content_bytes", ""),
+                size_bytes=int(it.get("size_bytes", 0) or 0),
+            ))
+        except Exception:
+            continue
+    return out or None
+
+
+def _encode_attachments(items: list[DraftAttachmentInline] | None) -> str | None:
+    """Serialise to the column. Empty list → NULL so we don't waste space."""
+    if not items:
+        return None
+    return json.dumps([
+        {
+            "name": a.name,
+            "content_type": a.content_type,
+            "content_bytes": a.content_bytes,
+            "size_bytes": a.size_bytes,
+        }
+        for a in items
+    ])
 
 
 def _to_item(d: CXUserEmailDraft) -> UserEmailDraftItem:
@@ -23,6 +65,7 @@ def _to_item(d: CXUserEmailDraft) -> UserEmailDraftItem:
         reply_to_thread_id=d.reply_to_thread_id,
         reply_to_message_id=d.reply_to_message_id,
         status=d.status,
+        attachments=_decode_attachments(d.attachments),
         created_time=d.created_time,
         updated_time=d.updated_time,
     )
@@ -77,6 +120,10 @@ def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str, is_n
                 existing.subject = data.subject
             if data.body is not None:
                 existing.body = data.body
+            if data.attachments is not None:
+                # Treat as full overwrite: the client always sends the
+                # complete current attachment list, including after removals.
+                existing.attachments = _encode_attachments(data.attachments)
             existing.updated_time = now
             session.add(existing)
             session.flush()
@@ -94,6 +141,7 @@ def create_draft(potential_id: str, data: CreateDraftRequest, user_id: str, is_n
             reply_to_thread_id=data.reply_to_thread_id,
             reply_to_message_id=data.reply_to_message_id,
             status="draft",
+            attachments=_encode_attachments(data.attachments),
             created_by_user_id=user_id,
             created_time=now,
             updated_time=now,
@@ -118,6 +166,7 @@ def update_draft(draft_id: int, data: UpdateDraftRequest, user_id: str) -> UserE
         if data.bcc_emails is not None: draft.bcc_emails = json.dumps(data.bcc_emails)
         if data.subject is not None: draft.subject = data.subject
         if data.body is not None: draft.body = data.body
+        if data.attachments is not None: draft.attachments = _encode_attachments(data.attachments)
         draft.updated_time = now
         session.add(draft)
         session.flush()

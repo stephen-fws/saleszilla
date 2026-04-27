@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import {
-  X, Send, Save, Paperclip, Loader2, Check,
+  X, Send, Save, Paperclip, Loader2, Check, Trash2,
   Bold, Italic, Underline as UnderlineIcon, Link, List, ListOrdered,
   Quote, Undo2, Redo2, Unlink,
 } from "lucide-react";
@@ -44,7 +44,8 @@ const LineHeight = Extension.create({
   },
 });
 import type { EmailDraft, EmailAttachment, DraftAttachment } from "@/types";
-import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, openDraftAttachment } from "@/lib/api";
+import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, openDraftAttachment, deleteEmailDraft } from "@/lib/api";
+import { validateAttachmentFile, MAX_ATTACHMENT_TOTAL_BYTES, formatBytes } from "@/lib/attachments";
 
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
@@ -298,13 +299,16 @@ interface EmailComposerProps {
   onClose: () => void;
   onSent: () => void;
   onDraftSaved: (draft: EmailDraft) => void;
+  // Fired after the user discards a saved draft. Parent should drop the draft
+  // from its local state (EmailsTab list, NextActionTab savedDraft, etc.).
+  onDiscarded?: (draftId: number) => void;
 }
 
 export default function EmailComposer({
   dealId, initialDraft, contactEmail, contactName, signature,
   isNextAction = false,
   initialDraftAttachments = [],
-  onClose, onSent, onDraftSaved,
+  onClose, onSent, onDraftSaved, onDiscarded,
 }: EmailComposerProps) {
   // id=0 is the "not yet persisted" sentinel from agent-generated drafts
   const [draftId, setDraftId] = useState<number | null>(
@@ -327,7 +331,10 @@ export default function EmailComposer({
     return raw + sigHtml;
   };
   const [body, setBody] = useState(computeInitialBody);
-  const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
+  // Seed manual attachments from the loaded draft so reopening a saved draft
+  // restores the files the user had attached. Drafts created from agent
+  // content (no persisted attachments) start empty.
+  const [attachments, setAttachments] = useState<EmailAttachment[]>(initialDraft?.attachments ?? []);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>(initialDraftAttachments);
   const [showCc, setShowCc] = useState((initialDraft?.ccEmails?.length ?? 0) > 0);
   const [showBcc, setShowBcc] = useState((initialDraft?.bccEmails?.length ?? 0) > 0);
@@ -335,6 +342,7 @@ export default function EmailComposer({
   const [saved, setSaved] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // The editor holds the entire email content (including signature). Send/save
@@ -345,7 +353,35 @@ export default function EmailComposer({
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    files.forEach((file) => {
+    // Reject Outlook-blocked extensions up front — sending them via Graph
+    // succeeds but the recipient's server strips the attachment, leaving the
+    // UI stuck on "Sending…" with no actionable error.
+    const allowed: File[] = [];
+    const rejected: string[] = [];
+    // Track running total across already-attached files + ones we're about to
+    // accept in this batch, so a multi-file pick that crosses 25 MB stops
+    // adding instead of silently letting Graph fail.
+    let runningTotal =
+      attachments.reduce((sum, a) => sum + (a.sizeBytes || 0), 0) +
+      draftAttachments.reduce((sum, a) => sum + (a.fileSize || 0), 0);
+    for (const file of files) {
+      const reason = validateAttachmentFile(file);
+      if (reason) { rejected.push(reason); continue; }
+      if (runningTotal + file.size > MAX_ATTACHMENT_TOTAL_BYTES) {
+        rejected.push(
+          `${file.name} (${formatBytes(file.size)}) — would exceed Outlook's ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} attachment limit.`,
+        );
+        continue;
+      }
+      runningTotal += file.size;
+      allowed.push(file);
+    }
+    if (rejected.length) {
+      setError(rejected.join(" "));
+    } else {
+      setError(null);
+    }
+    allowed.forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
         const base64 = (reader.result as string).split(",")[1];
@@ -373,6 +409,9 @@ export default function EmailComposer({
         bccEmails: bcc.length ? bcc : null,
         subject: subject || null,
         body: body || null,
+        // Always send the full current attachment list — server treats this
+        // as an overwrite, so removals carry through.
+        attachments: attachments,
       };
       if (draftId) {
         const updated = await updateEmailDraft(dealId, draftId, payload);
@@ -392,9 +431,44 @@ export default function EmailComposer({
     }
   }
 
+  async function handleDiscard() {
+    const persistedId = draftId;
+    const hasContent = !!(subject.trim() || body.trim() || attachments.length);
+    if (persistedId || hasContent) {
+      const ok = window.confirm(
+        persistedId
+          ? "Discard this draft? This will permanently delete it."
+          : "Discard your changes?"
+      );
+      if (!ok) return;
+    }
+    setDiscarding(true);
+    setError(null);
+    try {
+      if (persistedId) {
+        await deleteEmailDraft(dealId, persistedId);
+        onDiscarded?.(persistedId);
+      }
+      onClose();
+    } catch {
+      setError("Failed to discard draft.");
+    } finally {
+      setDiscarding(false);
+    }
+  }
+
   async function handleSend() {
     if (!to.length) { setError("Please add at least one recipient"); return; }
     if (!subject.trim()) { setError("Subject is required"); return; }
+    const totalBytes =
+      attachments.reduce((sum, a) => sum + (a.sizeBytes || 0), 0) +
+      draftAttachments.reduce((sum, a) => sum + (a.fileSize || 0), 0);
+    if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) {
+      setError(
+        `Attachments total ${formatBytes(totalBytes)} — exceeds Outlook's ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} limit. Remove some files and try again.`,
+      );
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -534,6 +608,16 @@ export default function EmailComposer({
         >
           <Paperclip className="h-3.5 w-3.5" />
           Attach
+        </button>
+        <button
+          type="button"
+          onClick={handleDiscard}
+          disabled={discarding || sending || saving}
+          title={draftId ? "Delete this draft" : "Discard changes"}
+          className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors disabled:opacity-50"
+        >
+          {discarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          {discarding ? "Discarding…" : "Discard"}
         </button>
         <span className="ml-auto text-[10px] text-slate-400">
           {(() => {

@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Loader2, Star, ArrowRightLeft, Pencil, StickyNote, CheckSquare,
-  Paperclip, Mail, Trash2, Clock, Phone,
+  Paperclip, Mail, Trash2, Clock, Phone, Bot, Sparkles,
 } from "lucide-react";
 import { getActivities } from "@/lib/api";
 import type { ActivityEntry } from "@/lib/api";
+
+// activity_types written by the AI workflow tracker (server-side
+// log_agent_trigger / log_agent_completed). Used to drive the "AI events"
+// filter toggle.
+const AI_ACTIVITY_TYPES = new Set(["agent_triggered", "agent_completed"]);
 
 // ── Activity type config ───────────────────────────────────────────────────────
 
@@ -29,6 +34,8 @@ const ACTIVITY_CONFIG: Record<string, ActivityConfig> = {
   file_deleted:      { icon: Trash2,         iconBg: "bg-red-100",     iconColor: "text-red-500",    label: "File Deleted" },
   email_sent:        { icon: Mail,           iconBg: "bg-sky-100",     iconColor: "text-sky-600",    label: "Email Sent" },
   call_logged:       { icon: Phone,          iconBg: "bg-green-100",   iconColor: "text-green-600",  label: "Call" },
+  agent_triggered:   { icon: Sparkles,       iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Workflow" },
+  agent_completed:   { icon: Bot,            iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Agent" },
 };
 
 const DEFAULT_CONFIG: ActivityConfig = {
@@ -69,6 +76,7 @@ export default function TimelineTab({ dealId, refreshKey }: { dealId: string; re
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAiEvents, setShowAiEvents] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +88,15 @@ export default function TimelineTab({ dealId, refreshKey }: { dealId: string; re
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [dealId, refreshKey]);
+
+  const aiEventCount = useMemo(
+    () => activities.filter((a) => AI_ACTIVITY_TYPES.has(a.activityType)).length,
+    [activities],
+  );
+  const visibleActivities = useMemo(
+    () => (showAiEvents ? activities : activities.filter((a) => !AI_ACTIVITY_TYPES.has(a.activityType))),
+    [activities, showAiEvents],
+  );
 
   if (loading) {
     return (
@@ -111,15 +128,29 @@ export default function TimelineTab({ dealId, refreshKey }: { dealId: string; re
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-3">
+      {aiEventCount > 0 && (
+        <div className="flex items-center justify-end gap-2 pb-2 -mt-1">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showAiEvents}
+              onChange={(e) => setShowAiEvents(e.target.checked)}
+              className="h-3 w-3 rounded border-slate-300 text-violet-600 focus:ring-violet-300"
+            />
+            <Sparkles className="h-3 w-3 text-violet-500" />
+            <span>Show AI events ({aiEventCount})</span>
+          </label>
+        </div>
+      )}
       <div className="relative">
         {/* Vertical connector line */}
         <div className="absolute left-[15px] top-0 bottom-0 w-px bg-slate-100" />
 
         <div className="space-y-0">
-          {activities.map((activity, idx) => {
+          {visibleActivities.map((activity, idx) => {
             const cfg = ACTIVITY_CONFIG[activity.activityType] ?? DEFAULT_CONFIG;
             const Icon = cfg.icon;
-            const isLast = idx === activities.length - 1;
+            const isLast = idx === visibleActivities.length - 1;
 
             return (
               <div key={activity.id} className={`relative flex gap-3 ${isLast ? "pb-2" : "pb-3"}`}>

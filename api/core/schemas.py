@@ -470,6 +470,16 @@ class AttachmentItem(BaseModel):
     content_bytes: str  # base64-encoded
 
 
+class DraftAttachmentInline(BaseModel):
+    """Attachment held inline on a saved user draft (CX_UserEmailDrafts.Attachments
+    JSON column). Distinct from AttachmentItem in that it carries the raw byte
+    size for display when reopening the draft."""
+    name: str
+    content_type: str
+    content_bytes: str  # base64-encoded
+    size_bytes: int = 0
+
+
 class SendEmailRequest(BaseModel):
     to_email: str
     to_name: Optional[str] = None
@@ -514,6 +524,7 @@ class UserEmailDraftItem(BaseModel):
     reply_to_thread_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
     status: str = "draft"
+    attachments: Optional[list[DraftAttachmentInline]] = None
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
 
@@ -527,6 +538,7 @@ class CreateDraftRequest(BaseModel):
     body: Optional[str] = None
     reply_to_thread_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
+    attachments: Optional[list[DraftAttachmentInline]] = None
 
 
 class UpdateDraftRequest(BaseModel):
@@ -536,6 +548,7 @@ class UpdateDraftRequest(BaseModel):
     bcc_emails: Optional[list[str]] = None
     subject: Optional[str] = None
     body: Optional[str] = None
+    attachments: Optional[list[DraftAttachmentInline]] = None
 
 
 class SignatureRequest(BaseModel):

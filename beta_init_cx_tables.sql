@@ -175,16 +175,19 @@ GO
 -- ────────────────────────────────────────────────────────────────────────────
 -- 4. CX_AgentTypeConfig  (registry — needs seeding after install)
 -- ────────────────────────────────────────────────────────────────────────────
+-- Composite PK: (AgentId, TriggerCategory). Same agent can serve multiple
+-- categories (e.g. attachment agent for both followUp and followUpInactive).
 CREATE TABLE CX_AgentTypeConfig (
-    AgentId             VARCHAR(64)     PRIMARY KEY,
+    AgentId             VARCHAR(64)     NOT NULL,
+    TriggerCategory     VARCHAR(32)     NOT NULL,
     AgentName           NVARCHAR(128)   NOT NULL,
     TabType             VARCHAR(32)     NOT NULL,
     ContentType         VARCHAR(16)     NOT NULL DEFAULT 'markdown',
-    TriggerCategory     VARCHAR(32)     NULL,
     SortOrder           INT             NOT NULL DEFAULT 0,
     IsActive            BIT             NOT NULL DEFAULT 1,
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
-    UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE()
+    UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT PK_CX_AgentTypeConfig PRIMARY KEY (AgentId, TriggerCategory)
 );
 PRINT 'Created CX_AgentTypeConfig (REMINDER: seed rows before triggering agents)';
 GO
@@ -253,6 +256,9 @@ CREATE TABLE CX_UserEmailDrafts (
     ReplyToMessageId    NVARCHAR(512)   NULL,
     IsNextAction        BIT             NOT NULL DEFAULT 0,
     Status              VARCHAR(16)     NOT NULL DEFAULT 'draft',
+    -- JSON list of {name, content_type, content_bytes (base64), size_bytes}.
+    -- Capped by the 25 MB attachment policy enforced at send time.
+    Attachments         NVARCHAR(MAX)   NULL,
     CreatedByUserId     VARCHAR(32)     NULL,
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),

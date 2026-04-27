@@ -31,6 +31,9 @@ interface FolderPanelProps {
   selectedId: string;
   onSelect: (id: string) => void;
   loading?: boolean;
+  // Background refresh of folder counts (post-action). Distinct from `loading`
+  // (initial mount) — shows a subtle spinner without blanking the list.
+  refreshing?: boolean;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   potentialCount?: number;
@@ -72,6 +75,7 @@ export default function FolderPanel({
   selectedId,
   onSelect,
   loading = false,
+  refreshing = false,
   viewMode,
   onViewModeChange,
   potentialCount = 0,
@@ -289,6 +293,12 @@ export default function FolderPanel({
             </div>
           ) : (
             <nav className="space-y-0.5 p-2">
+              {refreshing && (
+                <div className="flex items-center justify-end gap-1 px-1 pb-1 text-[10px] text-slate-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Refreshing…</span>
+                </div>
+              )}
               {folders.map((folder) => {
                 const IconComponent = ICON_MAP[folder.icon] || Inbox;
                 const isSelected = folder.id === selectedId;

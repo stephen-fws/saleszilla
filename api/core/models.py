@@ -224,11 +224,13 @@ class CXAgentTypeConfig(Base):
 
     __tablename__ = "CX_AgentTypeConfig"
 
+    # Composite PK: (agent_id, trigger_category). Same agent can serve multiple
+    # categories (e.g. attachment agent for both followUp and followUpInactive).
     agent_id: Mapped[str] = mapped_column("AgentId", String(64), primary_key=True)
+    trigger_category: Mapped[str] = mapped_column("TriggerCategory", String(32), primary_key=True)
     agent_name: Mapped[str] = mapped_column("AgentName", Unicode(128), nullable=False)
     tab_type: Mapped[str] = mapped_column("TabType", String(32), nullable=False)
     content_type: Mapped[str] = mapped_column("ContentType", String(16), nullable=False, default="markdown")
-    trigger_category: Mapped[str | None] = mapped_column("TriggerCategory", String(32), nullable=True)
     sort_order: Mapped[int] = mapped_column("SortOrder", Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
@@ -274,6 +276,10 @@ class CXUserEmailDraft(Base):
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)
     is_next_action: Mapped[bool] = mapped_column("IsNextAction", Boolean, nullable=False, default=False)
+    # JSON-encoded list of {name, content_type, content_bytes (base64), size_bytes}.
+    # Capped by the 25 MB attachment policy enforced at send time, so the
+    # column stays small enough for NVARCHAR(MAX).
+    attachments: Mapped[str | None] = mapped_column("Attachments", UnicodeText, nullable=True)
 
 
 class CXSentEmail(Base):

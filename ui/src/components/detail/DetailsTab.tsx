@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil } from "lucide-react";
 import type { PotentialDetail } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
-import { reasonFieldForStage } from "@/lib/utils";
+import { reasonFieldForStage, reasonOptionsForStage } from "@/lib/utils";
 
 
 const STAGE_COLORS: Record<string, string> = {
@@ -371,6 +371,7 @@ function EditableStage({
   }
 
   const reasonRequired = pending ? reasonFieldForStage(pending) !== null : false;
+  const reasonOptions = pending ? reasonOptionsForStage(pending) : null;
   const canConfirm = !reasonRequired || reason.trim().length > 0;
 
   async function confirm() {
@@ -408,7 +409,21 @@ function EditableStage({
                 </span>
                 ?
               </p>
-              {reasonRequired && (
+              {reasonRequired && reasonOptions ? (
+                <select
+                  autoFocus
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="w-full rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                >
+                  <option value="" disabled>
+                    Select a reason…
+                  </option>
+                  {reasonOptions.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : reasonRequired ? (
                 <textarea
                   autoFocus
                   value={reason}
@@ -417,7 +432,7 @@ function EditableStage({
                   rows={3}
                   className="w-full rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
                 />
-              )}
+              ) : null}
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"

@@ -811,10 +811,31 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
 
 // ── Email drafts & send ──────────────────────────────────────────────────────
 
-export async function getEmailDrafts(dealId: string, isNextAction = false): Promise<EmailDraft[]> {
-  const res = await protectedApi.get(`/potentials/${dealId}/drafts`, { params: { is_next_action: isNextAction } });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDraftAttachments(raw: any): EmailDraft["attachments"] {
+  if (!Array.isArray(raw)) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (res.data.data ?? []).map((r: any): EmailDraft => ({
+  return raw.map((a: any) => ({
+    name: a.name ?? "",
+    contentType: a.content_type ?? "application/octet-stream",
+    contentBytes: a.content_bytes ?? "",
+    sizeBytes: a.size_bytes ?? 0,
+  }));
+}
+
+function encodeDraftAttachments(items: EmailDraft["attachments"]) {
+  if (!items) return undefined;
+  return items.map((a) => ({
+    name: a.name,
+    content_type: a.contentType,
+    content_bytes: a.contentBytes,
+    size_bytes: a.sizeBytes,
+  }));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDraft(r: any): EmailDraft {
+  return {
     id: r.id,
     potentialId: r.potential_id,
     toEmail: r.to_email ?? null,
@@ -826,9 +847,15 @@ export async function getEmailDrafts(dealId: string, isNextAction = false): Prom
     replyToThreadId: r.reply_to_thread_id ?? null,
     replyToMessageId: r.reply_to_message_id ?? null,
     status: r.status,
+    attachments: mapDraftAttachments(r.attachments),
     createdTime: r.created_time ?? null,
     updatedTime: r.updated_time ?? null,
-  }));
+  };
+}
+
+export async function getEmailDrafts(dealId: string, isNextAction = false): Promise<EmailDraft[]> {
+  const res = await protectedApi.get(`/potentials/${dealId}/drafts`, { params: { is_next_action: isNextAction } });
+  return (res.data.data ?? []).map(mapDraft);
 }
 
 export async function createEmailDraft(dealId: string, data: Partial<EmailDraft>, isNextAction = false): Promise<EmailDraft> {
@@ -841,15 +868,9 @@ export async function createEmailDraft(dealId: string, data: Partial<EmailDraft>
     body: data.body,
     reply_to_thread_id: data.replyToThreadId,
     reply_to_message_id: data.replyToMessageId,
+    attachments: encodeDraftAttachments(data.attachments ?? null),
   });
-  const r = res.data.data;
-  return {
-    id: r.id, potentialId: r.potential_id, toEmail: r.to_email ?? null,
-    toName: r.to_name ?? null, ccEmails: r.cc_emails ?? null, bccEmails: r.bcc_emails ?? null,
-    subject: r.subject ?? null, body: r.body ?? null,
-    replyToThreadId: r.reply_to_thread_id ?? null, replyToMessageId: r.reply_to_message_id ?? null,
-    status: r.status, createdTime: r.created_time ?? null, updatedTime: r.updated_time ?? null,
-  };
+  return mapDraft(res.data.data);
 }
 
 export async function updateEmailDraft(dealId: string, draftId: number, data: Partial<EmailDraft>): Promise<EmailDraft> {
@@ -860,15 +881,9 @@ export async function updateEmailDraft(dealId: string, draftId: number, data: Pa
     bcc_emails: data.bccEmails,
     subject: data.subject,
     body: data.body,
+    attachments: encodeDraftAttachments(data.attachments ?? null),
   });
-  const r = res.data.data;
-  return {
-    id: r.id, potentialId: r.potential_id, toEmail: r.to_email ?? null,
-    toName: r.to_name ?? null, ccEmails: r.cc_emails ?? null, bccEmails: r.bcc_emails ?? null,
-    subject: r.subject ?? null, body: r.body ?? null,
-    replyToThreadId: r.reply_to_thread_id ?? null, replyToMessageId: r.reply_to_message_id ?? null,
-    status: r.status, createdTime: r.created_time ?? null, updatedTime: r.updated_time ?? null,
-  };
+  return mapDraft(res.data.data);
 }
 
 export async function deleteEmailDraft(dealId: string, draftId: number): Promise<void> {

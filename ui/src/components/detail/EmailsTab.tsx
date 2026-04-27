@@ -397,6 +397,9 @@ export default function EmailsTab({ dealId, contactEmail, contactName, readOnly 
         contactEmail={contactEmail} contactName={contactName} signature={signature}
         onClose={() => { setComposing(false); setEditingDraft(null); }}
         onSent={handleSent} onDraftSaved={handleDraftSaved}
+        onDiscarded={(draftId) => {
+          setDrafts((prev) => prev.filter((d) => d.id !== draftId));
+        }}
       />
     );
   }

@@ -52,6 +52,9 @@ interface DetailPanelProps {
   onComplete?: () => void;
   onPotentialNavigate?: (dealId: string) => void;
   onEmailSent?: () => void;
+  // Bumped by the parent (DashboardPage) after a global refresh so we
+  // refetch the deal + bump the timeline without a full unmount.
+  refreshKey?: number;
   availableStages?: string[];
   availableServices?: string[];
   initialTab?: DetailTab;
@@ -86,6 +89,7 @@ export default function DetailPanel({
   onComplete: _onComplete,
   onPotentialNavigate,
   onEmailSent,
+  refreshKey = 0,
   availableStages = [],
   availableServices = [],
   initialTab,
@@ -155,6 +159,10 @@ export default function DetailPanel({
     }
     // Reset tab to initialTab (or details) when deal changes
     setActiveTab(initialTab ?? "details");
+    // Clear stale data immediately so the loading spinner shows during the
+    // fetch — otherwise the panel keeps rendering the previous potential.
+    setDetail(null);
+    setAiHighlight(null);
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -165,6 +173,21 @@ export default function DetailPanel({
     getAiHighlight(dealId).then((h) => { if (!cancelled) setAiHighlight(h); });
     return () => { cancelled = true; };
   }, [dealId, initialTab]);
+
+  // Background refresh: parent bumps refreshKey after a global action (e.g.
+  // send-from-NextAction). Refetch the deal + bump the timeline without
+  // blanking detail — keeps the panel readable while it updates in place.
+  useEffect(() => {
+    if (!dealId || refreshKey === 0) return;
+    let cancelled = false;
+    getPotentialDetail(dealId)
+      .then((d) => { if (!cancelled) setDetail(d); })
+      .catch(() => { /* silent — detail still shows previous */ });
+    getAiHighlight(dealId).then((h) => { if (!cancelled) setAiHighlight(h); }).catch(() => {});
+    setTimelineRefreshKey((k) => k + 1);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   // Poll all agent results to show global running indicator.
   // Stop polling if the pending agents have been running > 2hrs — they're stuck.
