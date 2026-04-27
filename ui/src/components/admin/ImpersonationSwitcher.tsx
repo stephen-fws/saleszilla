@@ -68,7 +68,7 @@ export default function ImpersonationSwitcher() {
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
           viewingAs
-            ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+            ? "border-slate-700 bg-slate-800 text-white hover:bg-slate-700"
             : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
         }`}
         title={viewingAs ? `Viewing as ${viewingAs.name}` : "View as another user"}
@@ -77,7 +77,7 @@ export default function ImpersonationSwitcher() {
         <span className="max-w-[140px] truncate">
           {viewingAs ? `Viewing: ${viewingAs.name}` : "View as…"}
         </span>
-        <ChevronDown className="h-3 w-3 text-slate-400" />
+        <ChevronDown className={`h-3 w-3 ${viewingAs ? "text-slate-300" : "text-slate-400"}`} />
       </button>
 
       {open && (
@@ -120,13 +120,15 @@ export default function ImpersonationSwitcher() {
                     key={u.userId}
                     onClick={() => pick(u)}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
-                      isActive ? "bg-amber-50 text-amber-800" : "hover:bg-slate-50 text-slate-700"
+                      isActive ? "bg-slate-800 text-white" : "hover:bg-slate-50 text-slate-700"
                     }`}
                   >
                     <div className="flex-1 min-w-0 text-left">
                       <p className="font-medium truncate">{u.name || u.email}</p>
                       {u.name && (
-                        <p className="text-[10px] text-slate-400 truncate">{u.email}</p>
+                        <p className={`text-[10px] truncate ${isActive ? "text-slate-300" : "text-slate-400"}`}>
+                          {u.email}
+                        </p>
                       )}
                     </div>
                   </button>
