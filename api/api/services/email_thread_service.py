@@ -4,8 +4,9 @@
    Salezilla-sent email. Returns the full conversation including Outlook-sent
    and client replies in real time.
 2. CX_SentEmails — Salezilla-sent emails (immediate, no sync dependency).
-3. CRM_Sales_Sync_Emails — sync service captures (covers Outlook-sent + inbound
-   for threads we don't have a conversationId for).
+3. VW_CRM_Sales_Sync_Emails — sync service captures (covers Outlook-sent +
+   inbound for threads we don't have a conversationId for). Always queried by
+   the 7-digit potential_number via the view's PotentialNumber column.
 
 Priority: Graph > CX_SentEmails > sync table.
 Deduplication by internetMessageId across all sources.
@@ -198,8 +199,8 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
             SELECT
                 id, [From], [To], CC, [Subject], UniqueBody,
                 SentTime, ReceivedTime, internetMessageID
-            FROM CRM_Sales_Sync_Emails
-            WHERE [Related To] = :pn
+            FROM VW_CRM_Sales_Sync_Emails
+            WHERE PotentialNumber = :pn
             ORDER BY COALESCE(SentTime, ReceivedTime) ASC
         """), {"pn": potential_number}).all()
 

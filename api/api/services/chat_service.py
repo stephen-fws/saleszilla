@@ -221,8 +221,8 @@ def build_context_prompt(potential_id: str) -> str:
                     SELECT TOP 15
                         [From], [To], [Subject], UniqueBody,
                         SentTime, ReceivedTime
-                    FROM CRM_Sales_Sync_Emails
-                    WHERE [Related To] = :pn
+                    FROM VW_CRM_Sales_Sync_Emails
+                    WHERE PotentialNumber = :pn
                     ORDER BY COALESCE(SentTime, ReceivedTime) DESC
                 """), {"pn": pn}).all()
             except Exception:
