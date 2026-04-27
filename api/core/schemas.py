@@ -34,6 +34,7 @@ class UserInfo(BaseModel):
     is_active: bool = True
     is_ms_connected: bool = False
     ms_email: Optional[str] = None
+    is_super_admin: bool = False
 
 
 class MicrosoftConnectResponse(BaseModel):

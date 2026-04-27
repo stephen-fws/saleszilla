@@ -121,6 +121,23 @@ def clear_user_ms_tokens(user_id: str) -> None:
 # ── Composite queries ────────────────────────────────────────────────────────
 
 
+def is_super_admin(user_id: str) -> bool:
+    """Whether this user is a superadmin (CX_UserTokens.IsSuperAdmin = 1)."""
+    tokens = load_user_tokens(user_id)
+    return bool(tokens and tokens.is_active and tokens.is_super_admin)
+
+
+def list_active_users() -> list[User]:
+    """All active users — feeds the superadmin impersonation dropdown."""
+    with get_session() as session:
+        rows = session.execute(
+            select(User).where(User.is_active == True).order_by(User.name)
+        ).scalars().all()
+        for u in rows:
+            session.expunge(u)
+        return list(rows)
+
+
 def get_user_info(user_id: str) -> UserInfo | None:
     """Load User + CX_UserTokens and compose a UserInfo response."""
     user = load_user_by_id(user_id)
@@ -142,4 +159,5 @@ def get_user_info(user_id: str) -> UserInfo | None:
         is_active=user.is_active,
         is_ms_connected=is_connected,
         ms_email=tokens.ms_email if tokens else None,
+        is_super_admin=bool(tokens and tokens.is_super_admin),
     )

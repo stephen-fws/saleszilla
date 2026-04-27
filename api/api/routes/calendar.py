@@ -123,7 +123,7 @@ def _graph_dt_to_utc_iso(field: dict) -> str | None:
     utc = aware.astimezone(timezone.utc)
     return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-from core.auth import get_current_active_user
+from core.auth import get_current_active_user, is_impersonating
 from core.exceptions import BotApiException
 from core.models import User
 from core.ms_graph import (
@@ -193,7 +193,15 @@ async def get_calendar_events(
     user: User = Depends(get_current_active_user),
     weeks: int = Query(default=4, ge=1, le=52),
 ) -> ResponseModel[list[CalendarEventResponse]]:
-    ms_token = await get_valid_ms_token(user.user_id)
+    # If a superadmin is viewing as a user who hasn't connected MS, return
+    # empty rather than a 424 reconnect prompt — the prompt would target the
+    # admin, not the impersonated user.
+    try:
+        ms_token = await get_valid_ms_token(user.user_id)
+    except BotApiException as e:
+        if e.code == 424 and is_impersonating(user):
+            return ResponseModel(data=[])
+        raise
 
     now = datetime.now(timezone.utc)
     start_dt = now - timedelta(days=now.weekday())

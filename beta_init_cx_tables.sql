@@ -139,6 +139,9 @@ CREATE TABLE CX_UserTokens (
     WorkingHoursStart   VARCHAR(5)      NULL,
     WorkingHoursEnd     VARCHAR(5)      NULL,
     Timezone            VARCHAR(64)     NULL,
+    -- Superadmin: can impersonate any user (X-Impersonate-User-Id header).
+    -- Mutations are blocked by middleware while impersonating.
+    IsSuperAdmin        BIT             NOT NULL DEFAULT 0,
     CreatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     UpdatedTime         DATETIME        NOT NULL DEFAULT GETDATE(),
     IsActive            BIT             NOT NULL DEFAULT 1,

@@ -70,6 +70,7 @@ from api.routes.twilio import router as twilio_router
 from api.routes.support import router as support_router
 from api.routes.follow_ups import router as follow_ups_router
 from api.routes.lookups import router as lookups_router
+from api.routes.admin import router as admin_router
 
 app.include_router(auth_router)
 app.include_router(potentials_router)
@@ -93,6 +94,7 @@ app.include_router(twilio_router)
 app.include_router(support_router)
 app.include_router(follow_ups_router)
 app.include_router(lookups_router)
+app.include_router(admin_router)
 
 # ── Exception handlers ───────────────────────────────────────────────────────
 

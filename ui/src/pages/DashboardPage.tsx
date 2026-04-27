@@ -24,6 +24,8 @@ import GlobalChatPanel from "@/components/chat/GlobalChatPanel";
 import SettingsDrawer from "@/components/settings/SettingsDrawer";
 import MeetingBriefOverlay from "@/components/sidebar/MeetingBriefOverlay";
 import MeetingBriefsList from "@/components/sidebar/MeetingBriefsList";
+import ImpersonationSwitcher from "@/components/admin/ImpersonationSwitcher";
+import { useImpersonationStore } from "@/store/impersonationStore";
 import type {
   ViewMode,
   Folder,
@@ -57,6 +59,8 @@ export default function DashboardPage() {
   const isMobile = useIsMobile();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const viewingAs = useImpersonationStore((s) => s.viewingAs);
+  const clearViewingAs = useImpersonationStore((s) => s.clearViewingAs);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [globalChatOpen, setGlobalChatOpen] = useState(false);
@@ -586,6 +590,24 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-white">
+      {/* Impersonation banner — visible whenever a superadmin is "viewing as" */}
+      {viewingAs && (
+        <div className="flex items-center justify-center gap-3 bg-slate-800 border-b border-slate-900 px-4 py-1.5 text-xs text-white">
+          <span>
+            Viewing as <strong>{viewingAs.name}</strong> ({viewingAs.email}) — read-only mode.
+          </span>
+          <button
+            onClick={() => {
+              clearViewingAs();
+              window.location.reload();
+            }}
+            className="rounded border border-slate-600 bg-slate-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-600"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex h-12 items-center border-b border-slate-200 bg-slate-50 px-4 flex-shrink-0">
         <div className="flex items-center gap-2 shrink-0">
@@ -624,6 +646,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0 ml-auto">
+          {user?.is_super_admin && <ImpersonationSwitcher />}
           <button
             onClick={() => setGlobalChatOpen(true)}
             className="flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm"
@@ -632,14 +655,16 @@ export default function DashboardPage() {
             <Sparkles className="h-3.5 w-3.5" />
             Ask AI
           </button>
-          <button
-            onClick={() => setCalendarOpen(true)}
-            className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
-            title="Open calendar"
-          >
-            <Calendar className="h-4 w-4" />
-            Calendar
-          </button>
+          {!viewingAs && (
+            <button
+              onClick={() => setCalendarOpen(true)}
+              className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
+              title="Open calendar"
+            >
+              <Calendar className="h-4 w-4" />
+              Calendar
+            </button>
+          )}
 
           {/* User menu */}
           <div className="relative" ref={userMenuRef}>
@@ -810,7 +835,7 @@ export default function DashboardPage() {
                 onSelectItem={handleQueueItemSelect}
                 folderType={currentFolderType}
                 loading={loadingQueue}
-                onResolveItem={handleResolveQueueItem}
+                onResolveItem={viewingAs ? undefined : handleResolveQueueItem}
               />
             )
           ) : viewMode === "accounts" ? (
@@ -828,7 +853,7 @@ export default function DashboardPage() {
               loading={loadingPotentials}
               activeFilterCount={activeFilterCount}
               onClearFilters={handleClearFilters}
-              onNewDeal={() => setNewPotentialOpen(true)}
+              onNewDeal={viewingAs ? undefined : () => setNewPotentialOpen(true)}
               availableStages={filterOptions.stages}
               onStageChange={handleStageChange}
               currentUserName={includeTeam ? (user?.name ?? null) : null}

@@ -53,6 +53,20 @@ export async function refreshToken(): Promise<ApiResponse<{ access_token: string
   return res.data;
 }
 
+// ── Superadmin ──────────────────────────────────────────────────────────────
+
+import type { AdminUser } from "@/types";
+
+export async function listAdminUsers(): Promise<AdminUser[]> {
+  const res = await protectedApi.get("/admin/users");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((u: any): AdminUser => ({
+    userId: u.user_id,
+    name: u.name ?? "",
+    email: u.email ?? "",
+  }));
+}
+
 // ── Folders & Queue ─────────────────────────────────────────────────────────
 
 export async function getFolders(): Promise<{ folders: Folder[] }> {

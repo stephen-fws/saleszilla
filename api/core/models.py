@@ -146,6 +146,10 @@ class CXUserToken(Base):
     working_hours_start: Mapped[str | None] = mapped_column("WorkingHoursStart", String(5), nullable=True)  # "09:00"
     working_hours_end: Mapped[str | None] = mapped_column("WorkingHoursEnd", String(5), nullable=True)      # "18:00"
     timezone: Mapped[str | None] = mapped_column("Timezone", String(64), nullable=True)                      # IANA, e.g. "Asia/Kolkata"
+    # Superadmin flag — when True, the user can impersonate any other user via
+    # the X-Impersonate-User-Id header. Read-only when impersonating (the
+    # mutation-guard middleware blocks POST/PATCH/PUT/DELETE in that mode).
+    is_super_admin: Mapped[bool] = mapped_column("IsSuperAdmin", Boolean, nullable=False, default=False)
     created_time: Mapped[datetime] = mapped_column("CreatedTime", DateTime, nullable=False)
     updated_time: Mapped[datetime] = mapped_column("UpdatedTime", DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, nullable=False, default=True)

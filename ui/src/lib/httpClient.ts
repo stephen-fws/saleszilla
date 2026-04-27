@@ -43,6 +43,19 @@ function createInstance(isProtected = false): AxiosInstance {
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+      // Superadmin impersonation: read directly from localStorage (rather
+      // than importing the store) to avoid pulling Zustand into the request
+      // path on every call. The store persists under this exact key.
+      try {
+        const raw = localStorage.getItem("sz-impersonation-storage");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const userId = parsed?.state?.viewingAs?.userId;
+          if (userId) {
+            config.headers["X-Impersonate-User-Id"] = userId;
+          }
+        }
+      } catch { /* ignore — header just won't be sent */ }
       return config;
     });
 

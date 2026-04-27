@@ -308,8 +308,14 @@ async def refresh_token(
 async def get_me(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[UserInfo]:
-    """Return authenticated user info including MS connection status."""
-    user_info = get_user_info(user.user_id)
+    """Return authenticated user info including MS connection status.
+
+    Always reports the *real* logged-in user, even when an impersonation
+    header is present — so the UI's avatar/identity stays the superadmin's.
+    The frontend tracks "viewing as" separately in its own state.
+    """
+    real_user_id = getattr(user, "impersonated_by", None) or user.user_id
+    user_info = get_user_info(real_user_id)
     if not user_info:
         raise BotApiException(404, "ERR_USER_NOT_FOUND", "User not found.")
     return ResponseModel(data=user_info)

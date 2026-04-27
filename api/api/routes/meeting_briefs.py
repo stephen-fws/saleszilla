@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel
 
-from core.auth import get_current_active_user
+from core.auth import get_current_active_user, is_impersonating
 from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import ResponseModel
@@ -26,7 +26,14 @@ async def upcoming_briefs(
     Idempotent: cache hits are instant; only triggers the agent for missing or
     stale briefs. Designed to be called on dashboard mount and on tab focus.
     """
-    items = await get_upcoming_briefs(user.user_id, hours_ahead=hours_ahead)
+    # Impersonated user may not have connected MS — swallow the 424 and return
+    # empty so the superadmin doesn't get pushed into a reconnect flow.
+    try:
+        items = await get_upcoming_briefs(user.user_id, hours_ahead=hours_ahead)
+    except BotApiException as e:
+        if e.code == 424 and is_impersonating(user):
+            return ResponseModel(data=[])
+        raise
     return ResponseModel(data=items)
 
 

@@ -6,6 +6,13 @@ export interface User {
   is_active: boolean;
   is_ms_connected: boolean;
   ms_email: string | null;
+  is_super_admin: boolean;
+}
+
+export interface AdminUser {
+  userId: string;
+  name: string;
+  email: string;
 }
 
 export interface ApiResponse<T> {
