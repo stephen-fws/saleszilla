@@ -386,6 +386,7 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
       replyToThreadId: replyContext.threadId,
       replyToMessageId: replyContext.internetMessageId,
       status: "draft",
+      attachments: null,
       createdTime: new Date().toISOString(),
       updatedTime: new Date().toISOString(),
     };

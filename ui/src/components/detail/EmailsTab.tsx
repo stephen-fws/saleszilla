@@ -364,7 +364,7 @@ export default function EmailsTab({ dealId, contactEmail, contactName, readOnly 
       subject: thread.subject.startsWith("RE:") ? thread.subject : `RE: ${thread.subject}`,
       body: "",
       replyToThreadId: thread.replyThreadId, replyToMessageId: thread.replyToMessageId,
-      status: "draft", createdTime: null, updatedTime: null,
+      status: "draft", attachments: null, createdTime: null, updatedTime: null,
     };
     setEditingDraft(replyDraft);
     setComposing(true);
