@@ -615,13 +615,26 @@ def process_webhook(payload_data: dict) -> None:
             logger.exception("news: failed to handle A1 callback for %s", external_id)
 
 
-def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potential") -> None:
+def init_agents_for_potential(
+    potential_id: str,
+    triggered_by: str = "new_potential",
+    tab_types: list[str] | None = None,
+) -> None:
     """
-    Upsert all active agent rows to 'pending' and fire the agentflow trigger.
+    Upsert agent insight rows to 'pending' and fire the agentflow trigger.
     Works for both new potentials and re-runs on old ones — existing rows are
     reset to pending so the UI shows loading state while agents execute.
+
+    `tab_types`: optional filter. When set, only configs whose `tab_type` is
+    in this list get pending insight rows. Used by the Research / Solution
+    tab "Run Agents" buttons so a user re-running research doesn't see an
+    FRE / next_action pending row appear (which would imply we're about to
+    re-send the first response email).
     """
-    logger.info("init_agents_for_potential called: potential_id=%s triggered_by=%s", potential_id, triggered_by)
+    logger.info(
+        "init_agents_for_potential called: potential_id=%s triggered_by=%s tab_types=%s",
+        potential_id, triggered_by, tab_types,
+    )
     # Always fire the agentflow trigger — independent of whether config rows exist
     potential_data = _load_potential_data(potential_id)
     logger.info("Loaded potential data: %s", potential_data)
@@ -635,8 +648,17 @@ def init_agents_for_potential(potential_id: str, triggered_by: str = "new_potent
     # DB insights are keyed on potential_number (7-digit business key), not UUID
     pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
 
-    # Only create insight rows for newEnquiry agents (not followUp, meetingBrief, etc.)
-    configs = list_active_configs(trigger_category="newEnquiry")
+    # Pending insight rows for the agents the FRE graph will fire:
+    #   - newEnquiry agents (FRE draft, research, solution, attachments…)
+    #   - stage_update (a.k.a. stage analyzer) — also runs as part of this graph
+    # Other categories (followUp, meeting_brief, etc.) are NOT seeded here.
+    configs = [
+        *list_active_configs(trigger_category="newEnquiry"),
+        *list_active_configs(trigger_category="stage_update"),
+    ]
+    if tab_types:
+        wanted = {t for t in tab_types if t}
+        configs = [c for c in configs if c.tab_type in wanted]
     if not configs:
         return
 

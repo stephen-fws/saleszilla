@@ -202,7 +202,11 @@ def _generate_title(user_message: str, assistant_response: str) -> str | None:
 # ── System prompt ────────────────────────────────────────────────────────────
 
 def _build_system_prompt(user: User) -> str:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    from zoneinfo import ZoneInfo
+    from api.services.user_service import get_user_timezone_or_utc
+    tz_name = get_user_timezone_or_utc(user.user_id)
+    now_local = datetime.now(ZoneInfo(tz_name))
+    now_str = now_local.strftime("%Y-%m-%d %H:%M %Z")
     return f"""You are Salezilla AI — a sales analyst assistant embedded in an AI-powered CRM for Flatworld Solutions.
 
 You help the salesperson get insights across their entire pipeline: potentials, accounts (companies), and contacts.
@@ -211,7 +215,10 @@ You help the salesperson get insights across their entire pipeline: potentials, 
 - Name: {user.name}
 - Email: {user.email}
 - User ID: {user.user_id}
-- Today's date: {today}
+- Current date and time: {now_str}
+- Timezone: {tz_name}
+
+When you mention any date or time in your response (meetings, deadlines, "yesterday", relative times, etc.), express it in {tz_name}. Include the timezone abbreviation in absolute timestamps so the user is never confused.
 
 # How to answer questions
 1. **Always use tools to get data.** Never invent numbers, names, stages, or dates. If a tool returns no data, say so honestly.

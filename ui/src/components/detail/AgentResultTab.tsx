@@ -212,7 +212,15 @@ export default function AgentResultTab({ dealId, tabType, emptyLabel, emptyDescr
   async function handleRunAll() {
     setRunning(true);
     try {
-      await runAllAgents(dealId);
+      // Run from Research or Solution tab → only seed research + solution
+      // pending rows (no FRE/next_action insight, so the user doesn't see
+      // a phantom "FRE pending" indicator and doesn't risk re-sending the
+      // first response email).
+      const isResearchOrSolution = tabType === "research" || tabType === "solution_brief";
+      await runAllAgents(
+        dealId,
+        isResearchOrSolution ? { tabTypes: ["research", "solution_brief"] } : undefined,
+      );
       await load();
     } catch {
       // ignore

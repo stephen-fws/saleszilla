@@ -16,6 +16,7 @@ import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults, getAiHighlight } from "@/lib/api";
 import type { UpdatePotentialPayload } from "@/lib/api";
 import { reasonFieldForStage } from "@/lib/utils";
+import { confirmDiscardIfDirty } from "@/lib/composerDirty";
 import TabBar from "./TabBar";
 import NotesTab from "./NotesTab";
 import TodosTab from "./TodosTab";
@@ -61,14 +62,7 @@ interface DetailPanelProps {
   initialTab?: DetailTab;
 }
 
-const STAGE_COLORS: Record<string, string> = {
-  prospect: "bg-slate-100 text-slate-600",
-  qualification: "bg-blue-100 text-blue-700",
-  proposal: "bg-amber-100 text-amber-700",
-  negotiation: "bg-orange-100 text-orange-700",
-  "closed-won": "bg-emerald-100 text-emerald-700",
-  "closed-lost": "bg-red-100 text-red-700",
-};
+const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
 function StubTab({ label, icon: Icon }: { label: string; icon: typeof Loader2 }) {
   return (
@@ -276,7 +270,7 @@ export default function DetailPanel({
                   </span>
                 )}
                 {detail.stage && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ${STAGE_COLORS[detail.stage] ?? "bg-slate-100 text-slate-600"}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ${STAGE_BADGE}`}>
                     {detail.stage}
                   </span>
                 )}
@@ -380,7 +374,16 @@ export default function DetailPanel({
       </div>
 
       {/* Tab bar */}
-      <TabBar activeTab={activeTab} onTabChange={setActiveTab} hasDeal={!!dealId} />
+      <TabBar
+        activeTab={activeTab}
+        onTabChange={(t) => {
+          // Guard: confirm before leaving the Emails / Next Action tab if the
+          // composer has unsaved edits. Other tabs don't host the composer.
+          if (t !== activeTab && !confirmDiscardIfDirty()) return;
+          setActiveTab(t);
+        }}
+        hasDeal={!!dealId}
+      />
 
       {/* Tab content */}
       <div className="flex-1 overflow-hidden flex flex-col">

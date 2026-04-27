@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Loader2, Trash2, Bot, User, AlertCircle, Square, Pencil, Globe } from "lucide-react";
+import { Send, Loader2, Trash2, Bot, User, AlertCircle, Square, Pencil, Globe, Calendar } from "lucide-react";
 import { getChatHistory, clearChatHistory, getChatSuggestions } from "@/lib/api";
 import type { ChatMessage } from "@/lib/api";
 import { tokenStore } from "@/lib/tokenStore";
@@ -72,6 +72,9 @@ export default function ChatTab({ dealId }: ChatTabProps) {
   const [sending, setSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [isSearchingWeb, setIsSearchingWeb] = useState(false);
+  // Client-side tool currently executing (e.g. list_meetings). Cleared as
+  // soon as text starts streaming back from the model.
+  const [runningTool, setRunningTool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -169,8 +172,13 @@ export default function ChatTab({ dealId }: ChatTabProps) {
             const data = JSON.parse(line.slice(6));
             if (data.type === "searching") {
               setIsSearchingWeb(true);
+            } else if (data.type === "tool") {
+              // Client-side tool started (e.g. list_meetings). Show an
+              // indicator until text starts arriving.
+              setRunningTool(data.name ?? "tool");
             } else if (data.type === "text") {
               setIsSearchingWeb(false);
+              setRunningTool(null);
               accumulated += data.content;
               setStreamingContent(accumulated);
             } else if (data.type === "done") {
@@ -202,6 +210,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
     } finally {
       setSending(false);
       setIsSearchingWeb(false);
+      setRunningTool(null);
       inputRef.current?.focus();
     }
   }, [input, sending, dealId]);
@@ -288,7 +297,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
                 } : undefined}
               />
             ))}
-            {sending && !streamingContent && !isSearchingWeb && (
+            {sending && !streamingContent && !isSearchingWeb && !runningTool && (
               <div className="flex gap-2.5">
                 <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
                   <Bot className="h-3 w-3 text-white" />
@@ -306,6 +315,20 @@ export default function ChatTab({ dealId }: ChatTabProps) {
                 Searching the web…
               </div>
             )}
+            {runningTool && (() => {
+              // Per-tool label/icon. Add cases here as new client-side tools land.
+              const toolMeta: Record<string, { label: string; Icon: typeof Loader2 }> = {
+                list_meetings: { label: "Looking up your meetings…", Icon: Calendar },
+              };
+              const meta = toolMeta[runningTool] ?? { label: `Running ${runningTool}…`, Icon: Loader2 };
+              const Icon = meta.Icon;
+              return (
+                <div className="flex items-center gap-1.5 text-[11px] text-violet-500 px-1">
+                  <Icon className="h-3 w-3 animate-pulse" />
+                  {meta.label}
+                </div>
+              );
+            })()}
             {isStreaming && (
               <MessageBubble
                 msg={{ id: -1, role: "assistant", content: streamingContent, createdTime: null }}

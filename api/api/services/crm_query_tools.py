@@ -1076,6 +1076,76 @@ def list_owners(name_like: str | None = None) -> dict[str, Any]:
         }
 
 
+# ── Tool 13: list_meetings ───────────────────────────────────────────────────
+
+def list_meetings(
+    potential_number: str | None = None,
+    hours_ahead: int = 168,
+    hours_behind: int = 0,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Return meetings from CX_Meetings, scoped to the calling user (and team
+    when scope includes reportees). Accepts an optional 7-digit
+    potential_number to narrow to one deal's meetings.
+
+    `hours_ahead` / `hours_behind` define the window around now; default is
+    "next 7 days, no past".
+    """
+    from core.models import CXMeeting
+
+    scope = get_scope()
+    if scope is not None and not scope:
+        return {"meetings": [], "total": 0, "scope_empty": True}
+
+    now = datetime.now(timezone.utc)
+    start_window = now - timedelta(hours=max(0, hours_behind))
+    end_window = now + timedelta(hours=max(0, hours_ahead))
+
+    with get_session() as session:
+        stmt = select(CXMeeting).where(
+            CXMeeting.is_active == True,
+            CXMeeting.start_time >= start_window.replace(tzinfo=None),
+            CXMeeting.start_time <= end_window.replace(tzinfo=None),
+        )
+        if scope is not None:
+            stmt = stmt.where(CXMeeting.user_id.in_(scope))
+        if potential_number:
+            # CX_Meetings.PotentialId stores the 7-digit number; tolerate
+            # leading "#" in case the agent echoes the badge format.
+            pn = potential_number.lstrip("#").strip()
+            stmt = stmt.where(CXMeeting.potential_id == pn)
+        stmt = stmt.order_by(CXMeeting.start_time.asc()).limit(limit)
+        rows = session.execute(stmt).scalars().all()
+
+        out: list[dict[str, Any]] = []
+        for m in rows:
+            # Times stored naive UTC — surface as UTC ISO with Z so the model
+            # can convert to the user's timezone (per the system-prompt rule).
+            start_iso = m.start_time.replace(tzinfo=timezone.utc).isoformat() if m.start_time else None
+            end_iso = m.end_time.replace(tzinfo=timezone.utc).isoformat() if m.end_time else None
+            out.append({
+                "ms_event_id": m.ms_event_id,
+                "title": m.title,
+                "start_utc": start_iso,
+                "end_utc": end_iso,
+                "location": m.location,
+                "meeting_link": m.meeting_link,
+                "potential_number": m.potential_id,
+                "attendees": m.attendees,  # JSON string from sync — agent can parse if needed
+                "description_excerpt": (m.description or "")[:300] if m.description else None,
+            })
+
+    return {
+        "meetings": out,
+        "total": len(out),
+        "window": {
+            "from_utc": start_window.replace(microsecond=0).isoformat(),
+            "to_utc": end_window.replace(microsecond=0).isoformat(),
+        },
+        "note": "All times are UTC. Convert to the user's timezone when presenting.",
+    }
+
+
 # ── Tool registry — exposed to Claude ────────────────────────────────────────
 
 TOOL_FUNCTIONS = {
@@ -1091,6 +1161,7 @@ TOOL_FUNCTIONS = {
     "time_based_query": time_based_query,
     "recent_activity": recent_activity,
     "list_owners": list_owners,
+    "list_meetings": list_meetings,
 }
 
 
@@ -1319,6 +1390,40 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "name_like": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "list_meetings",
+        "description": (
+            "List meetings from the user's connected calendar (the local CX_Meetings table — "
+            "synced from Microsoft Calendar). Use this whenever the user asks about meetings: "
+            "'next meeting', 'today's meetings', 'upcoming meetings with X', 'last meeting with this client', etc. "
+            "Returns title, start/end (UTC ISO), location, meeting link, linked potential_number (if any), and attendees. "
+            "Always convert UTC timestamps to the user's timezone (set in the system prompt) when presenting."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "potential_number": {
+                    "type": "string",
+                    "description": "Optional 7-digit potential number to scope to one deal's meetings only.",
+                },
+                "hours_ahead": {
+                    "type": "integer",
+                    "description": "How many hours forward from now to include. Default 168 (7 days).",
+                    "default": 168,
+                },
+                "hours_behind": {
+                    "type": "integer",
+                    "description": "How many hours backward from now to include. Default 0 (future-only). Set >0 for 'last meeting' style queries.",
+                    "default": 0,
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "maximum": 50,
+                },
             },
         },
     },

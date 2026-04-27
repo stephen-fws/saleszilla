@@ -81,7 +81,45 @@ export function renderInline(text: string): React.ReactNode[] {
  * compact=false (default) — standard chat style: text-sm, heavier headings
  */
 export default function MarkdownBlock({ content, compact = false }: { content: string; compact?: boolean }) {
-  const lines = content.split("\n");
+  const rawLines = content.split("\n");
+
+  // ── Normalisation pass ──────────────────────────────────────────────────
+  // Some agents emit a bullet marker on its own line and the content on the
+  // next line:
+  //   *
+  //   What obstacles do you currently encounter…
+  // The main loop's orphan-skip would drop the marker and render the next
+  // line as a plain paragraph — losing the bullet structure. Merge the pair
+  // into a canonical "* <content>" line so the bullet-list logic picks it up.
+  const lines: string[] = [];
+  for (let p = 0; p < rawLines.length; p++) {
+    const l = rawLines[p];
+    if (/^\s*[-*]\s*$/.test(l)) {
+      // Find the next non-empty line.
+      let q = p + 1;
+      while (q < rawLines.length && !rawLines[q].trim()) q++;
+      if (q < rawLines.length) {
+        const next = rawLines[q];
+        // Only merge if `next` is plain content — not another bullet,
+        // heading, table, code fence, HR, or numbered-list item.
+        const isStructural =
+          /^\s*[-*]\s+/.test(next) ||
+          /^\d+[\.\)]\s/.test(next) ||
+          /^#{1,6}/.test(next) ||
+          /^[-*_]{3,}\s*$/.test(next) ||
+          next.startsWith("```") ||
+          next.trim().startsWith("|");
+        if (!isStructural) {
+          const marker = l.trim().charAt(0) || "-";
+          lines.push(`${marker} ${next.trim()}`);
+          p = q;
+          continue;
+        }
+      }
+    }
+    lines.push(l);
+  }
+
   const nodes: React.ReactNode[] = [];
   let i = 0;
 
@@ -95,22 +133,29 @@ export default function MarkdownBlock({ content, compact = false }: { content: s
     if (/^\s*[-*]{1,2}\s*$/.test(line)) { i++; continue; }
 
     // Headings (h1–h6). Accept both "# Heading" and "#Heading" (no space).
+    // Render with the matching semantic tag so accessibility / copy-paste /
+    // dev-tools all reflect the actual hierarchy. Visual styling is tuned
+    // for clear distinction between levels and from body text.
     const headingMatch = line.match(/^(#{1,6})\s*(.+)/);
     if (headingMatch) {
       const level = headingMatch[1].length;
       const text = headingMatch[2];
+      // First-heading guard: no extra top-margin if this is the first node,
+      // otherwise sections feel disconnected.
+      const isFirst = nodes.length === 0;
       const cls = compact
         ? level <= 2
-          ? "font-semibold text-slate-700 mt-2"
+          ? `text-sm font-semibold text-slate-800 ${isFirst ? "" : "mt-3"} mb-1`
           : level === 3
-            ? "font-medium text-slate-600 mt-1.5"
-            : "font-medium text-slate-500 mt-1"
+            ? `text-xs font-semibold text-slate-700 ${isFirst ? "" : "mt-2.5"} mb-0.5`
+            : `text-[11px] font-semibold uppercase tracking-wide text-slate-500 ${isFirst ? "" : "mt-2"} mb-0.5`
         : level <= 2
-          ? "font-bold text-slate-900 mt-1"
+          ? `text-base font-bold text-slate-900 ${isFirst ? "" : "mt-3"} mb-1`
           : level === 3
-            ? "font-semibold text-slate-800 mt-1"
-            : "font-medium text-slate-700 mt-0.5";
-      nodes.push(<p key={i} className={cls}>{renderInline(text)}</p>);
+            ? `text-sm font-semibold text-slate-800 ${isFirst ? "" : "mt-2.5"} mb-1`
+            : `text-xs font-semibold uppercase tracking-wide text-slate-600 ${isFirst ? "" : "mt-2"} mb-0.5`;
+      const Tag = (`h${level}`) as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+      nodes.push(<Tag key={i} className={cls}>{renderInline(text)}</Tag>);
       i++; continue;
     }
 
@@ -258,7 +303,7 @@ export default function MarkdownBlock({ content, compact = false }: { content: s
   }
 
   return (
-    <div className={compact ? "space-y-1 text-xs leading-relaxed text-slate-600" : "space-y-1.5 text-sm leading-normal"}>
+    <div className={compact ? "space-y-1.5 text-xs leading-relaxed text-slate-600" : "space-y-2 text-sm leading-normal text-slate-700"}>
       {nodes}
     </div>
   );

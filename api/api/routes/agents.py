@@ -61,10 +61,17 @@ async def init_agents(
 def run_agents(
     potential_id: str,
     user: User = Depends(get_current_active_user),
+    tab_types: str | None = Query(
+        default=None,
+        description="Optional comma-separated tab_types filter (e.g. 'research,solution_brief'). When set, only configs with matching tab_type get pending insight rows — used by the Research / Solution tab Run buttons so FRE rows aren't created on a re-run.",
+    ),
 ) -> ResponseModel[dict]:
     """Trigger all agents for a potential. Called by the UI for old potentials."""
     require_potential_owner(user.user_id, potential_id)
-    init_agents_for_potential(potential_id, triggered_by="user")
+    tab_types_list = (
+        [t.strip() for t in tab_types.split(",") if t.strip()] if tab_types else None
+    )
+    init_agents_for_potential(potential_id, triggered_by="user", tab_types=tab_types_list)
     return ResponseModel(message_code="MSG_AGENTS_TRIGGERED", data={"ok": True})
 
 

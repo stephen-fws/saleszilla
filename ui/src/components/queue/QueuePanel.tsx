@@ -2,19 +2,7 @@ import { Briefcase, Building2, Check, X } from "lucide-react";
 import type { QueueItem } from "@/types";
 import { groupByDateBucket } from "@/lib/utils";
 
-const STAGE_COLORS: Record<string, string> = {
-  Prospects: "bg-slate-100 text-slate-600",
-  "Pre Qualified": "bg-blue-100 text-blue-700",
-  "Requirements Capture": "bg-indigo-100 text-indigo-700",
-  Proposal: "bg-amber-100 text-amber-700",
-  Contracting: "bg-orange-100 text-orange-700",
-  Closed: "bg-emerald-100 text-emerald-700",
-  "Contact Later": "bg-slate-100 text-slate-500",
-  Sleeping: "bg-slate-100 text-slate-500",
-  "Low Value": "bg-slate-100 text-slate-500",
-  Disqualified: "bg-red-100 text-red-600",
-  Lost: "bg-red-100 text-red-700",
-};
+const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
 
 
@@ -107,7 +95,7 @@ export default function QueuePanel({
               const isSelected = item.id === selectedItemId;
 
               const [company, contact] = (item.subtitle ?? "").split(" · ");
-              const stageColor = STAGE_COLORS[item.stage ?? ""] ?? "bg-slate-100 text-slate-600";
+              const stageColor = STAGE_BADGE;
               const formattedValue = item.value
                 ? item.value >= 1000
                   ? `$${(item.value / 1000).toFixed(0)}k`

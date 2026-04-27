@@ -100,6 +100,23 @@ export function formatDate(date: string | null | undefined): string {
 }
 
 /**
+ * Full date + time in the user's local timezone. Backend stores naive UTC,
+ * so append "Z" when the string doesn't already carry a timezone — otherwise
+ * Date() parses it as local time and the displayed time shifts.
+ */
+export function formatDateTime(date: string | null | undefined): string {
+  if (!date) return "";
+  const iso = date.endsWith("Z") || date.includes("+") ? date : date + "Z";
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
  * Outlook-style date bucket for a given date — "Today", "Yesterday",
  * "This Week", "Last Week", "This Month", "Last Month", or a "MMM YYYY" label.
  */

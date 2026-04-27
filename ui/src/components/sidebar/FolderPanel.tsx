@@ -134,6 +134,8 @@ export default function FolderPanel({
       owners: [],
       search: "",
       sortBy: filters?.sortBy || "value-desc",
+      createdFrom: null,
+      createdTo: null,
     });
   }
 
@@ -357,7 +359,7 @@ export default function FolderPanel({
                 value={filters?.search || ""}
                 onChange={(e) =>
                   onFiltersChange?.({
-                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc" }),
+                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
                     search: e.target.value,
                   })
                 }
@@ -404,7 +406,7 @@ export default function FolderPanel({
                 value={filters?.sortBy || "value-desc"}
                 onChange={(e) =>
                   onFiltersChange?.({
-                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc" }),
+                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
                     sortBy: e.target.value,
                   })
                 }
@@ -415,6 +417,69 @@ export default function FolderPanel({
                 ))}
               </select>
             </div>
+
+            {/* Created Time filter */}
+            {(() => {
+              const today = new Date();
+              const todayISO = today.toISOString().slice(0, 10);
+              const daysAgoISO = (n: number) => {
+                const d = new Date(today);
+                d.setDate(d.getDate() - n);
+                return d.toISOString().slice(0, 10);
+              };
+              const setRange = (from: string | null, to: string | null) => {
+                if (!filters || !onFiltersChange) return;
+                onFiltersChange({ ...filters, createdFrom: from, createdTo: to });
+              };
+              const presetActive = (from: string | null, to: string | null) =>
+                (filters?.createdFrom ?? null) === from && (filters?.createdTo ?? null) === to;
+              const presets: { label: string; from: string | null; to: string | null }[] = [
+                { label: "Today",   from: todayISO,       to: todayISO },
+                { label: "7d",      from: daysAgoISO(6),  to: todayISO },
+                { label: "30d",     from: daysAgoISO(29), to: todayISO },
+                { label: "All",     from: null,           to: null },
+              ];
+              return (
+                <div>
+                  <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
+                    Created
+                  </label>
+                  <div className="flex gap-1 mb-1.5">
+                    {presets.map((p) => (
+                      <button
+                        key={p.label}
+                        onClick={() => setRange(p.from, p.to)}
+                        className={`flex-1 rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
+                          presetActive(p.from, p.to)
+                            ? "bg-blue-600 text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <input
+                      type="date"
+                      value={filters?.createdFrom ?? ""}
+                      max={filters?.createdTo ?? undefined}
+                      onChange={(e) => setRange(e.target.value || null, filters?.createdTo ?? null)}
+                      className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-300 focus:bg-white"
+                      title="From"
+                    />
+                    <input
+                      type="date"
+                      value={filters?.createdTo ?? ""}
+                      min={filters?.createdFrom ?? undefined}
+                      onChange={(e) => setRange(filters?.createdFrom ?? null, e.target.value || null)}
+                      className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-300 focus:bg-white"
+                      title="To"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Stage filter */}
             <div>

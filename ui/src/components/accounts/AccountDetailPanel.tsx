@@ -16,17 +16,11 @@ import {
 import { getAccountDetail, updateAccount, updateContact } from "@/lib/api";
 import type { UpdateAccountPayload, UpdateContactPayload } from "@/lib/api";
 import type { AccountDetail, AccountDetailContact, AccountDetailPotential, AccountActivityItem } from "@/types";
+import CallDialog from "@/components/detail/CallDialog";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const STAGE_COLORS: Record<string, string> = {
-  prospect: "bg-slate-100 text-slate-600",
-  qualification: "bg-blue-100 text-blue-700",
-  proposal: "bg-amber-100 text-amber-700",
-  negotiation: "bg-purple-100 text-purple-700",
-  "closed-won": "bg-emerald-100 text-emerald-700",
-  "closed-lost": "bg-red-100 text-red-600",
-};
+const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
 function formatStage(stage: string): string {
   return stage.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
@@ -248,9 +242,14 @@ function OverviewTab({
 function ContactsTab({
   contacts,
   onContactFieldSave,
+  onContactCall,
 }: {
   contacts: AccountDetailContact[];
   onContactFieldSave: (contactId: string, field: keyof UpdateContactPayload, value: string) => Promise<void>;
+  /** Fired when the user clicks a contact's phone or mobile chip — opens the
+   *  Twilio CallDialog pre-filled with that number. Returning early when
+   *  there's no potential to bind the call to is the parent's responsibility. */
+  onContactCall: (contact: AccountDetailContact, phone: string) => void;
 }) {
   if (contacts.length === 0) {
     return (
@@ -320,16 +319,26 @@ function ContactsTab({
                   </a>
                 )}
                 {contact.phone && (
-                  <a href={`tel:${contact.phone}`} className="inline-flex items-center gap-1 hover:text-blue-600">
+                  <button
+                    type="button"
+                    onClick={() => onContactCall(contact, contact.phone!)}
+                    className="inline-flex items-center gap-1 hover:text-blue-600"
+                    title="Call this number"
+                  >
                     <Phone className="h-3 w-3" />
                     {contact.phone}
-                  </a>
+                  </button>
                 )}
                 {contact.mobile && (
-                  <a href={`tel:${contact.mobile}`} className="inline-flex items-center gap-1 hover:text-blue-600">
+                  <button
+                    type="button"
+                    onClick={() => onContactCall(contact, contact.mobile!)}
+                    className="inline-flex items-center gap-1 hover:text-blue-600"
+                    title="Call this number"
+                  >
                     <Phone className="h-3 w-3" />
                     {contact.mobile}
-                  </a>
+                  </button>
                 )}
               </div>
             )}
@@ -380,7 +389,7 @@ function PotentialsTab({
             </span>
             <div className="flex items-center gap-1.5 shrink-0">
               {p.stage && (
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[p.stage] ?? "bg-slate-100 text-slate-600"}`}>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_BADGE}`}>
                   {formatStage(p.stage)}
                 </span>
               )}
@@ -453,6 +462,33 @@ export default function AccountDetailPanel({ accountId, onPotentialNavigate }: A
   const [account, setAccount] = useState<AccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<AccountTab>("overview");
+  // Click-to-call state. Calls always log against a potential, so we resolve
+  // the contact's best-fit potential here before opening the dialog.
+  const [callTarget, setCallTarget] = useState<{
+    potentialId: string;
+    potentialName: string | null;
+    contactId: string;
+    phone: string;
+  } | null>(null);
+
+  function handleContactCall(contact: AccountDetailContact, phone: string) {
+    if (!account) return;
+    // Prefer a potential where this contact is the linked contact;
+    // fall back to the account's first potential.
+    const linked = account.potentials.find((p) => p.contact?.id === contact.id);
+    const fallback = account.potentials[0];
+    const chosen = linked ?? fallback;
+    if (!chosen) {
+      alert("No potential on this account to log the call against. Open a potential first, then call from there.");
+      return;
+    }
+    setCallTarget({
+      potentialId: chosen.id,
+      potentialName: chosen.title ?? account.name ?? null,
+      contactId: contact.id,
+      phone,
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -535,10 +571,26 @@ export default function AccountDetailPanel({ accountId, onPotentialNavigate }: A
 
       <div className="flex-1 overflow-y-auto">
         {activeTab === "overview" && <OverviewTab account={account} onFieldSave={handleFieldSave} />}
-        {activeTab === "contacts" && <ContactsTab contacts={account.contacts} onContactFieldSave={handleContactFieldSave} />}
+        {activeTab === "contacts" && (
+          <ContactsTab
+            contacts={account.contacts}
+            onContactFieldSave={handleContactFieldSave}
+            onContactCall={handleContactCall}
+          />
+        )}
         {activeTab === "potentials" && <PotentialsTab potentials={account.potentials} onNavigate={onPotentialNavigate} />}
         {activeTab === "activity" && <ActivityTab activities={account.activities} />}
       </div>
+
+      {callTarget && (
+        <CallDialog
+          potentialId={callTarget.potentialId}
+          potentialName={callTarget.potentialName}
+          initialContactId={callTarget.contactId}
+          initialPhone={callTarget.phone}
+          onClose={() => setCallTarget(null)}
+        />
+      )}
     </div>
   );
 }

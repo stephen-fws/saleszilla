@@ -108,18 +108,32 @@ def _fmt_date(dt) -> str:
     return str(dt)
 
 
-def build_context_prompt(potential_id: str) -> str:
-    """Assemble a rich system prompt with all available context for a potential."""
+def build_context_prompt(potential_id: str, user_id: str | None = None) -> str:
+    """Assemble a rich system prompt with all available context for a potential.
+
+    `user_id` is optional — when provided, dates/times are framed in the
+    user's configured timezone (CX_UserTokens.Timezone). When absent or
+    invalid, falls back to UTC.
+    """
     lines: list[str] = []
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    from zoneinfo import ZoneInfo
+    from api.services.user_service import get_user_timezone_or_utc
+    tz_name = get_user_timezone_or_utc(user_id)
+    now_local = datetime.now(ZoneInfo(tz_name))
+    now_str = now_local.strftime("%Y-%m-%d %H:%M %Z")
+
     lines.append(
         "You are an expert sales assistant AI embedded in Salezilla, an AI-powered CRM.\n"
         "You have full context about the sales potential below. Use it to help the salesperson "
         "with insights, drafting emails, strategising next steps, answering questions about the potential, "
         "and anything else they need.\n"
         "Be concise, specific, and actionable. Always reference actual data from the context.\n"
-        f"\nToday's date: {today}\n"
+        f"\nCurrent date and time: {now_str}\n"
+        f"User timezone: {tz_name}\n"
+        "When you mention any date or time in your response (meetings, deadlines, "
+        f"\"yesterday\", relative times, etc.), express it in {tz_name}. Include the "
+        "timezone abbreviation in absolute timestamps so the user is never confused.\n"
     )
 
     with get_session() as session:
@@ -333,10 +347,10 @@ def build_context_prompt(potential_id: str) -> str:
 
 # ── Suggested questions ───────────────────────────────────────────────────────
 
-def generate_suggestions(potential_id: str) -> list[str]:
+def generate_suggestions(potential_id: str, user_id: str | None = None) -> list[str]:
     """Ask Claude to generate 5 context-aware questions a salesperson would ask about this potential."""
     try:
-        context = build_context_prompt(potential_id)
+        context = build_context_prompt(potential_id, user_id=user_id)
     except Exception as e:
         logger.error("Context build failed for suggestions %s: %s", potential_id, e)
         return []
@@ -399,7 +413,7 @@ def stream_chat(
 
     # Build context system prompt
     try:
-        system_prompt = build_context_prompt(potential_id)
+        system_prompt = build_context_prompt(potential_id, user_id=user_id)
     except Exception as e:
         logger.error("Context build failed for potential %s: %s", potential_id, e)
         system_prompt = "You are a helpful sales assistant. Context could not be loaded."
@@ -414,32 +428,113 @@ def stream_chat(
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-    full_response = ""
-    try:
-        web_search_tool = {"type": "web_search_20250305", "name": "web_search"}
-        searching_notified = False
+    # Tools available to the per-potential chat:
+    #  - web_search (Anthropic server tool — passive; we just notify the UI)
+    #  - list_meetings (custom client tool — we execute and feed results back)
+    # The per-potential context already mentions this potential's number, so
+    # the agent can pass it through automatically when scoping meetings.
+    from api.services.crm_query_tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
+    from api.services.tool_scope import set_scope
+    PER_POTENTIAL_TOOL_NAMES = {"list_meetings"}
+    custom_schemas = [s for s in TOOL_SCHEMAS if s["name"] in PER_POTENTIAL_TOOL_NAMES]
+    web_search_tool = {"type": "web_search_20250305", "name": "web_search"}
+    tools_list = [web_search_tool] + custom_schemas
 
-        with client.messages.stream(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages,
-            tools=[web_search_tool],
-        ) as stream:
-            for event in stream:
-                event_type = getattr(event, "type", None)
-                # Notify UI once when web search starts
-                if event_type == "content_block_start":
-                    block = getattr(event, "content_block", None)
-                    if block and getattr(block, "type", None) == "tool_use" and not searching_notified:
-                        yield f"data: {json.dumps({'type': 'searching'})}\n\n"
-                        searching_notified = True
-                elif event_type == "content_block_delta":
-                    delta = getattr(event, "delta", None)
-                    if delta and getattr(delta, "type", None) == "text_delta":
-                        text = delta.text
-                        full_response += text
-                        yield f"data: {json.dumps({'type': 'text', 'content': text})}\n\n"
+    full_response = ""
+    max_turns = 4  # safety cap on the tool-use loop
+    try:
+        # Scope meeting queries to the asking user's calendar.
+        with set_scope([user_id]):
+            for turn in range(max_turns):
+                assistant_blocks: list[dict] = []
+                current_text = ""
+                current_tool_use: dict | None = None
+                current_tool_input_buffer = ""
+                tool_uses_in_turn: list[dict] = []
+                searching_notified = False
+
+                with client.messages.stream(
+                    model=config.ANTHROPIC_MODEL,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tools_list,
+                ) as stream:
+                    for event in stream:
+                        etype = getattr(event, "type", None)
+
+                        if etype == "content_block_start":
+                            block = getattr(event, "content_block", None)
+                            block_type = getattr(block, "type", None) if block else None
+                            block_name = getattr(block, "name", None) if block else None
+                            # Web search is a server-side tool — notify the UI
+                            # but don't try to execute it client-side.
+                            if (
+                                block_type == "server_tool_use"
+                                or (block_type == "tool_use" and block_name == "web_search")
+                            ):
+                                if not searching_notified:
+                                    yield f"data: {json.dumps({'type': 'searching'})}\n\n"
+                                    searching_notified = True
+                            elif block_type == "tool_use" and block_name in TOOL_FUNCTIONS:
+                                current_tool_use = {
+                                    "type": "tool_use",
+                                    "id": block.id,
+                                    "name": block_name,
+                                    "input": {},
+                                }
+                                current_tool_input_buffer = ""
+                                yield f"data: {json.dumps({'type': 'tool', 'name': block_name, 'status': 'running'})}\n\n"
+                            elif block_type == "text":
+                                current_text = ""
+
+                        elif etype == "content_block_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta:
+                                dtype = getattr(delta, "type", None)
+                                if dtype == "text_delta":
+                                    text = delta.text
+                                    current_text += text
+                                    full_response += text
+                                    yield f"data: {json.dumps({'type': 'text', 'content': text})}\n\n"
+                                elif dtype == "input_json_delta" and current_tool_use is not None:
+                                    current_tool_input_buffer += delta.partial_json
+
+                        elif etype == "content_block_stop":
+                            if current_tool_use is not None:
+                                try:
+                                    current_tool_use["input"] = json.loads(current_tool_input_buffer or "{}")
+                                except json.JSONDecodeError:
+                                    current_tool_use["input"] = {}
+                                assistant_blocks.append(current_tool_use)
+                                tool_uses_in_turn.append(current_tool_use)
+                                current_tool_use = None
+                                current_tool_input_buffer = ""
+                            elif current_text:
+                                assistant_blocks.append({"type": "text", "text": current_text})
+                                current_text = ""
+
+                # No client-side tool calls → conversation is done for this turn.
+                if not tool_uses_in_turn:
+                    break
+
+                # Append assistant message and execute tools, then loop again.
+                messages.append({"role": "assistant", "content": assistant_blocks})
+
+                tool_result_blocks: list[dict] = []
+                for tu in tool_uses_in_turn:
+                    fn = TOOL_FUNCTIONS.get(tu["name"])
+                    try:
+                        result = fn(**tu["input"]) if fn else {"error": f"Unknown tool {tu['name']}"}
+                    except Exception as e:
+                        logger.exception("Per-potential tool %s failed: %s", tu["name"], e)
+                        result = {"error": str(e)}
+                    tool_result_blocks.append({
+                        "type": "tool_result",
+                        "tool_use_id": tu["id"],
+                        "content": json.dumps(result, default=str),
+                    })
+                messages.append({"role": "user", "content": tool_result_blocks})
 
         # Save assistant response using potential_number directly
         now2 = datetime.now(timezone.utc)

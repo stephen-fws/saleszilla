@@ -259,7 +259,10 @@ export default function EventFormModal({ defaults, onClose, onSaved }: EventForm
     crossesMidnight ? toLocalISODate(defaultEnd) : toLocalISODate(defaultDate)
   );
   const [location, setLocation] = useState(defaults.location ?? "");
-  const [isOnlineMeeting, setIsOnlineMeeting] = useState(defaults.isOnlineMeeting ?? false);
+  // Default ON for new meetings (no explicit defaults.isOnlineMeeting passed).
+  // When editing an existing event the caller always supplies the real value,
+  // so this fallback only fires on the create path.
+  const [isOnlineMeeting, setIsOnlineMeeting] = useState(defaults.isOnlineMeeting ?? true);
   const [requiredAttendees, setRequiredAttendees] = useState<string[]>(
     (defaults.requiredAttendees ?? []).map((a) => a.email)
   );

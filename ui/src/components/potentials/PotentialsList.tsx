@@ -2,27 +2,7 @@ import { Briefcase, Building2, X, Plus, Users } from "lucide-react";
 import type { PotentialDeal } from "@/types";
 import { groupByDateBucket } from "@/lib/utils";
 
-const STAGE_COLORS: Record<string, string> = {
-  // Real DB stage names
-  Prospects: "bg-slate-100 text-slate-600",
-  "Pre Qualified": "bg-blue-100 text-blue-700",
-  "Requirements Capture": "bg-indigo-100 text-indigo-700",
-  Proposal: "bg-amber-100 text-amber-700",
-  Contracting: "bg-orange-100 text-orange-700",
-  Closed: "bg-emerald-100 text-emerald-700",
-  "Contact Later": "bg-slate-100 text-slate-500",
-  Sleeping: "bg-slate-100 text-slate-500",
-  "Low Value": "bg-slate-100 text-slate-500",
-  Disqualified: "bg-red-100 text-red-600",
-  Lost: "bg-red-100 text-red-700",
-  // Normalized fallbacks
-  prospect: "bg-slate-100 text-slate-600",
-  qualification: "bg-blue-100 text-blue-700",
-  proposal: "bg-amber-100 text-amber-700",
-  negotiation: "bg-purple-100 text-purple-700",
-  "closed-won": "bg-emerald-100 text-emerald-700",
-  "closed-lost": "bg-red-100 text-red-700",
-};
+const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
 
 function formatValue(value: number): string {
@@ -167,7 +147,7 @@ export default function PotentialsList({
                         </span>
                       )}
                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_COLORS[deal.stage] ?? "bg-slate-100 text-slate-600"}`}>
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_BADGE}`}>
                           {deal.stage}
                         </span>
                         {deal.category === "Diamond" && (

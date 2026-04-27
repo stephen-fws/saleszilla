@@ -75,6 +75,8 @@ def list_potentials(
     page_size: int = 100,
     owner_user_id: str | None = None,
     include_team: bool = False,
+    created_from: str | None = None,
+    created_to: str | None = None,
 ) -> PotentialListResponse:
     """List potentials with optional filters, joined with Account + Contact.
 
@@ -111,6 +113,26 @@ def list_potentials(
                     Contact.email.ilike(term),
                 )
             )
+        if created_from:
+            # Inclusive lower bound — accept either "YYYY-MM-DD" or full ISO.
+            from datetime import datetime as _dt
+            try:
+                cf = _dt.fromisoformat(created_from)
+                stmt = stmt.where(Potential.created_time >= cf)
+            except ValueError:
+                pass
+        if created_to:
+            # Inclusive upper bound — push to end-of-day so a same-day pick
+            # also catches rows created later that day.
+            from datetime import datetime as _dt, timedelta as _td
+            try:
+                ct = _dt.fromisoformat(created_to)
+                # If only a date was passed (no time), extend to the end of day.
+                if ct.hour == 0 and ct.minute == 0 and ct.second == 0:
+                    ct = ct + _td(days=1) - _td(microseconds=1)
+                stmt = stmt.where(Potential.created_time <= ct)
+            except ValueError:
+                pass
 
         # Count
         count_stmt = select(func.count()).select_from(stmt.subquery())

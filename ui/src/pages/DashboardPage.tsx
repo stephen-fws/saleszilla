@@ -26,6 +26,7 @@ import MeetingBriefOverlay from "@/components/sidebar/MeetingBriefOverlay";
 import MeetingBriefsList from "@/components/sidebar/MeetingBriefsList";
 import ImpersonationSwitcher from "@/components/admin/ImpersonationSwitcher";
 import { useImpersonationStore } from "@/store/impersonationStore";
+import { confirmDiscardIfDirty } from "@/lib/composerDirty";
 import type {
   ViewMode,
   Folder,
@@ -197,6 +198,8 @@ export default function DashboardPage() {
     owners: [],
     search: "",
     sortBy: "created-desc",
+    createdFrom: null,
+    createdTo: null,
   });
   const [filterOptions, setFilterOptions] = useState<{ owners: string[]; services: string[]; stages: string[] }>({
     owners: [],
@@ -237,6 +240,29 @@ export default function DashboardPage() {
     if (activeBrief !== null) setActiveBrief(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDealId, selectedAccountId, selectedQueueItemId, viewMode]);
+
+  // Auto-advance: when the selected queue item disappears (after refresh
+  // post-send, agent auto-resolve, etc.), pick the next item at the same
+  // position. If the queue is empty, clear selection — Panel 3 returns to
+  // the "select an item" empty state instead of rendering stale tabs.
+  const queueItemsHistoryRef = useRef<QueueItem[]>([]);
+  useEffect(() => {
+    if (viewMode === "queue" && selectedQueueItemId) {
+      const stillExists = queueItems.some((i) => i.id === selectedQueueItemId);
+      if (!stillExists) {
+        const oldList = queueItemsHistoryRef.current;
+        const oldIndex = oldList.findIndex((i) => i.id === selectedQueueItemId);
+        if (queueItems.length === 0) {
+          setSelectedQueueItemId(null);
+          if (isMobile) setMobileShowDetail(false);
+        } else {
+          const target = oldIndex >= 0 ? Math.min(oldIndex, queueItems.length - 1) : 0;
+          setSelectedQueueItemId(queueItems[target].id);
+        }
+      }
+    }
+    queueItemsHistoryRef.current = queueItems;
+  }, [queueItems, selectedQueueItemId, viewMode, isMobile]);
 
   // Fetch folders — on mount + refreshable
   const refreshFolders = useCallback(async () => {
@@ -365,6 +391,7 @@ export default function DashboardPage() {
   }, [viewMode, accountFilters]);
 
   const handleViewModeChange = useCallback((mode: ViewMode) => {
+    if (mode !== viewMode && !confirmDiscardIfDirty()) return;
     setViewMode(mode);
     if (mode === "queue") {
       setSelectedDealId(null);
@@ -377,27 +404,33 @@ export default function DashboardPage() {
       setSelectedDealId(null);
     }
     setMobileShowDetail(false);
-  }, []);
+  }, [viewMode]);
 
+  // Each Panel-2/Panel-1 selection swaps Panel 3, which would unmount the
+  // EmailComposer. Guard the transition if the composer has unsaved edits.
   const handleFolderSelect = useCallback((folderId: string) => {
+    if (folderId !== selectedFolderId && !confirmDiscardIfDirty()) return;
     setSelectedFolderId(folderId);
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
+  }, [selectedFolderId]);
 
   const handleQueueItemSelect = useCallback((itemId: string) => {
+    if (itemId !== selectedQueueItemId && !confirmDiscardIfDirty()) return;
     setSelectedQueueItemId(itemId);
     if (isMobile) setMobileShowDetail(true);
-  }, [isMobile]);
+  }, [isMobile, selectedQueueItemId]);
 
   const handleDealSelect = useCallback((dealId: string) => {
+    if (dealId !== selectedDealId && !confirmDiscardIfDirty()) return;
     setSelectedDealId(dealId);
     if (isMobile) setMobileShowDetail(true);
-  }, [isMobile]);
+  }, [isMobile, selectedDealId]);
 
   const handleAccountSelect = useCallback((accountId: string) => {
+    if (accountId !== selectedAccountId && !confirmDiscardIfDirty()) return;
     setSelectedAccountId(accountId);
     if (isMobile) setMobileShowDetail(true);
-  }, [isMobile]);
+  }, [isMobile, selectedAccountId]);
 
   const handleComplete = useCallback(async () => {
     if (!selectedQueueItemId) return;
@@ -477,7 +510,8 @@ export default function DashboardPage() {
     potentialFilters.stages.length +
     potentialFilters.services.length +
     potentialFilters.owners.length +
-    (potentialFilters.search ? 1 : 0);
+    (potentialFilters.search ? 1 : 0) +
+    (potentialFilters.createdFrom || potentialFilters.createdTo ? 1 : 0);
 
   const handleClearFilters = useCallback(() => {
     setPotentialFilters((prev) => ({
@@ -486,6 +520,8 @@ export default function DashboardPage() {
       owners: [],
       search: "",
       sortBy: prev.sortBy,
+      createdFrom: null,
+      createdTo: null,
     }));
   }, []);
 

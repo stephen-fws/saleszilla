@@ -22,6 +22,8 @@ def get_potentials(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
     include_team: bool = Query(default=False, description="Include direct reports' potentials"),
+    created_from: str | None = Query(default=None, description="ISO date — only potentials created on/after"),
+    created_to: str | None = Query(default=None, description="ISO date — only potentials created on/before"),
 ) -> ResponseModel[PotentialListResponse]:
     stages_list = [s.strip() for s in stages.split(",") if s.strip()] if stages else None
     services_list = [s.strip() for s in services.split(",") if s.strip()] if services else None
@@ -36,6 +38,8 @@ def get_potentials(
         page_size=page_size,
         owner_user_id=user.user_id,
         include_team=include_team,
+        created_from=created_from,
+        created_to=created_to,
     )
     return ResponseModel(data=result)
 

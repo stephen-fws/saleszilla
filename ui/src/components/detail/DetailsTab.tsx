@@ -2,30 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil } from "lucide-react";
 import type { PotentialDetail } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
-import { reasonFieldForStage, reasonOptionsForStage } from "@/lib/utils";
+import { reasonFieldForStage, reasonOptionsForStage, formatDateTime } from "@/lib/utils";
 
 
-const STAGE_COLORS: Record<string, string> = {
-  // Real DB stage names
-  Prospects: "bg-slate-100 text-slate-700",
-  "Pre Qualified": "bg-blue-100 text-blue-700",
-  "Requirements Capture": "bg-indigo-100 text-indigo-700",
-  Proposal: "bg-amber-100 text-amber-700",
-  Contracting: "bg-orange-100 text-orange-700",
-  Closed: "bg-emerald-100 text-emerald-700",
-  "Contact Later": "bg-slate-100 text-slate-600",
-  Sleeping: "bg-slate-100 text-slate-500",
-  "Low Value": "bg-slate-100 text-slate-500",
-  Disqualified: "bg-red-100 text-red-600",
-  Lost: "bg-red-100 text-red-700",
-  // Normalized names (mock/fallback)
-  prospect: "bg-slate-100 text-slate-700",
-  qualification: "bg-blue-100 text-blue-700",
-  proposal: "bg-amber-100 text-amber-700",
-  negotiation: "bg-orange-100 text-orange-700",
-  "closed-won": "bg-emerald-100 text-emerald-700",
-  "closed-lost": "bg-red-100 text-red-700",
-};
+// Uniform stage badge — was previously a per-stage color map. Switched to a
+// single neutral badge so the visual emphasis stays on deal name / value.
+const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -384,7 +366,7 @@ function EditableStage({
     } finally { setSaving(false); setPending(null); setReason(""); }
   }
 
-  const colorClass = STAGE_COLORS[value ?? ""] ?? "bg-slate-100 text-slate-600";
+  const colorClass = STAGE_BADGE;
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -404,7 +386,7 @@ function EditableStage({
             <div className="px-3 py-2 space-y-2 w-[260px]">
               <p className="text-[11px] text-slate-600">
                 Change stage to{" "}
-                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_COLORS[pending] ?? "bg-slate-100 text-slate-600"}`}>
+                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 font-medium ${STAGE_BADGE}`}>
                   {pending}
                 </span>
                 ?
@@ -461,7 +443,7 @@ function EditableStage({
                   s === (value ?? "") ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                <span className={`inline-block w-2 h-2 rounded-full ${STAGE_COLORS[s]?.split(" ")[0] ?? "bg-slate-300"}`} />
+                <span className="inline-block w-2 h-2 rounded-full bg-slate-300" />
                 {s}
               </button>
             ))
@@ -579,6 +561,10 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                   onSave={(v) => onFieldSave("title", v)}
                 />
               </div>
+              <Field
+                label="Potential Number"
+                value={detail.potentialNumber ? `#${detail.potentialNumber}` : "—"}
+              />
               <EditableField
                 label="Value"
                 value={detail.value ?? ""}
@@ -628,7 +614,7 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 onSave={(v) => onFieldSave("lead_source", v)}
               />
               {detail.createdAt && (
-                <Field label="Created" value={formatDate(detail.createdAt)} />
+                <Field label="Created" value={formatDateTime(detail.createdAt)} />
               )}
               <div className="col-span-2 mt-1">
                 <EditableField

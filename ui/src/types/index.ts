@@ -80,6 +80,9 @@ export interface PotentialFilters {
   owners: string[];
   search: string;
   sortBy: string;
+  // Optional Created Time range filters — ISO YYYY-MM-DD strings (inclusive).
+  createdFrom: string | null;
+  createdTo: string | null;
 }
 
 export interface AccountSummary {

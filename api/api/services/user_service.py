@@ -127,6 +127,28 @@ def is_super_admin(user_id: str) -> bool:
     return bool(tokens and tokens.is_active and tokens.is_super_admin)
 
 
+def get_user_timezone_or_utc(user_id: str | None) -> str:
+    """Return the user's IANA timezone or 'UTC' if unset / invalid / missing.
+
+    Used by AI chat services so any datetime they reference (now, meeting
+    times, etc.) lands in the user's local frame instead of server time.
+    Distinct from the "Asia/Kolkata" UI default — for AI prompts, an unset
+    timezone means we don't know, so UTC is the honest fallback.
+    """
+    if not user_id:
+        return "UTC"
+    tokens = load_user_tokens(user_id)
+    raw = (tokens.timezone or "").strip() if tokens else ""
+    if not raw:
+        return "UTC"
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(raw)  # validates the name
+        return raw
+    except Exception:
+        return "UTC"
+
+
 def list_active_users() -> list[User]:
     """All active users — feeds the superadmin impersonation dropdown."""
     with get_session() as session:

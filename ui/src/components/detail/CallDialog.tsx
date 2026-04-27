@@ -19,6 +19,13 @@ import type { CallState, ContactForCall } from "@/types";
 interface CallDialogProps {
   potentialId: string;
   potentialName: string | null;
+  /**
+   * Optional pre-selection. When the dialog is opened from a contact's phone
+   * number (e.g. Account → Contacts tab), pass these so the right contact +
+   * number show up immediately instead of the auto-picked primary.
+   */
+  initialContactId?: string;
+  initialPhone?: string;
   onClose: (callSaved?: boolean) => void;
 }
 
@@ -28,7 +35,7 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function CallDialog({ potentialId, potentialName, onClose }: CallDialogProps) {
+export default function CallDialog({ potentialId, potentialName, initialContactId, initialPhone, onClose }: CallDialogProps) {
   const [contacts, setContacts] = useState<ContactForCall[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -52,15 +59,26 @@ export default function CallDialog({ potentialId, potentialName, onClose }: Call
       .then((cs) => {
         if (cancelled) return;
         setContacts(cs);
-        const primary = cs.find((c) => c.isPrimary) ?? cs[0];
-        if (primary) {
-          setSelectedContactId(primary.contactId);
-          setPhoneNumber(primary.phone || primary.mobile || "");
+        // Prefer the explicit initialContactId (clicked-from-Account-Contacts
+        // flow). Fall back to primary, then first.
+        const initial = initialContactId
+          ? cs.find((c) => c.contactId === initialContactId)
+          : null;
+        const chosen = initial ?? cs.find((c) => c.isPrimary) ?? cs[0];
+        if (chosen) {
+          setSelectedContactId(chosen.contactId);
+          setPhoneNumber(initialPhone || chosen.phone || chosen.mobile || "");
+        } else if (initialPhone) {
+          // Contact wasn't in the loaded list — still let the user dial.
+          setPhoneNumber(initialPhone);
         }
       })
       .catch(() => { if (!cancelled) setError("Failed to load contacts"); })
       .finally(() => { if (!cancelled) setLoadingContacts(false); });
     return () => { cancelled = true; };
+    // initialContactId/initialPhone are read once when the dialog opens — no
+    // need to re-run if they later change in a stale render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [potentialId]);
 
   useEffect(() => {

@@ -123,6 +123,8 @@ export async function getPotentials(filters: Partial<PotentialFilters> & { inclu
   if (filters.owners?.length) params.set("owners", filters.owners.join(","));
   if (filters.search) params.set("search", filters.search);
   if (filters.includeTeam) params.set("include_team", "true");
+  if (filters.createdFrom) params.set("created_from", filters.createdFrom);
+  if (filters.createdTo) params.set("created_to", filters.createdTo);
   const res = await protectedApi.get(`/potentials?${params}`);
   // Backend: ResponseModel<PotentialListResponse> → data.potentials, data.filter_options
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1137,8 +1139,20 @@ export async function getAllAgentResults(dealId: string): Promise<AgentResult[]>
   }));
 }
 
-export async function runAllAgents(dealId: string): Promise<void> {
-  await protectedApi.post(`/potentials/${dealId}/agents/run`);
+export async function runAllAgents(
+  dealId: string,
+  options?: { tabTypes?: string[] },
+): Promise<void> {
+  // tabTypes: optional filter — when set, only configs whose tab_type is in
+  // this list get pending insight rows. Research / Solution tabs use this so
+  // re-running doesn't create an FRE pending row (which would imply we're
+  // about to send the first response email again).
+  const params = new URLSearchParams();
+  if (options?.tabTypes?.length) {
+    params.set("tab_types", options.tabTypes.join(","));
+  }
+  const qs = params.toString();
+  await protectedApi.post(`/potentials/${dealId}/agents/run${qs ? `?${qs}` : ""}`);
 }
 
 // ── Chat ────────────────────────────────────────────────────────────────────

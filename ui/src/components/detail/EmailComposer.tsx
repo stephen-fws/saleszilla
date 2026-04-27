@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   X, Send, Save, Paperclip, Loader2, Check, Trash2,
   Bold, Italic, Underline as UnderlineIcon, Link, List, ListOrdered,
@@ -47,6 +47,7 @@ import type { EmailDraft, EmailAttachment, DraftAttachment } from "@/types";
 import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, openDraftAttachment, deleteEmailDraft } from "@/lib/api";
 import { validateAttachmentFile, MAX_ATTACHMENT_TOTAL_BYTES, formatBytes } from "@/lib/attachments";
 import { splitEmailList } from "@/lib/utils";
+import { composerDirty } from "@/lib/composerDirty";
 
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
@@ -352,10 +353,52 @@ export default function EmailComposer({
   const [discarding, setDiscarding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Dirty-state tracking ────────────────────────────────────────────────
+  // Snapshot the initial values at mount so we can detect any user-typed
+  // change. Refs are updated on save so "saved" state == "clean" again.
+  const initialRef = useRef({
+    body,
+    subject,
+    to: to.join("|"),
+    cc: cc.join("|"),
+    bcc: bcc.join("|"),
+    attachmentNames: attachments.map((a) => a.name).join("|"),
+  });
+  const isDirty =
+    body !== initialRef.current.body ||
+    subject !== initialRef.current.subject ||
+    to.join("|") !== initialRef.current.to ||
+    cc.join("|") !== initialRef.current.cc ||
+    bcc.join("|") !== initialRef.current.bcc ||
+    attachments.map((a) => a.name).join("|") !== initialRef.current.attachmentNames;
+
+  useEffect(() => {
+    composerDirty.set(isDirty);
+  }, [isDirty]);
+
+  useEffect(() => {
+    // Always clear on unmount — once the composer is gone, there's nothing
+    // unsaved any more (either the user committed via the prompt or we lost
+    // the data, but the singleton must not leak across composer sessions).
+    return () => composerDirty.set(false);
+  }, []);
+
   // The editor holds the entire email content (including signature). Send/save
   // use `body` as-is — no post-hoc signature appending.
   function getFullBody() {
     return body;
+  }
+
+  function markAsSaved() {
+    initialRef.current = {
+      body,
+      subject,
+      to: to.join("|"),
+      cc: cc.join("|"),
+      bcc: bcc.join("|"),
+      attachmentNames: attachments.map((a) => a.name).join("|"),
+    };
+    composerDirty.set(false);
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -428,6 +471,7 @@ export default function EmailComposer({
         setDraftId(created.id);
         onDraftSaved(created);
       }
+      markAsSaved();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {

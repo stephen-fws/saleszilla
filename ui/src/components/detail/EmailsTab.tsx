@@ -156,6 +156,19 @@ function ConversationView({ thread, onReply, defaultCollapsed = false, dealId, r
               </div>
             </div>
           )}
+          {/* Reply prompt at the top — sits just above the most recent
+              message (we render newest-first below). */}
+          {!readOnly && (
+            <div className="px-4 pt-3 pb-2">
+              <button
+                onClick={onReply}
+                className="w-full flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-colors"
+              >
+                <Reply className="h-3.5 w-3.5" />
+                Reply to this thread…
+              </button>
+            </div>
+          )}
           <div>
             {/* Newest-first within the thread. isLast means "most recent" — drives the
                 default-expanded state on MessageBubble, so after desc sort that's index 0. */}
@@ -169,17 +182,6 @@ function ConversationView({ thread, onReply, defaultCollapsed = false, dealId, r
                 <MessageBubble key={msg.id} msg={msg} isLast={i === 0} dealId={dealId} />
               ))}
           </div>
-          {!readOnly && (
-            <div className="px-4 py-3">
-              <button
-                onClick={onReply}
-                className="w-full flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-colors"
-              >
-                <Reply className="h-3.5 w-3.5" />
-                Reply to this thread…
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>

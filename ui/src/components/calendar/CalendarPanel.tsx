@@ -943,7 +943,22 @@ export default function CalendarPanel({ onClose }: CalendarPanelProps) {
             <Calendar className="h-7 w-7 text-slate-400" />
           </div>
           <p className="text-sm font-medium text-slate-700">Microsoft account not connected</p>
-          <p className="text-xs text-slate-500 max-w-xs">Connect your Microsoft 365 account to view your calendar events here.</p>
+          <p className="text-xs text-slate-500 max-w-xs">
+            Your Microsoft connection has expired or isn't set up. Reconnect to view your calendar — you'll usually be signed in silently if you're already on Microsoft in this browser.
+          </p>
+          <button
+            onClick={() => {
+              const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+              const callbackUrl = window.location.origin + window.location.pathname;
+              const nonce = Math.random().toString(36).slice(2);
+              window.location.assign(
+                `${apiBase}/auth/sso/connect?callback_url=${encodeURIComponent(callbackUrl)}&nonce=${nonce}`,
+              );
+            }}
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+          >
+            Reconnect Microsoft
+          </button>
         </div>
       ) : error ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">

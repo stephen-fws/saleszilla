@@ -49,7 +49,7 @@ def get_chat_suggestions(
 ) -> ResponseModel[list[str]]:
     """Return 5 AI-generated suggested questions based on current deal state."""
     require_potential_owner(user.user_id, potential_id)
-    return ResponseModel(data=generate_suggestions(potential_id))
+    return ResponseModel(data=generate_suggestions(potential_id, user.user_id))
 
 
 @router.delete("/potentials/{potential_id}/chat/history")
