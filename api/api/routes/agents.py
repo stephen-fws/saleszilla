@@ -49,9 +49,20 @@ async def init_agents(
     potential_id: str,
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ):
-    """Trigger all agents for a potential. Called by external new-potential service."""
+    """Trigger all agents for a potential. Called by external new-potential service.
+
+    Also seeds a `new-inquiries` queue item — externally-created potentials
+    don't go through Salezilla's create_potential() flow (which is the
+    other path that inserts the queue item), so without this step the
+    potential would be invisible in the New Inquiries folder.
+    """
     _validate_api_key(x_api_key)
     init_agents_for_potential(potential_id, triggered_by="external_service")
+    try:
+        from api.services.queue_service import upsert_new_inquiry_queue_item
+        upsert_new_inquiry_queue_item(potential_id)
+    except Exception as exc:
+        logger.warning("Failed to seed new-inquiries queue item for %s: %s", potential_id, exc)
     return ResponseModel(message_code="MSG_AGENTS_TRIGGERED", data={"ok": True})
 
 

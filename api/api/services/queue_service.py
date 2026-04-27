@@ -208,3 +208,71 @@ def complete_queue_item(item_id: int) -> bool:
     return resolve_queue_item(item_id, "completed")
 
 
+def upsert_new_inquiry_queue_item(potential_id_or_number: str) -> bool:
+    """Ensure a `new-inquiries` queue item exists for this potential.
+
+    Idempotent — if a pending queue item for the same potential already
+    exists (any folder), nothing happens. Otherwise creates one.
+
+    Used by `/agents/init` (the external new-potential entry point) so that
+    potentials inserted directly into the Potentials table by another team
+    still surface in the New Inquiries folder. The Salezilla-internal
+    `create_potential` flow already creates the queue item earlier and never
+    routes through this helper.
+    """
+    from sqlalchemy import or_
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        # Resolve potential by UUID or 7-digit number, since the external
+        # init route accepts either.
+        p = session.execute(
+            select(Potential).where(or_(
+                Potential.potential_id == potential_id_or_number,
+                Potential.potential_number == potential_id_or_number,
+            ))
+        ).scalar_one_or_none()
+        if not p or not p.potential_number:
+            return False
+        pn = p.potential_number
+
+        existing = session.execute(
+            select(CXQueueItem).where(
+                CXQueueItem.potential_id == pn,
+                CXQueueItem.folder_type == "new-inquiries",
+                CXQueueItem.is_active == True,
+                CXQueueItem.status == "pending",
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return False
+
+        # Resolve company / contact names for the queue card subtitle.
+        company_name = ""
+        if p.account_id:
+            acc = session.get(Account, p.account_id)
+            company_name = acc.account_name if acc else ""
+        contact_name = ""
+        if p.contact_id:
+            con = session.get(Contact, p.contact_id)
+            contact_name = con.full_name if con else ""
+
+        session.add(CXQueueItem(
+            potential_id=pn,
+            contact_id=p.contact_id,
+            account_id=p.account_id,
+            folder_type="new-inquiries",
+            title=p.potential_name or "New Potential",
+            subtitle=f"{company_name} · {contact_name}".strip(" ·") or None,
+            preview=(p.description or "")[:300] if p.description else None,
+            time_label=now.strftime("%H:%M"),
+            priority=None,
+            status="pending",
+            assigned_to_user_id=p.potential_owner_id,
+            created_time=now,
+            updated_time=now,
+            is_active=True,
+        ))
+        session.commit()
+    return True
+
+
