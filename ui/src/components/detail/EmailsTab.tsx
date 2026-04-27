@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Loader2, Pencil, Trash2, Mail, Plus, ChevronDown, Reply, Info, RefreshCw, Paperclip, Download } from "lucide-react";
 import type { EmailDraft, SyncEmailThread, SyncEmailMessage, SyncEmailAttachment } from "@/types";
 import { getEmailDrafts, deleteEmailDraft, getEmailSignature, getEmailThreads, downloadEmailAttachment } from "@/lib/api";
+import { splitEmailList } from "@/lib/utils";
 import EmailComposer from "./EmailComposer";
 
 interface EmailsTabProps {
@@ -356,11 +357,19 @@ export default function EmailsTab({ dealId, contactEmail, contactName, readOnly 
 
   function handleReply(thread: SyncEmailThread) {
     const lastMsg = thread.messages[thread.messages.length - 1];
-    const replyTo = lastMsg?.direction === "received" ? lastMsg.fromEmail : lastMsg.toEmail;
+    // Sync table stores To/Cc as ";"-separated. Split so each address lands
+    // in its own tag in the composer, in the right To/Cc field.
+    // - Inbound: reply To = sender; carry over original CC.
+    // - Outbound: continue to the original recipients (To + CC).
+    const toList = lastMsg?.direction === "received"
+      ? (lastMsg.fromEmail ? [lastMsg.fromEmail] : [])
+      : splitEmailList(lastMsg?.toEmail);
+    const ccList = splitEmailList(lastMsg?.cc);
+    const toEmail = toList.length > 0 ? toList.join("; ") : (contactEmail || "");
     const replyDraft: EmailDraft = {
       id: 0, potentialId: dealId,
-      toEmail: replyTo || contactEmail || "", toName: null,
-      ccEmails: null, bccEmails: null,
+      toEmail, toName: null,
+      ccEmails: ccList.length > 0 ? ccList : null, bccEmails: null,
       subject: thread.subject.startsWith("RE:") ? thread.subject : `RE: ${thread.subject}`,
       body: "",
       replyToThreadId: thread.replyThreadId, replyToMessageId: thread.replyToMessageId,

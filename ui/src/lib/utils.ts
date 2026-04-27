@@ -63,6 +63,26 @@ export function reasonOptionsForStage(stage: string): readonly string[] | null {
   return null;
 }
 
+/**
+ * Split a multi-recipient string into individual email addresses.
+ * Sync-table rows store To/Cc as `;`-separated (Outlook style); some sources
+ * use `,`. Trims whitespace, drops empties, dedupes case-insensitively.
+ */
+export function splitEmailList(value: string | null | undefined): string[] {
+  if (!value) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of value.split(/[;,]/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null) return "$0";
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;

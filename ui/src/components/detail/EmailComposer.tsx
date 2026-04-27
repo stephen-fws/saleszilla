@@ -46,6 +46,7 @@ const LineHeight = Extension.create({
 import type { EmailDraft, EmailAttachment, DraftAttachment } from "@/types";
 import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, openDraftAttachment, deleteEmailDraft } from "@/lib/api";
 import { validateAttachmentFile, MAX_ATTACHMENT_TOTAL_BYTES, formatBytes } from "@/lib/attachments";
+import { splitEmailList } from "@/lib/utils";
 
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
@@ -315,7 +316,13 @@ export default function EmailComposer({
     initialDraft?.id ? initialDraft.id : null
   );
   const [to, setTo] = useState<string[]>(
-    initialDraft?.toEmail ? [initialDraft.toEmail] : contactEmail ? [contactEmail] : []
+    // initialDraft.toEmail may be ";"-separated (sync-table rows store
+    // multi-recipient lists that way) — split into individual tags.
+    initialDraft?.toEmail
+      ? splitEmailList(initialDraft.toEmail)
+      : contactEmail
+      ? [contactEmail]
+      : []
   );
   const [cc, setCc] = useState<string[]>(initialDraft?.ccEmails ?? []);
   const [bcc, setBcc] = useState<string[]>(initialDraft?.bccEmails ?? []);
