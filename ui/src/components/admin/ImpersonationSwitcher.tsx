@@ -120,24 +120,11 @@ export default function ImpersonationSwitcher() {
                     key={u.userId}
                     onClick={() => pick(u)}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
-                      isActive
-                        ? "bg-slate-800 text-white"
-                        : u.isActive
-                          ? "hover:bg-slate-50 text-slate-700"
-                          : "hover:bg-slate-50 text-slate-400"
+                      isActive ? "bg-slate-800 text-white" : "hover:bg-slate-50 text-slate-700"
                     }`}
                   >
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="flex items-center gap-1.5">
-                        <p className="font-medium truncate">{u.name || u.email}</p>
-                        {!u.isActive && (
-                          <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
-                            isActive ? "bg-slate-700 text-slate-200" : "bg-slate-200 text-slate-500"
-                          }`}>
-                            Inactive
-                          </span>
-                        )}
-                      </div>
+                      <p className="font-medium truncate">{u.name || u.email}</p>
                       {u.name && (
                         <p className={`text-[10px] truncate ${isActive ? "text-slate-300" : "text-slate-400"}`}>
                           {u.email}

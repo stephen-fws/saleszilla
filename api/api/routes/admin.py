@@ -17,7 +17,6 @@ class AdminUserItem(BaseModel):
     user_id: str
     name: str
     email: str
-    is_active: bool = True
 
 
 def _require_super_admin(user: User) -> None:
@@ -29,7 +28,8 @@ def _require_super_admin(user: User) -> None:
 def list_users_for_impersonation(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[AdminUserItem]]:
-    """List all users (active + inactive) so the superadmin can pick who to view as."""
+    """List every user in the Users table so the superadmin can pick who to view as.
+    No filtering on is_active — we deliberately surface everyone."""
     _require_super_admin(user)
     rows = list_all_users()
     return ResponseModel(data=[
@@ -37,7 +37,6 @@ def list_users_for_impersonation(
             user_id=u.user_id,
             name=u.name or "",
             email=u.email or "",
-            is_active=bool(u.is_active),
         )
         for u in rows
     ])
