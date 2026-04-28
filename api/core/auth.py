@@ -128,6 +128,12 @@ def get_current_user(
                 403, "ERR_IMPERSONATION_FORBIDDEN",
                 "Only superadmins can impersonate other users.",
             )
+        # Validate the SUPERADMIN's active status here (rather than after
+        # the swap) so that the impersonated target's active status doesn't
+        # get checked by get_current_active_user. Admins should be able to
+        # view-as deactivated reps to inspect their data.
+        if not user.is_active:
+            raise BotApiException(403, "ERR_USER_DISABLED", "Your account has been deactivated.")
         target = load_user_by_id(impersonate_id)
         if not target:
             raise BotApiException(404, "ERR_IMPERSONATE_TARGET_NOT_FOUND", "Impersonation target not found.")
@@ -153,7 +159,10 @@ def get_current_active_user(
     rejected here. Centralised so every route using this dep is covered;
     webhooks and scheduler ticks (API-key-gated) bypass and remain writable.
     """
-    if not user.is_active:
+    # Skip the active-user check when impersonating: get_current_user already
+    # validated the SUPERADMIN's active status before swapping, and admins
+    # need to view-as inactive reps to inspect their data.
+    if not getattr(user, "impersonated_by", None) and not user.is_active:
         raise BotApiException(403, "ERR_USER_DISABLED", "Your account has been deactivated.")
     if (
         getattr(user, "impersonated_by", None)

@@ -149,15 +149,21 @@ def get_user_timezone_or_utc(user_id: str | None) -> str:
         return "UTC"
 
 
-def list_active_users() -> list[User]:
-    """All active users — feeds the superadmin impersonation dropdown."""
+def list_all_users() -> list[User]:
+    """All users (active + inactive) — feeds the superadmin impersonation
+    dropdown. Inactive users are still listed because admins sometimes need
+    to view-as a deactivated rep to inspect their data."""
     with get_session() as session:
         rows = session.execute(
-            select(User).where(User.is_active == True).order_by(User.name)
+            select(User).order_by(User.is_active.desc(), User.name)
         ).scalars().all()
         for u in rows:
             session.expunge(u)
         return list(rows)
+
+
+# Backwards-compat alias — older callers may still reference the old name.
+list_active_users = list_all_users
 
 
 def get_user_info(user_id: str) -> UserInfo | None:

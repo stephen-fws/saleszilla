@@ -13,6 +13,7 @@ export interface AdminUser {
   userId: string;
   name: string;
   email: string;
+  isActive: boolean;
 }
 
 export interface ApiResponse<T> {

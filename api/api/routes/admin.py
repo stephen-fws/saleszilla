@@ -8,7 +8,7 @@ from core.auth import get_current_active_user
 from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import ResponseModel
-from api.services.user_service import list_active_users
+from api.services.user_service import list_all_users
 
 router = APIRouter(tags=["admin"])
 
@@ -17,6 +17,7 @@ class AdminUserItem(BaseModel):
     user_id: str
     name: str
     email: str
+    is_active: bool = True
 
 
 def _require_super_admin(user: User) -> None:
@@ -28,10 +29,15 @@ def _require_super_admin(user: User) -> None:
 def list_users_for_impersonation(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[list[AdminUserItem]]:
-    """List active users so the superadmin can pick who to view as."""
+    """List all users (active + inactive) so the superadmin can pick who to view as."""
     _require_super_admin(user)
-    rows = list_active_users()
+    rows = list_all_users()
     return ResponseModel(data=[
-        AdminUserItem(user_id=u.user_id, name=u.name or "", email=u.email or "")
+        AdminUserItem(
+            user_id=u.user_id,
+            name=u.name or "",
+            email=u.email or "",
+            is_active=bool(u.is_active),
+        )
         for u in rows
     ])

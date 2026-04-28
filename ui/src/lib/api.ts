@@ -64,6 +64,7 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
     userId: u.user_id,
     name: u.name ?? "",
     email: u.email ?? "",
+    isActive: u.is_active ?? true,
   }));
 }
 

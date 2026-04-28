@@ -7,11 +7,20 @@ the meeting_brief agent insights.
 Filter rule (deterministic, high-precision):
 A meeting in the next 24h qualifies as a "client meeting" only if at least one is true:
   1. It's already linked to a Potential (CX_Meetings.PotentialId is set)
-  2. An external attendee email matches a Contact in CRM
-  3. An external attendee email domain matches an Account.website domain in CRM
+  2. An external attendee email exactly matches a Contact in CRM AND
+     the meeting host (calendar owner) has an OPEN potential on that
+     contact or that contact's account.
 
-When matched, we know which Account → pick the most relevant open Potential
-on that account → bind the meeting to it.
+Scope rules:
+  - Potential ownership: only the meeting host's own open potentials qualify.
+    A meeting on user X's calendar should bind to user X's potential, not to
+    a teammate's — even if the matching contact is shared.
+  - Stage gate: closed / lost / disqualified potentials are skipped.
+    Surfacing a brief for a long-dead deal is worse than no brief.
+
+Domain-based fallback was removed — too many false positives from free
+email providers (gmail/yahoo) and from accounts whose website happens to
+share a TLD with the attendee.
 """
 
 from __future__ import annotations
@@ -268,9 +277,11 @@ def _bind_meeting_to_potential(
         return None
 
     external_emails = [e["email"] for e in externals]
-    external_domains = list({e["domain"] for e in externals if e["domain"]})
 
-    # Rule 2 — external attendee email matches a Contact
+    # Rule 2 — external attendee email exactly matches a Contact, AND the
+    # meeting host has an OPEN potential on that contact (or, fallback, on
+    # the contact's account). Scope to the calendar owner so meetings don't
+    # bind to a teammate's deal.
     contact_match = session.execute(
         select(Contact, Account)
         .outerjoin(Account, Contact.account_id == Account.account_id)
@@ -279,13 +290,16 @@ def _bind_meeting_to_potential(
     ).first()
     if contact_match:
         c, a = contact_match
-        # Pick the best Potential on this contact (or, fallback, on the account)
         pot_row = None
         if c.contact_id:
             pot_row = session.execute(
                 select(Potential, Account)
                 .outerjoin(Account, Potential.account_id == Account.account_id)
-                .where(Potential.contact_id == c.contact_id)
+                .where(
+                    Potential.contact_id == c.contact_id,
+                    Potential.potential_owner_id == user_id,
+                    Potential.stage.notin_(CLOSED_STAGES),
+                )
                 .order_by(Potential.modified_time.desc())
                 .limit(1)
             ).first()
@@ -293,7 +307,11 @@ def _bind_meeting_to_potential(
             pot_row = session.execute(
                 select(Potential, Account)
                 .outerjoin(Account, Potential.account_id == Account.account_id)
-                .where(Potential.account_id == a.account_id)
+                .where(
+                    Potential.account_id == a.account_id,
+                    Potential.potential_owner_id == user_id,
+                    Potential.stage.notin_(CLOSED_STAGES),
+                )
                 .order_by(Potential.modified_time.desc())
                 .limit(1)
             ).first()
@@ -301,30 +319,6 @@ def _bind_meeting_to_potential(
             p, acc = pot_row
             _save_meeting_binding(session, ms_event_id, event, p, acc, c, user_id)
             return (p, acc, c)
-
-    # Rule 3 — domain matches an Account.website
-    if external_domains:
-        accounts = session.execute(
-            select(Account).where(Account.website.isnot(None))
-        ).scalars().all()
-        for acc in accounts:
-            host = _normalize_website(acc.website)
-            if not host:
-                continue
-            for d in external_domains:
-                # exact or subdomain match
-                if d == host or d.endswith("." + host) or host.endswith("." + d):
-                    pot_row = session.execute(
-                        select(Potential, Contact)
-                        .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
-                        .where(Potential.account_id == acc.account_id)
-                        .order_by(Potential.modified_time.desc())
-                        .limit(1)
-                    ).first()
-                    if pot_row:
-                        p, contact = pot_row
-                        _save_meeting_binding(session, ms_event_id, event, p, acc, contact, user_id)
-                        return (p, acc, contact)
 
     return None
 
@@ -386,8 +380,8 @@ async def find_qualifying_meetings(user_id: str, hours_ahead: int = 24) -> list[
             binding = _bind_meeting_to_potential(session, event, externals, user_id=user_id)
             if not binding:
                 logger.info(
-                    "[meeting_briefs] DROP no CRM match: '%s' @ %s — externals=%s, no contact email match, no account.website domain match",
-                    subject, start, [e["email"] for e in externals],
+                    "[meeting_briefs] DROP no CRM match: '%s' @ %s — externals=%s — no contact-email match against an OPEN potential owned by user=%s",
+                    subject, start, [e["email"] for e in externals], user_id,
                 )
                 continue
 
