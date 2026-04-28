@@ -1084,56 +1084,98 @@ def list_meetings(
     hours_behind: int = 0,
     limit: int = 20,
 ) -> dict[str, Any]:
-    """Return meetings from CX_Meetings, scoped to the calling user (and team
-    when scope includes reportees). Accepts an optional 7-digit
-    potential_number to narrow to one deal's meetings.
+    """Return live calendar events from the asking user's MS Graph mailbox.
 
-    `hours_ahead` / `hours_behind` define the window around now; default is
-    "next 7 days, no past".
+    Real-time — does NOT read from the local CX_Meetings table. So the AI
+    sees meetings exactly as they appear in the user's calendar, including
+    ones that were never linked to a potential.
+
+    `potential_number` (optional, 7-digit) narrows to events that ARE linked
+    in CX_Meetings (the link table is the only place that knows about
+    deal↔meeting binding — Graph itself doesn't carry that).
+
+    `hours_ahead` / `hours_behind` define the window around now; default
+    is "next 7 days, no past".
+
+    Returns `{calendar_not_connected: true}` if the user hasn't OAuthed
+    Microsoft, so the AI can answer honestly instead of inventing data.
     """
-    from core.models import CXMeeting
+    import asyncio
+    from core.exceptions import BotApiException
+    from core.ms_graph import fetch_calendar_events, get_valid_ms_token
 
     scope = get_scope()
-    if scope is not None and not scope:
+    if not scope:
         return {"meetings": [], "total": 0, "scope_empty": True}
+    # Convention: scope[0] is the asking user's id (set in global_chat as
+    # `[user.user_id] + reportees`, and in per-potential chat as `[user_id]`).
+    asker_user_id = scope[0]
 
     now = datetime.now(timezone.utc)
     start_window = now - timedelta(hours=max(0, hours_behind))
     end_window = now + timedelta(hours=max(0, hours_ahead))
 
-    with get_session() as session:
-        stmt = select(CXMeeting).where(
-            CXMeeting.is_active == True,
-            CXMeeting.start_time >= start_window.replace(tzinfo=None),
-            CXMeeting.start_time <= end_window.replace(tzinfo=None),
-        )
-        if scope is not None:
-            stmt = stmt.where(CXMeeting.user_id.in_(scope))
-        if potential_number:
-            # CX_Meetings.PotentialId stores the 7-digit number; tolerate
-            # leading "#" in case the agent echoes the badge format.
-            pn = potential_number.lstrip("#").strip()
-            stmt = stmt.where(CXMeeting.potential_id == pn)
-        stmt = stmt.order_by(CXMeeting.start_time.asc()).limit(limit)
-        rows = session.execute(stmt).scalars().all()
+    # Hop into a fresh event loop for the Graph call (sync tool dispatcher).
+    try:
+        ms_token = asyncio.run(get_valid_ms_token(asker_user_id))
+    except BotApiException as e:
+        if e.code == 424:
+            return {
+                "meetings": [],
+                "total": 0,
+                "calendar_not_connected": True,
+                "note": "User has not connected Microsoft. Tell them to connect their MS account from the calendar to get meeting data.",
+            }
+        return {"meetings": [], "error": e.message_code or "ms_token_error"}
+    except Exception as e:
+        return {"meetings": [], "error": str(e)}
 
-        out: list[dict[str, Any]] = []
-        for m in rows:
-            # Times stored naive UTC — surface as UTC ISO with Z so the model
-            # can convert to the user's timezone (per the system-prompt rule).
-            start_iso = m.start_time.replace(tzinfo=timezone.utc).isoformat() if m.start_time else None
-            end_iso = m.end_time.replace(tzinfo=timezone.utc).isoformat() if m.end_time else None
-            out.append({
-                "ms_event_id": m.ms_event_id,
-                "title": m.title,
-                "start_utc": start_iso,
-                "end_utc": end_iso,
-                "location": m.location,
-                "meeting_link": m.meeting_link,
-                "potential_number": m.potential_id,
-                "attendees": m.attendees,  # JSON string from sync — agent can parse if needed
-                "description_excerpt": (m.description or "")[:300] if m.description else None,
-            })
+    try:
+        raw_events = asyncio.run(fetch_calendar_events(ms_token, start_window, end_window))
+    except Exception as e:
+        return {"meetings": [], "error": f"graph_fetch_failed: {e}"}
+
+    # Optional narrowing to one potential — Graph doesn't know the link, so
+    # we resolve it via CX_Meetings.
+    linked_event_ids: set[str] | None = None
+    if potential_number:
+        from core.models import CXMeeting
+        pn = potential_number.lstrip("#").strip()
+        with get_session() as session:
+            linked_event_ids = set(session.execute(
+                select(CXMeeting.ms_event_id).where(
+                    CXMeeting.is_active == True,
+                    CXMeeting.potential_id == pn,
+                )
+            ).scalars().all())
+
+    out: list[dict[str, Any]] = []
+    for ev in raw_events:
+        if ev.get("isCancelled"):
+            continue
+        ev_id = ev.get("id") or ""
+        if linked_event_ids is not None and ev_id not in linked_event_ids:
+            continue
+        attendees = []
+        for a in (ev.get("attendees") or []):
+            email_addr = ((a.get("emailAddress") or {}).get("address") or "").strip()
+            if email_addr:
+                attendees.append(email_addr)
+        out.append({
+            "ms_event_id": ev_id,
+            "title": ev.get("subject") or "(no subject)",
+            "start_utc": (ev.get("start") or {}).get("dateTime"),
+            "end_utc": (ev.get("end") or {}).get("dateTime"),
+            "location": (ev.get("location") or {}).get("displayName"),
+            "is_online_meeting": ev.get("isOnlineMeeting", False),
+            "online_meeting_url": (ev.get("onlineMeeting") or {}).get("joinUrl"),
+            "organizer_email": ((ev.get("organizer") or {}).get("emailAddress") or {}).get("address"),
+            "attendees": attendees,
+            "show_as": ev.get("showAs"),
+        })
+
+    out.sort(key=lambda m: m.get("start_utc") or "")
+    out = out[:max(1, limit)]
 
     return {
         "meetings": out,
@@ -1142,6 +1184,7 @@ def list_meetings(
             "from_utc": start_window.replace(microsecond=0).isoformat(),
             "to_utc": end_window.replace(microsecond=0).isoformat(),
         },
+        "source": "ms_graph_live",
         "note": "All times are UTC. Convert to the user's timezone when presenting.",
     }
 
@@ -1396,18 +1439,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "list_meetings",
         "description": (
-            "List meetings from the user's connected calendar (the local CX_Meetings table — "
-            "synced from Microsoft Calendar). Use this whenever the user asks about meetings: "
-            "'next meeting', 'today's meetings', 'upcoming meetings with X', 'last meeting with this client', etc. "
-            "Returns title, start/end (UTC ISO), location, meeting link, linked potential_number (if any), and attendees. "
-            "Always convert UTC timestamps to the user's timezone (set in the system prompt) when presenting."
+            "List the user's calendar events live from Microsoft Graph — real-time, "
+            "covers their full calendar (not just CRM-linked meetings). "
+            "Use whenever the user asks about meetings: 'next meeting', 'today's meetings', "
+            "'upcoming meetings with X', 'last meeting with this client', etc. "
+            "Returns title, start/end (UTC ISO), location, online meeting URL, organizer, "
+            "attendees, and show_as. If the user hasn't connected Microsoft, returns "
+            "{calendar_not_connected: true} — answer honestly in that case. "
+            "Always convert UTC timestamps to the user's timezone (set in the system prompt) "
+            "when presenting."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "potential_number": {
                     "type": "string",
-                    "description": "Optional 7-digit potential number to scope to one deal's meetings only.",
+                    "description": "Optional 7-digit potential number — narrows to events that are explicitly linked to this potential in the CRM (CX_Meetings). Most calendar queries don't need this.",
                 },
                 "hours_ahead": {
                     "type": "integer",
@@ -1416,7 +1463,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "hours_behind": {
                     "type": "integer",
-                    "description": "How many hours backward from now to include. Default 0 (future-only). Set >0 for 'last meeting' style queries.",
+                    "description": "How many hours backward from now to include. Default 0 (future-only). Set >0 for 'last meeting' / 'meetings this morning' style queries.",
                     "default": 0,
                 },
                 "limit": {
