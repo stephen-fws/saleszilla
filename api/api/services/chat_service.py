@@ -134,6 +134,16 @@ def build_context_prompt(potential_id: str, user_id: str | None = None) -> str:
         "When you mention any date or time in your response (meetings, deadlines, "
         f"\"yesterday\", relative times, etc.), express it in {tz_name}. Include the "
         "timezone abbreviation in absolute timestamps so the user is never confused.\n"
+        "\n"
+        "## Meetings — IMPORTANT\n"
+        "For ANY question about meetings (next meeting, upcoming, today's, this week, "
+        "with X, last meeting, etc.), you MUST call the `list_meetings` tool to fetch "
+        "live data from the user's Microsoft calendar. NEVER answer from the meeting "
+        "details that may appear inside agent insight content below — that content is "
+        "a snapshot from when the brief was generated and may be stale, missing newer "
+        "meetings, or reflect a meeting that has since been moved or cancelled. "
+        "Always pass the current potential's number when asking about THIS deal's "
+        "meetings; omit it for general calendar questions.\n"
     )
 
     with get_session() as session:
