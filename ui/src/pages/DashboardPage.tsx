@@ -56,6 +56,21 @@ function useIsMobile(breakpoint = 768) {
 
 const STAGE_ORDER = Object.fromEntries(DEAL_STAGES.map((s, i) => [s, i]));
 
+/**
+ * Robust alphabetical comparator used by Potentials/Accounts list sorts.
+ * - Trims leading/trailing whitespace before comparing
+ * - Empty/null names sort AFTER real names (avoids "" leaking to the top)
+ * - `sensitivity: "base"` ignores case + diacritics (a == A == á)
+ */
+function alphaCompare(a: string | null | undefined, b: string | null | undefined): number {
+  const aTrim = (a ?? "").trim();
+  const bTrim = (b ?? "").trim();
+  if (!aTrim && !bTrim) return 0;
+  if (!aTrim) return 1;
+  if (!bTrim) return -1;
+  return aTrim.localeCompare(bTrim, undefined, { sensitivity: "base" });
+}
+
 export default function DashboardPage() {
   const isMobile = useIsMobile();
   const user = useAuthStore((s) => s.user);
@@ -634,16 +649,29 @@ export default function DashboardPage() {
       case "value-desc": return sorted.sort((a, b) => b.value - a.value);
       case "value-asc": return sorted.sort((a, b) => a.value - b.value);
       case "closing-date":
+        // "Soonest" = today first, then upcoming ascending, then overdue
+        // grouped at the bottom (most recently overdue first within that
+        // group — older overdue is usually abandoned, recent overdue is
+        // more actionable). Plain ascending sort would put past dates
+        // ABOVE today's, which doesn't match "soonest".
         return sorted.sort((a, b) => {
           if (!a.closingDate && !b.closingDate) return 0;
           if (!a.closingDate) return 1;
           if (!b.closingDate) return -1;
-          return new Date(a.closingDate).getTime() - new Date(b.closingDate).getTime();
+          const todayMs = new Date().setHours(0, 0, 0, 0);
+          const aMs = new Date(a.closingDate).getTime();
+          const bMs = new Date(b.closingDate).getTime();
+          const aPast = aMs < todayMs;
+          const bPast = bMs < todayMs;
+          if (aPast && !bPast) return 1;       // overdue → after future
+          if (!aPast && bPast) return -1;      // future → before overdue
+          if (aPast && bPast) return bMs - aMs; // both overdue → most recent first
+          return aMs - bMs;                     // both future → soonest first
         });
       case "stage":
         return sorted.sort((a, b) => (STAGE_ORDER[a.stage] ?? 99) - (STAGE_ORDER[b.stage] ?? 99));
       case "company-az":
-        return sorted.sort((a, b) => a.company.name.localeCompare(b.company.name));
+        return sorted.sort((a, b) => alphaCompare(a.company.name, b.company.name));
       default: return sorted;
     }
   }, [potentialDeals, potentialFilters.sortBy]);
@@ -651,8 +679,8 @@ export default function DashboardPage() {
   const sortedAccounts = useMemo(() => {
     const sorted = [...accounts];
     switch (accountFilters.sortBy) {
-      case "name-az": return sorted.sort((a, b) => a.name.localeCompare(b.name));
-      case "name-za": return sorted.sort((a, b) => b.name.localeCompare(a.name));
+      case "name-az": return sorted.sort((a, b) => alphaCompare(a.name, b.name));
+      case "name-za": return sorted.sort((a, b) => alphaCompare(b.name, a.name));
       case "value-desc": return sorted.sort((a, b) => b.totalValue - a.totalValue);
       case "deals-desc": return sorted.sort((a, b) => b.dealCount - a.dealCount);
       default: return sorted;
