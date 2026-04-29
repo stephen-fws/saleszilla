@@ -518,32 +518,22 @@ def trigger_todo_reconcile(potential_number: str) -> dict:
 
 # ── Follow-up Inactive (weekly scan) ─────────────────────────────────────────
 
-def _most_recent_wednesday(d: date) -> date:
-    """Most recent Wednesday on or before `d`. Mon/Tue resolve to LAST week's Wed.
-    Wed → today; Thu/Fri/Sat/Sun → this week's Wed. Anchoring on the most
-    recent Wed lets a missed Wednesday run catch up on Thursday (same window)."""
-    # Python weekday(): Mon=0, Tue=1, Wed=2, Thu=3, …
-    days_since_wed = (d.weekday() - 2) % 7
-    return d - timedelta(days=days_since_wed)
-
-
-def _subtract_months(d: date, months: int) -> date:
-    """Subtract calendar months, clamping to the last day of the target month."""
-    import calendar
-    year, month = d.year, d.month - months
-    while month < 1:
-        month += 12
-        year -= 1
-    last_day = calendar.monthrange(year, month)[1]
-    return date(year, month, min(d.day, last_day))
-
-
 def compute_inactive_scan_window(today_date: date | None = None) -> tuple[datetime, datetime]:
-    """Window = the 7 calendar days ending at (most-recent-Wed − 3 months).
-    Returns (start, end_exclusive) as naive datetimes at midnight — DB's
-    [Modified Time] column is naive, compared in the same reference frame."""
-    anchor = _most_recent_wednesday(today_date or date.today())
-    end_date = _subtract_months(anchor, 3)
+    """Window = the 7 calendar days ending 60 days before last week's Sunday.
+
+    Anchoring on end-of-last-week (rather than today) means running the scan
+    on any day Mon-Sun resolves to the same anchor — the current week is
+    always ignored. Day-based math (60 days, not "2 months") guarantees
+    each weekly run produces strict 7-day, non-overlapping slices.
+
+    Returns (start, end_exclusive) as naive datetimes at midnight to match
+    the DB's naive timestamp columns.
+    """
+    today = today_date or date.today()
+    # weekday(): Mon=0 ... Sun=6. Days back to land on previous Sunday:
+    # Mon→1, Tue→2, ..., Sat→6, Sun→7 (the Sun of last week, not today).
+    last_week_end = today - timedelta(days=today.weekday() + 1)
+    end_date = last_week_end - timedelta(days=60)
     start_date = end_date - timedelta(days=7)
     start = datetime.combine(start_date, time(0, 0))
     end = datetime.combine(end_date, time(0, 0))  # exclusive upper bound
@@ -660,50 +650,103 @@ def _fire_inactive_for_potential(snapshot: dict, now: datetime) -> None:
 
 
 def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
-    """Weekly scan (scheduled every Wednesday, safe to run manually any day).
+    """Weekly scan — picks Sleeping / Contact-Later potentials whose LAST
+    email exchange (sent OR received, from VW_CRM_Sales_Sync_Emails) falls
+    in the 7-day inactivity slice ending 60 days before last Sunday.
 
-    Identifies potentials in Sleeping / Contact Later whose [Modified Time]
-    falls in the 7-day window ending 3 months before the most recent Wednesday,
-    and fires the inactive follow-up graph for each.
+    Skip-if-unactioned: potentials that already have a `followUpInactive`
+    insight in pending / running / completed are silently ignored, so a
+    manual replay or scheduler retry inside the same week doesn't
+    double-trigger.
 
     anchor_date: optional override for testing. When provided, the window is
-    computed as if "today" were that date (the function still walks back to the
-    most recent Wednesday from it, so mid-week anchors produce sensible weeks).
+    computed as if "today" were that date.
     """
     INACTIVE_STAGES = ("Sleeping", "Contact Later")
     start, end = compute_inactive_scan_window(anchor_date)
     logger.info("inactive_fu scan: window=[%s, %s) stages=%s", start.isoformat(), end.isoformat(), INACTIVE_STAGES)
 
     with get_session() as session:
-        rows = session.execute(
-            select(Potential, Account, Contact)
-            .outerjoin(Account, Potential.account_id == Account.account_id)
-            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
-            .where(
-                Potential.stage.in_(INACTIVE_STAGES),
-                Potential.modified_time >= start,
-                Potential.modified_time < end,
+        # Candidates: stage match + last sync-email in [start, end).
+        # Raw SQL because VW_CRM_Sales_Sync_Emails has no ORM model.
+        rows = session.execute(text("""
+            WITH last_email AS (
+                SELECT  PotentialNumber,
+                        MAX(COALESCE(SentTime, ReceivedTime)) AS last_at
+                FROM    VW_CRM_Sales_Sync_Emails
+                WHERE   PotentialNumber IS NOT NULL
+                  AND   COALESCE(SentTime, ReceivedTime) IS NOT NULL
+                GROUP BY PotentialNumber
             )
-        ).all()
-        # Snapshot outside the session — downstream work opens its own sessions
-        snapshots = []
-        for p, a, c in rows:
-            snapshots.append({
-                "potential_id": p.potential_id,
-                "potential_number": p.potential_number,
-                "stage": p.stage or "",
-                "modified_time": p.modified_time,
-                "owner_id": p.potential_owner_id,
-                "potential_name": p.potential_name or "(untitled)",
-                "account_name": a.account_name if a else None,
-                "contact_name": c.full_name if c else None,
-                "contact_id": c.contact_id if c else None,
-                "account_id": a.account_id if a else None,
-            })
+            SELECT  p.[Potential Id]       AS potential_id,
+                    p.[Potential Number]   AS potential_number,
+                    p.[Potential Name]     AS potential_name,
+                    p.Stage                AS stage,
+                    p.[Potential Owner Id] AS owner_id,
+                    p.[Account Id]         AS account_id,
+                    p.[Contact Id]         AS contact_id,
+                    a.[Account Name]       AS account_name,
+                    c.[Full Name]          AS contact_name
+            FROM    Potentials p
+            JOIN    last_email le ON le.PotentialNumber = p.[Potential Number]
+            LEFT JOIN Accounts a ON a.[Account Id] = p.[Account Id]
+            LEFT JOIN Contacts c ON c.[Contact Id] = p.[Contact Id]
+            WHERE   p.Stage IN ('Sleeping', 'Contact Later')
+              AND   le.last_at >= :start
+              AND   le.last_at <  :end
+        """), {"start": start, "end": end}).all()
+
+        candidates = [
+            {
+                "potential_id":     r.potential_id,
+                "potential_number": r.potential_number,
+                "stage":            r.stage or "",
+                "owner_id":         r.owner_id,
+                "potential_name":   r.potential_name or "(untitled)",
+                "account_id":       r.account_id,
+                "account_name":     r.account_name,
+                "contact_id":       r.contact_id,
+                "contact_name":     r.contact_name,
+            }
+            for r in rows
+        ]
+
+        # Idempotency: drop candidates that already have an unactioned
+        # followUpInactive insight. Mirrors the news-flow safeguard so a
+        # manual replay or scheduler retry inside the same week doesn't
+        # double-trigger.
+        pn_list = [c["potential_number"] for c in candidates if c["potential_number"]]
+        if pn_list:
+            already_rows = session.execute(
+                select(CXAgentInsight.potential_id)
+                .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+                .where(
+                    CXAgentInsight.is_active == True,
+                    CXAgentInsight.potential_id.in_(pn_list),
+                    CXAgentInsight.status.in_(("pending", "running", "completed")),
+                    CXAgentTypeConfig.trigger_category == "followUpInactive",
+                )
+                .distinct()
+            ).all()
+            already_processed = {r[0] for r in already_rows}
+            if already_processed:
+                logger.info("inactive_fu scan: skipping %d already-processed potentials", len(already_processed))
+            candidates = [c for c in candidates if c["potential_number"] not in already_processed]
+
+    # Safety cap during early prod rollout — prevent a flood if the candidate
+    # set is unexpectedly large. Bump or remove once we've watched a few runs.
+    INACTIVE_FU_PER_RUN_CAP = 2
+    total_eligible = len(candidates)
+    if total_eligible > INACTIVE_FU_PER_RUN_CAP:
+        logger.info(
+            "inactive_fu scan: capping %d eligible candidates to %d for this run",
+            total_eligible, INACTIVE_FU_PER_RUN_CAP,
+        )
+        candidates = candidates[:INACTIVE_FU_PER_RUN_CAP]
 
     now = datetime.now(tzutil.utc)
     triggered = skipped = 0
-    for s in snapshots:
+    for s in candidates:
         if not s["potential_number"]:
             skipped += 1
             logger.warning("inactive_fu scan: skipping potential with no potential_number: %s", s["potential_id"])
@@ -719,7 +762,7 @@ def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
         "ok": True,
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
-        "matched": len(snapshots),
+        "matched": len(candidates),
         "triggered": triggered,
         "skipped": skipped,
     }
