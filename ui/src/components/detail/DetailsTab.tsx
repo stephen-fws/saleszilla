@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil } from "lucide-react";
 import type { PotentialDetail } from "@/types";
+import { LEAD_SOURCES as DEFAULT_LEAD_SOURCES, DEAL_TYPES as DEFAULT_DEAL_TYPES } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
 import { reasonFieldForStage, reasonOptionsForStage, formatDateTime } from "@/lib/utils";
 
@@ -524,10 +525,37 @@ interface DetailsTabProps {
   detail: PotentialDetail;
   availableStages: string[];
   availableServices: string[];
+  // Optional dynamic lookups. When omitted, fall back to the hardcoded
+  // constants exported from @/types so the dropdowns are always populated.
+  availableLeadSources?: string[];
+  availableDealTypes?: string[];
+  subServiceMap?: Record<string, string[]>;
   onFieldSave: (field: keyof UpdatePotentialPayload, raw: string, reason?: string) => Promise<void>;
 }
 
-export default function DetailsTab({ detail, availableStages, availableServices, onFieldSave }: DetailsTabProps) {
+export default function DetailsTab({
+  detail,
+  availableStages,
+  availableServices,
+  availableLeadSources,
+  availableDealTypes,
+  subServiceMap,
+  onFieldSave,
+}: DetailsTabProps) {
+  const leadSources = availableLeadSources?.length ? availableLeadSources : DEFAULT_LEAD_SOURCES;
+  const dealTypes = availableDealTypes?.length ? availableDealTypes : DEFAULT_DEAL_TYPES;
+  // Sub-services depend on the currently selected service. The map's keys
+  // are service NAMES, but legacy data may have whitespace / case
+  // differences vs the lookup keys — match case-insensitive and trimmed
+  // so changing the Service dropdown actually refreshes Sub-service options.
+  const subServiceOptions = (() => {
+    if (!subServiceMap || !detail.service) return [];
+    const wanted = detail.service.trim().toLowerCase();
+    for (const [key, vals] of Object.entries(subServiceMap)) {
+      if (key.trim().toLowerCase() === wanted) return vals ?? [];
+    }
+    return [];
+  })();
   const { contact, company } = detail;
 
   return (
@@ -591,16 +619,51 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 label="Service *"
                 value={detail.service}
                 options={availableServices}
-                onSave={(v) => onFieldSave("service", v)}
+                onSave={async (v) => {
+                  await onFieldSave("service", v);
+                  // After Service changes, clear Sub-service if the old
+                  // value isn't valid for the new Service. Otherwise the
+                  // dropdown's options would refresh but the field would
+                  // still display the now-irrelevant prior selection.
+                  if (subServiceMap && detail.subService) {
+                    const wanted = v.trim().toLowerCase();
+                    let newOptions: string[] = [];
+                    for (const [key, vals] of Object.entries(subServiceMap)) {
+                      if (key.trim().toLowerCase() === wanted) {
+                        newOptions = vals ?? [];
+                        break;
+                      }
+                    }
+                    const stillValid = newOptions.some(
+                      (o) => o.trim().toLowerCase() === detail.subService!.trim().toLowerCase(),
+                    );
+                    if (!stillValid) {
+                      await onFieldSave("sub_service", "");
+                    }
+                  }
+                }}
               />
-              <EditableField
-                label="Sub-service *"
-                value={detail.subService}
-                onSave={(v) => onFieldSave("sub_service", v)}
-              />
-              <EditableField
+              {subServiceOptions.length > 0 ? (
+                <EditableSelect
+                  label="Sub-service *"
+                  value={detail.subService}
+                  options={subServiceOptions}
+                  onSave={(v) => onFieldSave("sub_service", v)}
+                />
+              ) : (
+                // No sub-services configured for the current Service — fall
+                // back to free-text so the field stays editable instead of
+                // a dead dropdown.
+                <EditableField
+                  label="Sub-service *"
+                  value={detail.subService}
+                  onSave={(v) => onFieldSave("sub_service", v)}
+                />
+              )}
+              <EditableSelect
                 label="Type"
                 value={detail.dealType}
+                options={dealTypes}
                 onSave={(v) => onFieldSave("deal_type", v)}
               />
               <EditableField
@@ -608,9 +671,10 @@ export default function DetailsTab({ detail, availableStages, availableServices,
                 value={detail.dealSize}
                 onSave={(v) => onFieldSave("deal_size", v)}
               />
-              <EditableField
+              <EditableSelect
                 label="Lead Source *"
                 value={detail.leadSource}
+                options={leadSources}
                 onSave={(v) => onFieldSave("lead_source", v)}
               />
               {detail.createdAt && (

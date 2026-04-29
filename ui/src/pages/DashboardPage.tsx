@@ -1025,6 +1025,7 @@ export default function DashboardPage() {
               }}
               availableStages={lookups.stages}
               availableServices={lookups.services.map((s) => s.name)}
+              subServiceMap={lookups.subServiceMap}
               initialTab={viewMode === "queue" ? (currentFolderType === "emails-sent" ? "emails" : "action") : newDealInitialTab}
             />
           )}

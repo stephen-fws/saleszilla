@@ -59,6 +59,9 @@ interface DetailPanelProps {
   refreshKey?: number;
   availableStages?: string[];
   availableServices?: string[];
+  availableLeadSources?: string[];
+  availableDealTypes?: string[];
+  subServiceMap?: Record<string, string[]>;
   initialTab?: DetailTab;
 }
 
@@ -87,6 +90,9 @@ export default function DetailPanel({
   refreshKey = 0,
   availableStages = [],
   availableServices = [],
+  availableLeadSources,
+  availableDealTypes,
+  subServiceMap,
   initialTab,
 }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>(initialTab ?? "details");
@@ -393,7 +399,15 @@ export default function DetailPanel({
               <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
             </div>
           ) : detail ? (
-            <DetailsTab detail={detail} availableStages={availableStages} availableServices={availableServices} onFieldSave={handlePotentialFieldSave} />
+            <DetailsTab
+              detail={detail}
+              availableStages={availableStages}
+              availableServices={availableServices}
+              availableLeadSources={availableLeadSources}
+              availableDealTypes={availableDealTypes}
+              subServiceMap={subServiceMap}
+              onFieldSave={handlePotentialFieldSave}
+            />
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm text-slate-400">No details available</p>

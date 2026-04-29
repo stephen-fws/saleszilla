@@ -366,6 +366,32 @@ export interface GlobalSearchResults {
 
 // ── Hardcoded service list (will point to service table later) ────────────────
 
+// Hardcoded fallback values used when the /lookups endpoint hasn't returned
+// yet (or fails). Server-side lookups remain the source of truth — these
+// just keep the dropdowns populated on first paint.
+export const LEAD_SOURCES = [
+  "Cold Call",
+  "Cold Email",
+  "Cross Selling",
+  "Email from Website",
+  "Phone Call Internal",
+  "Reference",
+  "Repeat Business",
+  "Website",
+  "Chat from website",
+  "Email Marketing",
+  "Phone call from website",
+  "Social Media",
+  "Affiliates",
+  "Referral by Boyne",
+  "Trade Shows",
+  "Upselling",
+  "Similar Customers",
+  "ABM",
+];
+
+export const DEAL_TYPES = ["New Business", "Existing Business"];
+
 export const SERVICES = [
   "Data Entry",
   "Finance & Accounting",
