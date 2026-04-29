@@ -135,7 +135,7 @@ export default function TimelineTab({ dealId, refreshKey }: { dealId: string; re
               onChange={(e) => setShowAiEvents(e.target.checked)}
               className="h-3 w-3 rounded border-slate-300 text-violet-600 focus:ring-violet-300"
             />
-            <Sparkles className="h-3 w-3 text-violet-500" />
+            <Bot className="h-3 w-3 text-violet-500" />
             <span>Show AI events ({aiEventCount})</span>
           </label>
         </div>
