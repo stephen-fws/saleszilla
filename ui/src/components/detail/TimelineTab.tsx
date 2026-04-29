@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Loader2, Star, ArrowRightLeft, Pencil, StickyNote, CheckSquare,
-  Paperclip, Mail, Trash2, Clock, Phone, Bot, Sparkles,
+  Paperclip, Mail, Trash2, Clock, Phone, Bot,
 } from "lucide-react";
 import { getActivities } from "@/lib/api";
 import type { ActivityEntry } from "@/lib/api";
 
 // activity_types written by the AI workflow tracker (server-side
-// log_agent_trigger / log_agent_completed). Used to drive the "AI events"
-// filter toggle.
-const AI_ACTIVITY_TYPES = new Set(["agent_triggered", "agent_completed"]);
+// log_agent_trigger). Used to drive the "AI events" filter toggle.
+const AI_ACTIVITY_TYPES = new Set(["agent_triggered"]);
 
 // ── Activity type config ───────────────────────────────────────────────────────
 
@@ -34,8 +33,7 @@ const ACTIVITY_CONFIG: Record<string, ActivityConfig> = {
   file_deleted:      { icon: Trash2,         iconBg: "bg-red-100",     iconColor: "text-red-500",    label: "File Deleted" },
   email_sent:        { icon: Mail,           iconBg: "bg-sky-100",     iconColor: "text-sky-600",    label: "Email Sent" },
   call_logged:       { icon: Phone,          iconBg: "bg-green-100",   iconColor: "text-green-600",  label: "Call" },
-  agent_triggered:   { icon: Sparkles,       iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Workflow" },
-  agent_completed:   { icon: Bot,            iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Agent" },
+  agent_triggered:   { icon: Bot,            iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Workflow" },
 };
 
 const DEFAULT_CONFIG: ActivityConfig = {

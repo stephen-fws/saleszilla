@@ -577,14 +577,6 @@ def process_webhook(payload_data: dict) -> None:
         if cfg.trigger_category == "stage_update" and final_status == "completed" and content:
             _apply_stage_update(session, external_id, content, now)
 
-    # Timeline entry — fires after the insight save commits, so the user sees
-    # "AI agent completed: X" in the same place as their other actions.
-    try:
-        from api.services.activity_service import log_agent_completed
-        log_agent_completed(external_id, cfg.agent_name, cfg.tab_type, final_status)
-    except Exception:
-        logger.exception("Failed to log agent completion for %s/%s", external_id, agent_id)
-
     # Attachment agent: upload the HTML to GCS + register as a draft attachment.
     # Runs OUTSIDE the insight-save session because it has its own transactional write.
     # Empty/whitespace content is treated as "no attachment" (save_from_agent handles it).

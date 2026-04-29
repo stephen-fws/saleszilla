@@ -22,16 +22,6 @@ _AGENT_CATEGORY_LABELS: dict[str, str] = {
     "todo_reconcile":   "Todo reconcile",
 }
 
-# Tab types whose completions are user-visible enough to warrant a timeline
-# entry. Internal-only producers (attachment, news_check, todo_reconcile)
-# would create noise without giving the user new information.
-_USER_VISIBLE_COMPLETION_TABS: frozenset[str] = frozenset({
-    "next_action",
-    "research",
-    "solution_brief",
-})
-
-
 def _resolve_potential_uuid(session, potential_id_or_number: str) -> str | None:
     """Accept either UUID or 7-digit potential_number; return the UUID."""
     return session.execute(
@@ -120,30 +110,3 @@ def log_agent_trigger(
         pass
 
 
-def log_agent_completed(
-    potential_id_or_number: str,
-    agent_name: str | None,
-    tab_type: str | None,
-    status: str,
-) -> None:
-    """Log an agent completion (success or error) to the timeline.
-
-    Only fires for user-visible tab types — internal-only agents (attachment
-    PDF producer, news_check gate, todo reconciler) would just create noise.
-    """
-    if tab_type not in _USER_VISIBLE_COMPLETION_TABS:
-        return
-    try:
-        with get_session() as session:
-            uuid = _resolve_potential_uuid(session, potential_id_or_number)
-        if not uuid:
-            return
-        verb = "completed" if status == "completed" else "failed"
-        name = agent_name or tab_type or "AI agent"
-        log_activity(
-            potential_id=uuid,
-            activity_type="agent_completed",
-            description=f"AI agent {verb}: {name}",
-        )
-    except Exception:
-        pass
