@@ -34,6 +34,30 @@ def _clean_nullish(value: str | None) -> str:
     return stripped
 
 
+# Description sanitiser — Potential.description is rendered freely in the UI,
+# so it can contain raw HTML, embedded chat transcripts (web inquiries),
+# pasted email threads, etc. Before forwarding it as `customer_requirements`
+# we strip tags, collapse whitespace, and cap length so we don't blow past
+# the agent's context window or trip token limits on the agentflow side.
+_DESCRIPTION_MAX_CHARS = 8000
+
+
+def _sanitize_description(value: str | None) -> str:
+    """Strip HTML / collapse whitespace / cap length on a Potential.description
+    before sending it as an agent payload field. Safe on None."""
+    if not value:
+        return ""
+    import re
+    text = re.sub(r"<[^>]+>", " ", value)            # strip HTML tags
+    text = text.replace("\xa0", " ")                  # nbsp → space
+    text = re.sub(r"[ \t]+", " ", text)               # collapse runs of spaces
+    text = re.sub(r"\n{3,}", "\n\n", text)            # cap consecutive newlines
+    text = text.strip()
+    if len(text) > _DESCRIPTION_MAX_CHARS:
+        text = text[:_DESCRIPTION_MAX_CHARS].rstrip() + " …[truncated]"
+    return text
+
+
 # Backwards-compat alias — older call sites used _clean_website.
 _clean_website = _clean_nullish
 
@@ -501,7 +525,7 @@ def _load_potential_data(potential_id: str) -> dict:
                 _clean_nullish(a.website if a else "")
                 or _derive_website_from_email(c.email if c else "")
             ),
-            "description": p.description or "",
+            "description": _sanitize_description(p.description),
             "lead_source": p.lead_source or "",
             "form_url": _clean_nullish(p.form_url),
             "potential_number": p.potential_number or "",
