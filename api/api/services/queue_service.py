@@ -160,6 +160,9 @@ def list_queue_items(
             result.append(QueueItemResponse(
                 id=item.id,
                 potential_id=p.potential_id if p else item.potential_id,
+                # CXQueueItem.potential_id is itself the 7-digit potential_number;
+                # fall back to it when the Potential row hasn't been joined.
+                potential_number=(p.potential_number if p else item.potential_id),
                 contact_id=item.contact_id,
                 account_id=item.account_id,
                 folder_type=item.folder_type,

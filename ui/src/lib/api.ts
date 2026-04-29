@@ -94,6 +94,7 @@ export async function getQueue(folderType: string): Promise<{ items: QueueItem[]
     companyId: r.account_id ?? "",
     contactId: r.contact_id ?? "",
     dealId: r.potential_id ?? null,
+    potentialNumber: r.potential_number ?? null,
     createdAt: r.created_time ?? "",
     stage: r.stage ?? null,
     value: r.value ?? null,
@@ -128,6 +129,7 @@ export async function getPotentials(filters: Partial<PotentialFilters> & {
   if (filters.stages?.length) params.set("stages", filters.stages.join(","));
   if (filters.services?.length) params.set("services", filters.services.join(","));
   if (filters.owners?.length) params.set("owners", filters.owners.join(","));
+  if (filters.categories?.length) params.set("categories", filters.categories.join(","));
   if (filters.search) params.set("search", filters.search);
   if (filters.includeTeam) params.set("include_team", "true");
   if (filters.createdFrom) params.set("created_from", filters.createdFrom);
@@ -143,6 +145,7 @@ export async function getPotentials(filters: Partial<PotentialFilters> & {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deals: PotentialDeal[] = (d.potentials ?? []).map((r: any) => ({
     id: String(r.id),
+    potentialNumber: r.potential_number ?? null,
     title: r.title ?? "",
     value: r.value ?? 0,
     stage: r.stage ?? "prospect",

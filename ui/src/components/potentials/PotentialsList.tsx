@@ -120,8 +120,14 @@ export default function PotentialsList({
               return (
                 <button
                   key={deal.id}
-                  onClick={() => onSelectDeal(deal.id)}
-                  className={`w-full p-3 text-left transition-colors ${
+                  onClick={() => {
+                    // If the user is actively selecting text inside the card
+                    // (drag-select to copy a potential number / company name),
+                    // skip navigation so the selection isn't lost on mouseup.
+                    if (window.getSelection()?.toString()) return;
+                    onSelectDeal(deal.id);
+                  }}
+                  className={`w-full p-3 text-left transition-colors select-text ${
                     isSelected
                       ? "bg-blue-50 border-l-2 border-l-blue-500"
                       : "hover:bg-slate-50 border-l-2 border-l-transparent"
@@ -161,6 +167,11 @@ export default function PotentialsList({
                         <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STAGE_BADGE}`}>
                           {deal.stage}
                         </span>
+                        {deal.potentialNumber && (
+                          <span className="font-mono text-[10px] text-slate-500" title="Potential number">
+                            #{deal.potentialNumber}
+                          </span>
+                        )}
                         {deal.category === "Diamond" && (
                           <span title="Diamond" className="text-base leading-none">💎</span>
                         )}

@@ -51,6 +51,7 @@ export interface QueueItem {
   companyId: string;
   contactId: string;
   dealId: string | null;
+  potentialNumber: string | null;
   createdAt: string;
   // Potential fields — present for all non-meeting-briefs folders
   stage: string | null;
@@ -61,6 +62,7 @@ export interface QueueItem {
 
 export interface PotentialDeal {
   id: string;
+  potentialNumber: string | null;
   title: string;
   value: number;
   stage: string;
@@ -78,6 +80,8 @@ export interface PotentialFilters {
   stages: string[];
   services: string[];
   owners: string[];
+  // Diamond / Platinum category flags. Empty = show all.
+  categories: string[];
   search: string;
   sortBy: string;
   // Optional Created Time range filters — ISO YYYY-MM-DD strings (inclusive).

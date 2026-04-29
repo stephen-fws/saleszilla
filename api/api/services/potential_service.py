@@ -2,7 +2,7 @@
 
 import logging
 
-from sqlalchemy import func, select, or_
+from sqlalchemy import and_, func, select, or_
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ def list_potentials(
     stages: list[str] | None = None,
     services: list[str] | None = None,
     owners: list[str] | None = None,
+    categories: list[str] | None = None,
     search: str | None = None,
     page: int = 1,
     page_size: int = 100,
@@ -103,11 +104,31 @@ def list_potentials(
             stmt = stmt.where(Potential.service.in_(services))
         if owners:
             stmt = stmt.where(Potential.potential_owner_name.in_(owners))
+        if categories:
+            # Diamond = Potential2Close == 1.
+            # Platinum = Hot_Potential='true' AND NOT Diamond (matches _potential_category).
+            cat_clauses = []
+            wants_diamond = "Diamond" in categories
+            wants_platinum = "Platinum" in categories
+            if wants_diamond:
+                cat_clauses.append(Potential.potential2close == 1)
+            if wants_platinum:
+                cat_clauses.append(
+                    and_(
+                        func.lower(func.coalesce(Potential.hot_potential, "false")) == "true",
+                        or_(Potential.potential2close == None, Potential.potential2close != 1),  # noqa: E711
+                    )
+                )
+            if cat_clauses:
+                stmt = stmt.where(or_(*cat_clauses))
         if search:
-            term = f"%{search}%"
+            # Strip a leading "#" so users can paste "#0001234" or "0001234".
+            search_term = search.lstrip("#").strip()
+            term = f"%{search_term}%"
             stmt = stmt.where(
                 or_(
                     Potential.potential_name.ilike(term),
+                    Potential.potential_number.ilike(term),
                     Account.account_name.ilike(term),
                     Contact.full_name.ilike(term),
                     Contact.email.ilike(term),

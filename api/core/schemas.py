@@ -290,6 +290,7 @@ class FolderItem(BaseModel):
 class QueueItemResponse(BaseModel):
     id: int
     potential_id: str
+    potential_number: Optional[str] = None
     contact_id: Optional[str] = None
     account_id: Optional[str] = None
     folder_type: str

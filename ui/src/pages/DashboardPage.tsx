@@ -211,6 +211,7 @@ export default function DashboardPage() {
     stages: [],
     services: [],
     owners: [],
+    categories: [],
     search: "",
     sortBy: "created-desc",
     createdFrom: null,
@@ -562,6 +563,7 @@ export default function DashboardPage() {
     potentialFilters.stages.length +
     potentialFilters.services.length +
     potentialFilters.owners.length +
+    potentialFilters.categories.length +
     (potentialFilters.search ? 1 : 0) +
     (potentialFilters.createdFrom || potentialFilters.createdTo ? 1 : 0);
 
@@ -570,6 +572,7 @@ export default function DashboardPage() {
       stages: [],
       services: [],
       owners: [],
+      categories: [],
       search: "",
       sortBy: prev.sortBy,
       createdFrom: null,

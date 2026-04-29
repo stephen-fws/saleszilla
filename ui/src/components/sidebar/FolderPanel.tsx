@@ -109,15 +109,17 @@ export default function FolderPanel({
     (filters.stages.length > 0 ||
       filters.services.length > 0 ||
       filters.owners.length > 0 ||
+      filters.categories.length > 0 ||
       filters.search.length > 0);
 
   const activeFilterCount =
     (filters?.stages.length || 0) +
     (filters?.services.length || 0) +
     (filters?.owners.length || 0) +
+    (filters?.categories.length || 0) +
     (filters?.search ? 1 : 0);
 
-  function toggleFilter(key: "stages" | "services" | "owners", value: string) {
+  function toggleFilter(key: "stages" | "services" | "owners" | "categories", value: string) {
     if (!filters || !onFiltersChange) return;
     const current = filters[key];
     const updated = current.includes(value)
@@ -132,6 +134,7 @@ export default function FolderPanel({
       stages: [],
       services: [],
       owners: [],
+      categories: [],
       search: "",
       sortBy: filters?.sortBy || "value-desc",
       createdFrom: null,
@@ -359,7 +362,7 @@ export default function FolderPanel({
                 value={filters?.search || ""}
                 onChange={(e) =>
                   onFiltersChange?.({
-                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
+                    ...(filters || { stages: [], services: [], owners: [], categories: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
                     search: e.target.value,
                   })
                 }
@@ -406,7 +409,7 @@ export default function FolderPanel({
                 value={filters?.sortBy || "value-desc"}
                 onChange={(e) =>
                   onFiltersChange?.({
-                    ...(filters || { stages: [], services: [], owners: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
+                    ...(filters || { stages: [], services: [], owners: [], categories: [], search: "", sortBy: "value-desc", createdFrom: null, createdTo: null }),
                     sortBy: e.target.value,
                   })
                 }
@@ -480,6 +483,38 @@ export default function FolderPanel({
                 </div>
               );
             })()}
+
+            {/* Category filter — Diamond / Platinum */}
+            <div>
+              <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1.5 block">
+                Category
+              </label>
+              <div className="space-y-0.5">
+                {[
+                  { value: "Diamond", label: "Diamond", icon: "💎" },
+                  { value: "Platinum", label: "Platinum", icon: "🔥" },
+                ].map((cat) => {
+                  const isChecked = filters?.categories.includes(cat.value) || false;
+                  return (
+                    <label
+                      key={cat.value}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer transition-colors ${
+                        isChecked ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleFilter("categories", cat.value)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+                      />
+                      <span className="flex-1">{cat.label}</span>
+                      <span className="text-base leading-none">{cat.icon}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Stage filter */}
             <div>

@@ -105,8 +105,13 @@ export default function QueuePanel({
               return (
                 <div
                   key={item.id}
-                  onClick={() => onSelectItem(item.id)}
-                  className={`group cursor-pointer w-full p-3 text-left transition-colors ${
+                  onClick={() => {
+                    // Skip navigation if the user is mid-text-selection
+                    // (drag-select on the card to copy potential # / company).
+                    if (window.getSelection()?.toString()) return;
+                    onSelectItem(item.id);
+                  }}
+                  className={`group w-full p-3 text-left transition-colors select-text ${
                     isSelected
                       ? "bg-blue-50 border-l-2 border-l-blue-500"
                       : "hover:bg-slate-50 border-l-2 border-l-transparent"
@@ -134,6 +139,11 @@ export default function QueuePanel({
                         {item.stage && (
                           <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${stageColor}`}>
                             {item.stage}
+                          </span>
+                        )}
+                        {item.potentialNumber && (
+                          <span className="font-mono text-[10px] text-slate-500" title="Potential number">
+                            #{item.potentialNumber}
                           </span>
                         )}
                         {item.category === "Diamond" && <span title="Diamond" className="text-base leading-none">💎</span>}
