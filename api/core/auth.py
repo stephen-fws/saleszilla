@@ -124,10 +124,14 @@ def get_current_user(
     impersonate_id = request.headers.get(IMPERSONATE_HEADER)
     if impersonate_id:
         if not user.is_super_admin:  # type: ignore[attr-defined]
-            raise BotApiException(
-                403, "ERR_IMPERSONATION_FORBIDDEN",
-                "Only superadmins can impersonate other users.",
+            # Don't 403 the whole request — could be stale localStorage state
+            # from a previous superadmin's session on a shared browser. Log
+            # for tamper visibility, ignore the header, proceed as self.
+            logger.warning(
+                "Impersonation header from non-superadmin user=%s target=%s — ignoring",
+                user_id, impersonate_id,
             )
+            return user
         # Validate the SUPERADMIN's active status here (rather than after
         # the swap) so that the impersonated target's active status doesn't
         # get checked by get_current_active_user. Admins should be able to

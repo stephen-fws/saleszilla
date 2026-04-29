@@ -89,22 +89,22 @@ def global_search(
         ]
 
         # ── Accounts (owned by user/team OR user/team has potentials on them) ─
-        potential_acc_ids = [r[0] for r in session.execute(
+        # Use subqueries (not Python-materialised IN lists) so we don't blow
+        # past SQL Server's 2100-parameter cap when a manager impersonates
+        # someone with a large reporting subtree.
+        accessible_account_subq = select(Account.account_id).where(
+            Account.account_owner_id.in_(all_owner_ids)
+        ).union(
             select(Potential.account_id).where(
                 Potential.potential_owner_id.in_(all_owner_ids),
                 Potential.account_id.isnot(None),
-            ).distinct()
-        ).all()]
-        all_acc_owner_ids = list(set(
-            [r[0] for r in session.execute(
-                select(Account.account_id).where(Account.account_owner_id.in_(all_owner_ids))
-            ).all()] + potential_acc_ids
-        ))
+            )
+        ).subquery()
 
         acc_rows = session.execute(
             select(Account)
             .where(
-                Account.account_id.in_(all_acc_owner_ids) if all_acc_owner_ids else False,
+                Account.account_id.in_(select(accessible_account_subq.c.account_id)),
                 Account.account_name.ilike(term),
             )
             .limit(LIMIT)
@@ -120,23 +120,14 @@ def global_search(
         ]
 
         # ── Contacts (owned by user/team OR on accounts user/team owns or has potentials on)
-        direct_account_ids = [r[0] for r in session.execute(
-            select(Account.account_id).where(Account.account_owner_id.in_(all_owner_ids))
-        ).all()]
-        potential_account_ids = [r[0] for r in session.execute(
-            select(Potential.account_id).where(
-                Potential.potential_owner_id.in_(all_owner_ids),
-                Potential.account_id.isnot(None),
-            ).distinct()
-        ).all()]
-        all_accessible_account_ids = list(set(direct_account_ids + potential_account_ids))
-
+        # Same subquery pattern — keeps the parameter count bounded by
+        # len(all_owner_ids) instead of the materialised account-id list.
         con_rows = session.execute(
             select(Contact)
             .where(
                 or_(
                     Contact.contact_owner_id.in_(all_owner_ids),
-                    Contact.account_id.in_(all_accessible_account_ids) if all_accessible_account_ids else False,
+                    Contact.account_id.in_(select(accessible_account_subq.c.account_id)),
                 ),
                 or_(
                     Contact.full_name.ilike(term),
