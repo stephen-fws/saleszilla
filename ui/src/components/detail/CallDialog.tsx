@@ -139,27 +139,67 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
       setCallState("connecting");
       const call = await device.connect({ params: { To: phoneNumber.trim() } });
       callRef.current = call;
-      callSidRef.current = call.parameters?.CallSid ?? null;
+      // Twilio Voice SDK v2 — `call.parameters` is a Map, not a plain object.
+      // It's also EMPTY immediately after device.connect() resolves; the
+      // CallSid only gets populated once Twilio has signaled back. So
+      // `readSid` may return null at this exact moment — we MUST NOT
+      // create the call log row until SDK has the SID, otherwise the
+      // recording + status webhooks can't match it later.
+      const readSid = (c: Call): string | null => {
+        const p = c.parameters as unknown;
+        if (p && typeof (p as Map<string, string>).get === "function") {
+          return (p as Map<string, string>).get("CallSid") ?? null;
+        }
+        return ((p as Record<string, string>)?.CallSid) ?? null;
+      };
+
+      // Defer createCallLog until we actually have the SID. SDK fires
+      // `accept` once the SDK leg is established with Twilio — by then
+      // the SID is populated. This is well before any status webhook
+      // we care about (`in-progress` for child leg = remote answer)
+      // and well before recording webhook (~5s after call ends).
       const contact = contacts.find((c) => c.contactId === selectedContactId);
-      try {
-        await createCallLog({
-          potentialId, contactId: selectedContactId, contactName: contact?.name ?? null,
-          phoneNumber: phoneNumber.trim(), duration: 0, status: "in-progress",
-          twilioCallSid: callSidRef.current,
-        });
-      } catch { /* retry on save */ }
-      call.on("ringing", () => setCallState("ringing"));
+      let logCreated = false;
+      const createLog = async () => {
+        if (logCreated) return;
+        const sid = readSid(call);
+        if (!sid) return; // try again on next event
+        callSidRef.current = sid;
+        logCreated = true;
+        try {
+          await createCallLog({
+            potentialId, contactId: selectedContactId, contactName: contact?.name ?? null,
+            // Seed status — overwritten by Twilio's status webhook progression
+            // (queued → ringing → in-progress → completed). Must NOT be
+            // "in-progress" here, otherwise the dialog's poll would flip the
+            // timer on before Twilio confirms the callee answered.
+            phoneNumber: phoneNumber.trim(), duration: 0, status: "initiated",
+            twilioCallSid: sid,
+          });
+        } catch { /* retry on save */ }
+      };
+
+      call.on("ringing", () => {
+        setCallState("ringing");
+        createLog();    // SID is usually available by ringing
+      });
       call.on("accept", () => {
-        // Note: for OUTBOUND calls the Voice SDK's `accept` event can fire
-        // when the SDK leg is established — before the destination phone
-        // is actually answered. We DO NOT start the duration timer here.
-        // The authoritative answer signal comes from Twilio's status
-        // webhook (CallStatus=in-progress), which the poll below detects.
-        callSidRef.current = call.parameters?.CallSid ?? callSidRef.current;
+        // For OUTBOUND calls the Voice SDK's `accept` event fires when the
+        // SDK leg is established — before the destination phone is actually
+        // answered. We do NOT start the duration timer here; the
+        // authoritative answer comes from Twilio's status webhook
+        // (CallStatus=in-progress on the child leg), detected by the poll
+        // below. We DO use `accept` to guarantee the SID is available and
+        // create the call log row.
+        createLog();
       });
       call.on("disconnect", () => {
         setCallState("completed");
-        callSidRef.current = call.parameters?.CallSid ?? callSidRef.current;
+        callSidRef.current = readSid(call) ?? callSidRef.current;
+        // Last-resort: if for some reason `accept` never fired (rare),
+        // make sure the row exists before Save & Close runs the recording
+        // webhook lookup.
+        createLog();
       });
       call.on("cancel", () => setCallState("completed"));
       call.on("error", (err) => { setError(err.message || "Call failed"); setCallState("failed"); });

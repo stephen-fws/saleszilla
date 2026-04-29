@@ -60,7 +60,10 @@ def build_outbound_twiml(to_number: str) -> str:
     """Build TwiML XML that Twilio executes when the browser SDK connects.
 
     Dials the target number from our Twilio number, records the full call
-    (dual-channel for transcript quality), and sets a status callback.
+    (dual-channel for transcript quality), and subscribes to status events
+    on the CHILD leg (Twilio→destination). The child leg's `answered` event
+    is what authoritatively tells us when the callee picked up — the parent
+    leg's status fires too early (when the browser SDK accepts).
     """
     response = VoiceResponse()
     dial = response.dial(
@@ -69,7 +72,15 @@ def build_outbound_twiml(to_number: str) -> str:
         recording_status_callback=f"{config.BASE_URL}/twilio/recording-status",
         recording_status_callback_method="POST",
     )
-    dial.number(to_number)
+    # status_callback on <Number> = child-leg events. The events list is
+    # space-separated. `answered` is the one we care about — Twilio will
+    # POST status=in-progress when the destination phone is picked up.
+    dial.number(
+        to_number,
+        status_callback=f"{config.BASE_URL}/twilio/status",
+        status_callback_event="initiated ringing answered completed",
+        status_callback_method="POST",
+    )
     return str(response)
 
 
@@ -209,6 +220,10 @@ def create_call_log(
             session.flush()
             session.refresh(log)
             call_id = log.id
+            logger.info(
+                "create_call_log: inserted CXCallLog id=%s potential=%s sid=%s status=%s",
+                call_id, potential_id, twilio_call_sid, status,
+            )
 
     # Log activity for timeline + save notes — only on the FINAL save (not the early "in-progress" creation)
     if status != "in-progress":

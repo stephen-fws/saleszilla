@@ -61,6 +61,10 @@ def post_call_log(
     user: User = Depends(get_current_active_user),
 ) -> ResponseModel[dict]:
     """Create a call log entry after a call completes."""
+    logger.info(
+        "call-log POST: user=%s potential=%s sid=%s status=%s duration=%s",
+        user.user_id, data.potential_id, data.twilio_call_sid, data.status, data.duration,
+    )
     result = create_call_log(
         potential_id=data.potential_id,
         user_id=user.user_id,
@@ -98,28 +102,45 @@ async def twilio_voice_webhook(request: Request):
     else:
         twiml = build_outbound_twiml(str(to_number))
 
+    logger.info("Twilio voice TwiML response: %s", twiml)
     return Response(content=twiml, media_type="application/xml")
 
 
 @router.post("/status")
 async def twilio_status_webhook(request: Request):
-    """Twilio sends call status updates here (ringing, in-progress, completed, etc.).
+    """Twilio call status updates.
 
-    We store ALL status changes — including `in-progress` (the moment the
-    callee picks up). The frontend polls the call log to detect that
-    transition and start the duration timer at the right moment, since the
-    Twilio Voice JS SDK's `accept` event for outbound calls fires when the
-    SDK leg is established (which can happen before the remote phone is
-    actually answered).
+    Two leg sources:
+      - PARENT leg (browser→Twilio) — `CallSid` matches the SID we stored
+        when the call was initiated. Status `in-progress` for the parent
+        fires when the SDK accepts the call (before the remote phone is
+        actually picked up), so we IGNORE non-terminal parent events.
+      - CHILD leg (Twilio→destination) — `ParentCallSid` matches our
+        stored SID. Status `in-progress` for the child fires when the
+        destination phone is picked up — the authoritative answer signal
+        the dialog poll is waiting for.
     """
     form = await request.form()
     call_sid = str(form.get("CallSid", ""))
+    parent_call_sid = str(form.get("ParentCallSid", ""))
     call_status = str(form.get("CallStatus", ""))
     call_duration = form.get("CallDuration")
-    logger.info("Twilio status: sid=%s status=%s duration=%s", call_sid, call_status, call_duration)
+    logger.info(
+        "Twilio status: sid=%s parent=%s status=%s duration=%s",
+        call_sid, parent_call_sid, call_status, call_duration,
+    )
 
     duration = int(call_duration) if call_duration else 0
-    update_call_status(call_sid, call_status, duration)
+    is_terminal = call_status in ("completed", "busy", "no-answer", "failed", "canceled")
+
+    if parent_call_sid:
+        # Child-leg event — authoritative for ALL statuses (including
+        # the in-progress that means "callee picked up").
+        update_call_status(parent_call_sid, call_status, duration)
+    elif is_terminal:
+        # Parent-leg terminal — also useful (e.g. browser disconnects).
+        update_call_status(call_sid, call_status, duration)
+    # else: parent-leg non-terminal — ignored (would lie about answer time).
 
     return Response(content="<Response/>", media_type="application/xml")
 
