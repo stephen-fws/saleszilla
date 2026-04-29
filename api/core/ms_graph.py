@@ -629,63 +629,150 @@ def tokens_expire_at(expires_in_seconds: int) -> datetime:
     return datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
 
 
+# Per-user lock to serialize concurrent refresh attempts. Multiple parallel
+# Graph calls (calendar + meeting briefs + email tab opening at once) would
+# otherwise each see the token as expired and race to call Azure with the
+# same stored refresh_token. Azure rotates after the first success, so the
+# second attempt gets `invalid_grant` and bubbles up an unnecessary 424.
+import asyncio as _asyncio
+_refresh_locks: dict[str, _asyncio.Lock] = {}
+
+
+def _get_refresh_lock(user_id: str) -> _asyncio.Lock:
+    lock = _refresh_locks.get(user_id)
+    if lock is None:
+        lock = _asyncio.Lock()
+        _refresh_locks[user_id] = lock
+    return lock
+
+
 async def get_valid_ms_token(user_id: str) -> str:
     """
     Return a valid MS access token for user_id, refreshing if expired
     or expiring within 5 minutes. Reads from CX_UserTokens.
 
-    Raises BotApiException (424) if no token or refresh fails.
+    Raises BotApiException (424) if no token or refresh fails:
+      - ERR_MICROSOFT_NOT_CONNECTED  → no tokens / refresh token revoked
+        → user must reconnect via OAuth
+      - ERR_MICROSOFT_TOKEN_REFRESH  → transient (network, timeout, 5xx)
+        → frontend can retry; reconnect not strictly required
     """
     from api.services.user_service import load_user_tokens, save_user_ms_tokens
 
-    tokens = load_user_tokens(user_id)
-    if not tokens or not tokens.access_token:
-        raise BotApiException(
-            code=424,
-            message_code="ERR_MICROSOFT_NOT_CONNECTED",
-            message="Microsoft account not connected. Please connect your account.",
+    async with _get_refresh_lock(user_id):
+        tokens = load_user_tokens(user_id)
+        if not tokens or not tokens.access_token:
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_NOT_CONNECTED",
+                message="Microsoft account not connected. Please connect your account.",
+            )
+
+        now = datetime.now(timezone.utc)
+        token_expiry = tokens.token_expiry
+        if token_expiry is not None and token_expiry.tzinfo is None:
+            token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+        needs_refresh = (
+            token_expiry is None
+            or token_expiry <= now + timedelta(minutes=5)
         )
 
-    now = datetime.now(timezone.utc)
-    token_expiry = tokens.token_expiry
-    if token_expiry is not None and token_expiry.tzinfo is None:
-        token_expiry = token_expiry.replace(tzinfo=timezone.utc)
-    needs_refresh = (
-        token_expiry is None
-        or token_expiry <= now + timedelta(minutes=5)
-    )
+        if not needs_refresh:
+            return tokens.access_token
 
-    if not needs_refresh:
-        return tokens.access_token
+        if not tokens.refresh_token:
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_NOT_CONNECTED",
+                message="Microsoft token expired and no refresh token available. Please reconnect.",
+            )
 
-    if not tokens.refresh_token:
-        raise BotApiException(
-            code=424,
-            message_code="ERR_MICROSOFT_NOT_CONNECTED",
-            message="Microsoft token expired and no refresh token available. Please reconnect.",
-        )
+        logger.info("Refreshing expired MS token for user %s", user_id)
 
-    logger.info("Refreshing expired MS token for user %s", user_id)
-    try:
-        token_data = await refresh_access_token(tokens.refresh_token)
-    except httpx.HTTPStatusError as exc:
-        logger.error("MS token refresh failed for user %s: %s", user_id, exc.response.text[:200])
-        raise BotApiException(
-            code=424,
-            message_code="ERR_MICROSOFT_TOKEN_REFRESH",
-            message="Failed to refresh Microsoft token. Please reconnect your account.",
-        )
+        # Hit Azure. Distinguish permanent failure (refresh token revoked,
+        # password change, conditional access) from transient (network).
+        try:
+            token_data = await refresh_access_token(tokens.refresh_token)
+        except httpx.HTTPStatusError as exc:
+            body = ""
+            try:
+                body = exc.response.text[:300]
+            except Exception:
+                pass
+            # Azure returns `error: invalid_grant` for revoked / expired
+            # refresh tokens. That requires reconnect — surface as
+            # NOT_CONNECTED so the UI prompts re-OAuth.
+            if "invalid_grant" in body or exc.response.status_code == 400:
+                logger.warning(
+                    "MS refresh token revoked/expired for user %s: %s",
+                    user_id, body,
+                )
+                raise BotApiException(
+                    code=424,
+                    message_code="ERR_MICROSOFT_NOT_CONNECTED",
+                    message="Your Microsoft connection has expired. Please reconnect.",
+                )
+            # Other 4xx/5xx from Azure — likely transient; allow retry.
+            logger.error(
+                "MS token refresh HTTP %s for user %s: %s",
+                exc.response.status_code, user_id, body,
+            )
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_TOKEN_REFRESH",
+                message="Microsoft token refresh failed. Try again in a moment.",
+            )
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+            # Connection / timeout — transient.
+            logger.error("MS token refresh network error for user %s: %s", user_id, exc)
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_TOKEN_REFRESH",
+                message="Couldn't reach Microsoft. Try again in a moment.",
+            )
 
-    new_access_token = token_data["access_token"]
-    new_refresh_token = token_data.get("refresh_token", tokens.refresh_token)
-    expires_in = int(token_data.get("expires_in", 3600))
+        # Parse response defensively. Missing fields = treat as failure
+        # rather than crash the route.
+        try:
+            new_access_token = token_data["access_token"]
+            new_refresh_token = token_data.get("refresh_token", tokens.refresh_token)
+            expires_in = int(token_data.get("expires_in", 3600))
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.exception(
+                "MS token response malformed for user %s: %s",
+                user_id, exc,
+            )
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_TOKEN_REFRESH",
+                message="Microsoft returned an unexpected response. Try again in a moment.",
+            )
 
-    save_user_ms_tokens(
-        user_id=user_id,
-        ms_email=tokens.ms_email or "",
-        access_token=new_access_token,
-        refresh_token=new_refresh_token,
-        expires_at=tokens_expire_at(expires_in),
-    )
+        # Save the new tokens BEFORE returning. If this save fails and the
+        # refresh_token was rotated by Azure, the rotated token is lost —
+        # the next refresh attempt will use the (now-invalid) old token.
+        # Failing loudly here lets ops notice and intervene before users
+        # accumulate broken connections.
+        try:
+            save_user_ms_tokens(
+                user_id=user_id,
+                ms_email=tokens.ms_email or "",
+                access_token=new_access_token,
+                refresh_token=new_refresh_token,
+                expires_at=tokens_expire_at(expires_in),
+            )
+        except Exception:
+            logger.exception(
+                "CRITICAL: MS token saved failed for user %s — rotated refresh "
+                "token may be lost; user will need to manually reconnect",
+                user_id,
+            )
+            # Surface to the caller; better to fail this request than to
+            # silently lose the rotated token.
+            raise BotApiException(
+                code=424,
+                message_code="ERR_MICROSOFT_TOKEN_REFRESH",
+                message="Refreshed but couldn't save tokens. Please retry.",
+            )
 
-    return new_access_token
+        return new_access_token
