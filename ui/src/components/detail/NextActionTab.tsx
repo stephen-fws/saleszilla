@@ -8,6 +8,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, X, CalendarClock, Users, MapPin, Video, ExternalLink, Paperclip } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
 import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo, listDraftAttachments, openDraftAttachment, removeDraftAttachment } from "@/lib/api";
 import type { MeetingInfo } from "@/lib/api";
@@ -50,8 +52,8 @@ const STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
  *
  * If no "Subject:" prefix is found, the first non-empty line becomes the subject.
  */
-function parseFREDraft(rawContent: string): { subject: string; body: string } {
-  if (!rawContent) return { subject: "", body: "" };
+function parseFREDraft(rawContent: string): { subject: string; body: string; rawBody: string } {
+  if (!rawContent) return { subject: "", body: "", rawBody: "" };
   // Normalize line endings — agents may emit \r\n (Windows) or \r (legacy Mac).
   // Without this the paragraph split below misses every break.
   const content = rawContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -107,7 +109,28 @@ function parseFREDraft(rawContent: string): { subject: string; body: string } {
     .replace(/\n/g, "<br>");
   const htmlBody = `<p>${escaped}</p>`;
 
-  return { subject, body: htmlBody };
+  return { subject, body: htmlBody, rawBody: body };
+}
+
+/**
+ * Wrap bare http(s) URLs in the rendered email body with <a> tags so they
+ * appear clickable in the Panel-3 preview, before the user opens the composer.
+ * Splits on existing <a>…</a> blocks first so URLs that TipTap already linked
+ * (saved drafts) don't get double-wrapped.
+ */
+function linkifyEmailBody(html: string): string {
+  if (!html) return html;
+  const parts = html.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi);
+  const urlRe = /(https?:\/\/[^\s<>"')]+)/g;
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // already inside an anchor
+      return part.replace(
+        urlRe,
+        '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline underline-offset-2 hover:text-blue-700">$1</a>',
+      );
+    })
+    .join("");
 }
 
 interface MeetingBriefData {
@@ -224,7 +247,7 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
   const [results, setResults] = useState<AgentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [draftFromAgent, setDraftFromAgent] = useState<{ subject: string; body: string } | null>(null);
+  const [draftFromAgent, setDraftFromAgent] = useState<{ subject: string; body: string; rawBody: string } | null>(null);
   // savedDraft: the most recently saved draft for this potential (from DB).
   // When set, the composer opens with this instead of the raw agent content.
   const [savedDraft, setSavedDraft] = useState<EmailDraft | null>(null);
@@ -309,7 +332,7 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
         const subject = threadSubject.startsWith("RE:") || threadSubject.startsWith("Re:")
           ? threadSubject
           : `RE: ${threadSubject}`;
-        setDraftFromAgent({ subject, body: `<p>${escaped}</p>` });
+        setDraftFromAgent({ subject, body: `<p>${escaped}</p>`, rawBody: rawContent });
       } else {
         // FRE — extract subject from first line
         setDraftFromAgent(parseFREDraft(completedResult.content));
@@ -529,9 +552,15 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
   }
 
   // Agent completed (or a saved draft exists) — show preview + "Open in Composer"
+  // savedDraft.body is HTML (TipTap output) → render via dangerouslySetInnerHTML.
+  // draftFromAgent has both `body` (HTML for composer) and `rawBody` (raw markdown
+  // for the preview) — render the rawBody via react-markdown so lists, headers,
+  // italics, links etc. display properly.
   const previewDraft = savedDraft
-    ? { subject: savedDraft.subject ?? "", body: savedDraft.body ?? "" }
-    : draftFromAgent;
+    ? { subject: savedDraft.subject ?? "", body: savedDraft.body ?? "", rawBody: null as string | null }
+    : draftFromAgent
+      ? { subject: draftFromAgent.subject, body: draftFromAgent.body, rawBody: draftFromAgent.rawBody }
+      : null;
 
   // Meeting brief — not an email draft, just meeting info + agent content + skip/done
   if (completedResult?.triggerCategory === "meeting_brief" && completedResult.content) {
@@ -752,10 +781,27 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
                 </div>
               )}
               <div className="border-t border-slate-100 pt-3">
-                <div
-                  className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: previewDraft.body }}
-                />
+                {previewDraft.rawBody !== null ? (
+                  <div className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none prose-a:text-blue-600 prose-a:underline">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2 hover:text-blue-700">
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {previewDraft.rawBody}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <div
+                    className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: linkifyEmailBody(previewDraft.body) }}
+                  />
+                )}
               </div>
             </div>
           </div>
