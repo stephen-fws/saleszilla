@@ -873,6 +873,9 @@ export default function GlobalChatPanel({ onClose }: GlobalChatPanelProps) {
                 <MessageSquare className="h-2.5 w-2.5" />
                 Salezilla AI uses live data from your CRM. Attach PDF, DOCX, TXT, CSV or code files. Esc to close.
               </p>
+              <p className="text-[10px] text-slate-400 mt-1 px-1 italic">
+                AI-generated responses may not always be right; avoid relying solely on this information.
+              </p>
             </div>
           </div>
         </div>

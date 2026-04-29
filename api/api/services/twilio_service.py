@@ -216,8 +216,15 @@ def create_call_log(
         dur_sec = duration % 60
         dur_label = f"{dur_min}:{dur_sec:02d}" if dur_min > 0 else f"{dur_sec}s"
 
-        # Build activity description — include notes if provided
-        desc = f"Call to {contact_name or phone_number} ({dur_label}) — {status}"
+        # Build activity description — always include the dialed number
+        # (it's editable before placing the call, so the timeline must
+        # reflect what was actually dialed, not just the contact name).
+        who = (
+            f"{contact_name} ({phone_number})"
+            if contact_name and phone_number
+            else (contact_name or phone_number or "—")
+        )
+        desc = f"Call to {who} ({dur_label}) — {status}"
         if notes:
             desc += f"\n\nNotes: {notes}"
 
@@ -241,7 +248,7 @@ def create_call_log(
             with get_session() as session:
                 session.add(CXNote(
                     potential_id=potential_id,
-                    content=f"📞 Call with {contact_name or phone_number} ({dur_label})\n\n{notes}",
+                    content=f"📞 Call with {who} ({dur_label})\n\n{notes}",
                     created_by_user_id=user_id,
                     created_time=now,
                     updated_time=now,

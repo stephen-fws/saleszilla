@@ -720,14 +720,27 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3 shrink-0 ml-auto">
           {user?.is_super_admin && <ImpersonationSwitcher />}
-          <button
-            onClick={() => setGlobalChatOpen(true)}
-            className="flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm"
-            title="Ask Salezilla AI"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Ask AI
-          </button>
+          <div className="relative group">
+            <button
+              onClick={() => !viewingAs && setGlobalChatOpen(true)}
+              disabled={!!viewingAs}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all shadow-sm ${
+                viewingAs
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Ask AI
+            </button>
+            {viewingAs && (
+              // Instant tooltip — native `title` attribute has a browser-imposed
+              // delay (~500ms). Custom hover tooltip fires immediately.
+              <span className="invisible group-hover:visible absolute top-full right-0 mt-1 z-50 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white shadow-lg pointer-events-none">
+                Ask AI is disabled while viewing as another user. Exit to ask.
+              </span>
+            )}
+          </div>
           {!viewingAs && (
             <button
               onClick={() => setCalendarOpen(true)}

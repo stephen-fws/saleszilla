@@ -4,6 +4,7 @@ import { getChatHistory, clearChatHistory, getChatSuggestions } from "@/lib/api"
 import type { ChatMessage } from "@/lib/api";
 import { tokenStore } from "@/lib/tokenStore";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
+import { useImpersonationStore } from "@/store/impersonationStore";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -82,6 +83,12 @@ export default function ChatTab({ dealId }: ChatTabProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // While a superadmin is "viewing as" another user, Ask AI is read-only —
+  // history is browsable, but new messages are blocked. Posting would write
+  // a chat row under the impersonated user's id, which violates the
+  // view-as-is-read-only contract.
+  const impersonating = useImpersonationStore((s) => !!s.viewingAs);
 
   // Load history on mount / deal change
   useEffect(() => {
@@ -263,8 +270,12 @@ export default function ChatTab({ dealId }: ChatTabProps) {
               <Bot className="h-5 w-5 text-violet-500" />
             </div>
             <p className="text-sm font-semibold text-slate-700 mb-1">Your AI potential co-pilot is ready</p>
-            <p className="text-xs text-slate-400 text-center mb-5">I know this potential inside out — the contact, account, notes, emails, and every AI insight. What would you like to tackle?</p>
-            {loadingSuggestions ? (
+            <p className="text-xs text-slate-400 text-center mb-5">
+              {impersonating
+                ? "You're viewing as another user. Ask AI is read-only — exit view-as to ask new questions. Past conversations remain visible."
+                : "I know this potential inside out — the contact, account, notes, emails, and every AI insight. What would you like to tackle?"}
+            </p>
+            {!impersonating && (loadingSuggestions ? (
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
                 Setting up your conversation…
@@ -281,7 +292,7 @@ export default function ChatTab({ dealId }: ChatTabProps) {
                   </button>
                 ))}
               </div>
-            ) : null}
+            ) : null)}
           </div>
         ) : (
           <>
@@ -350,15 +361,17 @@ export default function ChatTab({ dealId }: ChatTabProps) {
 
       {/* Input */}
       <div className="shrink-0 border-t border-slate-200 px-3 py-2.5">
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2 group">
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about this potential… (Enter to send, Shift+Enter for newline)"
+            placeholder={impersonating
+              ? "Ask AI is disabled while viewing as another user. Exit to ask."
+              : "Ask about this potential… (Enter to send, Shift+Enter for newline)"}
             rows={1}
-            disabled={loading || sending || loadingSuggestions}
+            disabled={loading || sending || loadingSuggestions || impersonating}
             className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition-colors disabled:opacity-50 max-h-32 overflow-y-auto"
             style={{ minHeight: "38px" }}
             onInput={(e) => {
@@ -378,14 +391,23 @@ export default function ChatTab({ dealId }: ChatTabProps) {
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() || loading || loadingSuggestions}
+              disabled={!input.trim() || loading || loadingSuggestions || impersonating}
               className="shrink-0 flex items-center justify-center w-9 h-9 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="h-4 w-4" />
             </button>
           )}
+          {impersonating && (
+            // Instant hover tooltip — covers the whole input row (textarea + send).
+            <span className="invisible group-hover:visible absolute -top-7 left-1/2 -translate-x-1/2 z-50 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white shadow-lg pointer-events-none">
+              Ask AI is disabled while viewing as another user. Exit to ask.
+            </span>
+          )}
         </div>
         <p className="text-[9px] text-slate-300 mt-1 px-1">Context: potential · contact · account · notes · todos · emails · AI insights</p>
+        <p className="text-[10px] text-slate-400 mt-1 px-1 italic">
+          AI-generated responses may not always be right; avoid relying solely on this information.
+        </p>
       </div>
     </div>
   );
