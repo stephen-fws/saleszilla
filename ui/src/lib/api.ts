@@ -113,9 +113,16 @@ export async function skipQueueItem(itemId: string): Promise<void> {
 
 // ── Potentials ──────────────────────────────────────────────────────────────
 
-export async function getPotentials(filters: Partial<PotentialFilters> & { includeTeam?: boolean }): Promise<{
+export async function getPotentials(filters: Partial<PotentialFilters> & {
+  includeTeam?: boolean;
+  page?: number;
+  pageSize?: number;
+}): Promise<{
   deals: PotentialDeal[];
   filterOptions: { owners: string[]; services: string[]; stages: string[] };
+  total: number;
+  page: number;
+  pageSize: number;
 }> {
   const params = new URLSearchParams();
   if (filters.stages?.length) params.set("stages", filters.stages.join(","));
@@ -125,6 +132,10 @@ export async function getPotentials(filters: Partial<PotentialFilters> & { inclu
   if (filters.includeTeam) params.set("include_team", "true");
   if (filters.createdFrom) params.set("created_from", filters.createdFrom);
   if (filters.createdTo) params.set("created_to", filters.createdTo);
+  const page = filters.page ?? 1;
+  const pageSize = filters.pageSize ?? 50;
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
   const res = await protectedApi.get(`/potentials?${params}`);
   // Backend: ResponseModel<PotentialListResponse> → data.potentials, data.filter_options
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -161,6 +172,9 @@ export async function getPotentials(filters: Partial<PotentialFilters> & { inclu
       services: fo.services ?? [],
       stages: fo.stages ?? [],
     },
+    total: d.total ?? 0,
+    page,
+    pageSize,
   };
 }
 
@@ -520,13 +534,23 @@ export async function getFileBinaryContent(dealId: string, fileId: number): Prom
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 
-export async function getAccounts(filters: Partial<AccountFilters>): Promise<{
+export async function getAccounts(filters: Partial<AccountFilters> & {
+  page?: number;
+  pageSize?: number;
+}): Promise<{
   accounts: AccountSummary[];
   filterOptions: { industries: string[] };
+  total: number;
+  page: number;
+  pageSize: number;
 }> {
   const params = new URLSearchParams();
   if (filters.search) params.set("search", filters.search);
   if (filters.industries?.length) params.set("industries", filters.industries.join(","));
+  const page = filters.page ?? 1;
+  const pageSize = filters.pageSize ?? 50;
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
   const res = await protectedApi.get(`/accounts?${params}`);
   // Backend: ResponseModel<AccountListResponse> → data.accounts, data.filter_options
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -546,6 +570,9 @@ export async function getAccounts(filters: Partial<AccountFilters>): Promise<{
   return {
     accounts,
     filterOptions: { industries: d.filter_options?.industries ?? [] },
+    total: d.total ?? 0,
+    page,
+    pageSize,
   };
 }
 

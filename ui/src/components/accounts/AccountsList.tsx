@@ -12,6 +12,11 @@ interface AccountsListProps {
   selectedAccountId: string | null;
   onSelectAccount: (id: string) => void;
   loading: boolean;
+  // Pagination — total is the server-side count across all pages.
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  onPageChange?: (page: number) => void;
 }
 
 export default function AccountsList({
@@ -19,12 +24,18 @@ export default function AccountsList({
   selectedAccountId,
   onSelectAccount,
   loading,
+  page = 1,
+  pageSize = 50,
+  total = 0,
+  onPageChange,
 }: AccountsListProps) {
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
         <span className="text-sm font-semibold text-slate-900">
-          {accounts.length} {accounts.length === 1 ? "account" : "accounts"}
+          {total > 0
+            ? `${total.toLocaleString()} ${total === 1 ? "account" : "accounts"}`
+            : `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
         </span>
       </div>
 
@@ -104,6 +115,51 @@ export default function AccountsList({
             })}
           </div>
         )}
+      </div>
+      {total > pageSize && onPageChange && (
+        <Pager page={page} pageSize={pageSize} total={total} onPageChange={onPageChange} />
+      )}
+    </div>
+  );
+}
+
+// ── Pager ───────────────────────────────────────────────────────────────────
+// Mirrors the Pager in PotentialsList — kept local rather than centralised
+// since neither file shares much else and a one-component "lib" feels overkill.
+function Pager({
+  page, pageSize, total, onPageChange,
+}: {
+  page: number; pageSize: number; total: number; onPageChange: (p: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const from = (safePage - 1) * pageSize + 1;
+  const to = Math.min(safePage * pageSize, total);
+  const canPrev = safePage > 1;
+  const canNext = safePage < totalPages;
+  return (
+    <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 shrink-0">
+      <span>
+        Showing <span className="font-medium text-slate-800">{from.toLocaleString()}–{to.toLocaleString()}</span> of <span className="font-medium text-slate-800">{total.toLocaleString()}</span>
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => canPrev && onPageChange(safePage - 1)}
+          disabled={!canPrev}
+          className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Prev
+        </button>
+        <span className="px-1 text-slate-500">
+          {safePage}/{totalPages}
+        </span>
+        <button
+          onClick={() => canNext && onPageChange(safePage + 1)}
+          disabled={!canNext}
+          className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
       </div>
     </div>
   );

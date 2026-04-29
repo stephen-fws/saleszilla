@@ -207,6 +207,10 @@ export default function DashboardPage() {
     stages: [],
   });
   const [loadingPotentials, setLoadingPotentials] = useState(false);
+  // Pagination — default 50/page; resets to 1 on filter / team-toggle change.
+  const POTENTIALS_PAGE_SIZE = 50;
+  const [potentialsPage, setPotentialsPage] = useState(1);
+  const [potentialsTotal, setPotentialsTotal] = useState(0);
 
   // When includeTeam is OFF: show only the logged-in user in the owner filter (non-checkable, always included).
   // When includeTeam is ON: show the full owner list returned by the backend (which contains the user + their reports).
@@ -229,6 +233,9 @@ export default function DashboardPage() {
     industries: [],
   });
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const ACCOUNTS_PAGE_SIZE = 50;
+  const [accountsPage, setAccountsPage] = useState(1);
+  const [accountsTotal, setAccountsTotal] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
   const [lookups, setLookups] = useState<LookupData>({ services: [], subServiceMap: {}, stages: [], industries: [] });
@@ -315,11 +322,17 @@ export default function DashboardPage() {
   const refreshPotentialsList = useCallback(async () => {
     if (viewMode !== "potentials") return;
     try {
-      const data = await getPotentials({ ...potentialFilters, includeTeam });
+      const data = await getPotentials({
+        ...potentialFilters,
+        includeTeam,
+        page: potentialsPage,
+        pageSize: POTENTIALS_PAGE_SIZE,
+      });
       setPotentialDeals(data.deals ?? []);
+      setPotentialsTotal(data.total ?? 0);
       setFilterOptions(data.filterOptions ?? { owners: [], services: [], stages: [] });
     } catch { /* ignore */ }
-  }, [viewMode, potentialFilters, includeTeam]);
+  }, [viewMode, potentialFilters, includeTeam, potentialsPage]);
 
   // Bumping this triggers DetailPanel to refetch the deal (timeline,
   // agent results, etc.) without forcing a full unmount/remount.
@@ -353,42 +366,66 @@ export default function DashboardPage() {
     load();
   }, [selectedFolderId, viewMode]);
 
-  // Fetch potentials
+  // Fetch potentials. Resets to page 1 whenever filters / team-toggle change
+  // — see the dedicated reset effect below.
   useEffect(() => {
     if (viewMode !== "potentials") return;
     async function load() {
       try {
         setLoadingPotentials(true);
-        const data = await getPotentials({ ...potentialFilters, includeTeam });
+        const data = await getPotentials({
+          ...potentialFilters,
+          includeTeam,
+          page: potentialsPage,
+          pageSize: POTENTIALS_PAGE_SIZE,
+        });
         setPotentialDeals(data.deals ?? []);
+        setPotentialsTotal(data.total ?? 0);
         setFilterOptions(data.filterOptions ?? { owners: [], services: [], stages: [] });
       } catch {
         setError("Failed to load potentials");
         setPotentialDeals([]);
+        setPotentialsTotal(0);
       } finally {
         setLoadingPotentials(false);
       }
     }
     load();
-  }, [viewMode, potentialFilters, includeTeam]);
+  }, [viewMode, potentialFilters, includeTeam, potentialsPage]);
 
-  // Fetch accounts
+  // Reset to page 1 whenever the filter set or team toggle changes —
+  // otherwise applying a stage filter could land on an empty page 5.
+  useEffect(() => {
+    setPotentialsPage(1);
+  }, [potentialFilters, includeTeam]);
+
+  // Fetch accounts. Resets to page 1 whenever filters change — see effect below.
   useEffect(() => {
     if (viewMode !== "accounts") return;
     async function load() {
       try {
         setLoadingAccounts(true);
-        const data = await getAccounts(accountFilters);
+        const data = await getAccounts({
+          ...accountFilters,
+          page: accountsPage,
+          pageSize: ACCOUNTS_PAGE_SIZE,
+        });
         setAccounts(data.accounts ?? []);
+        setAccountsTotal(data.total ?? 0);
         setAccountFilterOptions(data.filterOptions ?? { industries: [] });
       } catch {
         setAccounts([]);
+        setAccountsTotal(0);
       } finally {
         setLoadingAccounts(false);
       }
     }
     load();
-  }, [viewMode, accountFilters]);
+  }, [viewMode, accountFilters, accountsPage]);
+
+  useEffect(() => {
+    setAccountsPage(1);
+  }, [accountFilters]);
 
   const handleViewModeChange = useCallback((mode: ViewMode) => {
     if (mode !== viewMode && !confirmDiscardIfDirty()) return;
@@ -880,6 +917,10 @@ export default function DashboardPage() {
               selectedAccountId={selectedAccountId}
               onSelectAccount={handleAccountSelect}
               loading={loadingAccounts}
+              page={accountsPage}
+              pageSize={ACCOUNTS_PAGE_SIZE}
+              total={accountsTotal}
+              onPageChange={setAccountsPage}
             />
           ) : (
             <PotentialsList
@@ -893,6 +934,10 @@ export default function DashboardPage() {
               availableStages={filterOptions.stages}
               onStageChange={handleStageChange}
               currentUserName={includeTeam ? (user?.name ?? null) : null}
+              page={potentialsPage}
+              pageSize={POTENTIALS_PAGE_SIZE}
+              total={potentialsTotal}
+              onPageChange={setPotentialsPage}
             />
           )}
         </div>
