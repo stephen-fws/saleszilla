@@ -13,7 +13,7 @@ import {
   Mic, MicOff, AlertCircle, CheckCircle, PhoneCall,
 } from "lucide-react";
 import { Device, Call } from "@twilio/voice-sdk";
-import { getTwilioToken, getContactsForCall, createCallLog } from "@/lib/api";
+import { getTwilioToken, getContactsForCall, createCallLog, getTwilioCallStatus } from "@/lib/api";
 import type { CallState, ContactForCall } from "@/types";
 
 interface CallDialogProps {
@@ -95,6 +95,30 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [callState]);
 
+  // Poll Twilio's authoritative call status while we're dialing/ringing.
+  // The Voice SDK's `accept` event for outbound calls can fire before the
+  // destination actually answers, so we trust the server's record (updated
+  // by Twilio's status webhook) to know when CallStatus becomes
+  // `in-progress` — the moment the callee picked up. Stop polling once
+  // the call ends or when we've confirmed pickup.
+  useEffect(() => {
+    if (callState !== "connecting" && callState !== "ringing") return;
+    if (!callSidRef.current) return;
+    const interval = setInterval(async () => {
+      const sid = callSidRef.current;
+      if (!sid) return;
+      try {
+        const { status } = await getTwilioCallStatus(sid);
+        if (status === "in-progress") {
+          setCallState("in-progress");
+        } else if (status === "completed" || status === "busy" || status === "no-answer" || status === "failed" || status === "canceled") {
+          setCallState("completed");
+        }
+      } catch { /* ignore — keep polling */ }
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [callState]);
+
   useEffect(() => {
     return () => {
       callRef.current?.disconnect();
@@ -126,7 +150,11 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
       } catch { /* retry on save */ }
       call.on("ringing", () => setCallState("ringing"));
       call.on("accept", () => {
-        setCallState("in-progress");
+        // Note: for OUTBOUND calls the Voice SDK's `accept` event can fire
+        // when the SDK leg is established — before the destination phone
+        // is actually answered. We DO NOT start the duration timer here.
+        // The authoritative answer signal comes from Twilio's status
+        // webhook (CallStatus=in-progress), which the poll below detects.
         callSidRef.current = call.parameters?.CallSid ?? callSidRef.current;
       });
       call.on("disconnect", () => {

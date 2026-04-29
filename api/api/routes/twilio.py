@@ -103,18 +103,48 @@ async def twilio_voice_webhook(request: Request):
 
 @router.post("/status")
 async def twilio_status_webhook(request: Request):
-    """Twilio sends call status updates here (ringing, in-progress, completed, etc.)."""
+    """Twilio sends call status updates here (ringing, in-progress, completed, etc.).
+
+    We store ALL status changes — including `in-progress` (the moment the
+    callee picks up). The frontend polls the call log to detect that
+    transition and start the duration timer at the right moment, since the
+    Twilio Voice JS SDK's `accept` event for outbound calls fires when the
+    SDK leg is established (which can happen before the remote phone is
+    actually answered).
+    """
     form = await request.form()
     call_sid = str(form.get("CallSid", ""))
     call_status = str(form.get("CallStatus", ""))
     call_duration = form.get("CallDuration")
     logger.info("Twilio status: sid=%s status=%s duration=%s", call_sid, call_status, call_duration)
 
-    if call_status in ("completed", "busy", "no-answer", "failed", "canceled"):
-        duration = int(call_duration) if call_duration else 0
-        update_call_status(call_sid, call_status, duration)
+    duration = int(call_duration) if call_duration else 0
+    update_call_status(call_sid, call_status, duration)
 
     return Response(content="<Response/>", media_type="application/xml")
+
+
+@router.get("/calls/{call_sid}/status")
+def get_call_status(
+    call_sid: str,
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[dict]:
+    """Return the current Twilio CallStatus for a given SID.
+    Used by the in-call dialog to learn when the callee actually picked up
+    so the duration timer starts at the right moment."""
+    from core.database import get_session
+    from core.models import CXCallLog
+    from sqlalchemy import select
+    with get_session() as session:
+        log = session.execute(
+            select(CXCallLog).where(
+                CXCallLog.twilio_call_sid == call_sid,
+                CXCallLog.is_active == True,
+            ).limit(1)
+        ).scalar_one_or_none()
+    if not log:
+        return ResponseModel(data={"status": None})
+    return ResponseModel(data={"status": log.status, "duration": log.duration or 0})
 
 
 @router.post("/recording-status")

@@ -1166,6 +1166,12 @@ export async function getAllAgentResults(dealId: string): Promise<AgentResult[]>
   }));
 }
 
+export async function getTwilioCallStatus(callSid: string): Promise<{ status: string | null; duration: number }> {
+  const res = await protectedApi.get(`/twilio/calls/${callSid}/status`);
+  const d = res.data?.data ?? {};
+  return { status: d.status ?? null, duration: d.duration ?? 0 };
+}
+
 export async function runAllAgents(
   dealId: string,
   options?: { tabTypes?: string[] },
