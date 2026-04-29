@@ -137,7 +137,7 @@ export default function QueuePanel({
                           </span>
                         )}
                         {item.category === "Diamond" && <span title="Diamond" className="text-base leading-none">💎</span>}
-                        {item.category === "Platinum" && <span title="Platinum" className="text-base leading-none">🏆</span>}
+                        {item.category === "Platinum" && <span title="Platinum" className="text-base leading-none">🔥</span>}
                         {item.service && <span className="text-[10px] text-slate-400 truncate">{item.service}</span>}
                       </div>
                     </div>

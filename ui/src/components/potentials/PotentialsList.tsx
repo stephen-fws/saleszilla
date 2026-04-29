@@ -165,7 +165,7 @@ export default function PotentialsList({
                           <span title="Diamond" className="text-base leading-none">💎</span>
                         )}
                         {deal.category === "Platinum" && (
-                          <span title="Platinum" className="text-base leading-none">🏆</span>
+                          <span title="Platinum" className="text-base leading-none">🔥</span>
                         )}
                         {deal.service && (
                           <span className="text-[10px] text-slate-400 truncate">{deal.service}</span>

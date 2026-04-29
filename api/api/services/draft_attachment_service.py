@@ -131,6 +131,24 @@ def save_from_agent(potential_number: str, agent_id: str, html_content: str) -> 
 
     now = datetime.now(timezone.utc)
     with get_session() as session:
+        # Supersede any previously-pending agent attachments for this potential.
+        # The supersede rule says only one active next-action draft per
+        # potential at a time (except meeting_brief), and each draft cycle's
+        # attachment agent emits a fresh PDF. Without this, an FRE-cycle PDF
+        # would still surface as an active chip alongside the new FU-cycle
+        # PDF, and both would attach when the user sends.
+        prior = session.execute(
+            select(CXDraftAttachment).where(
+                CXDraftAttachment.potential_id == potential_number,
+                CXDraftAttachment.is_removed == False,
+                CXDraftAttachment.is_sent == False,
+            )
+        ).scalars().all()
+        for old in prior:
+            old.is_removed = True
+            old.updated_time = now
+            session.add(old)
+
         row = CXDraftAttachment(
             potential_id=potential_number,
             agent_id=agent_id,

@@ -574,7 +574,7 @@ export default function DetailsTab({
               <span title="Diamond" className="text-base leading-none">💎</span>
             )}
             {detail.category === "Platinum" && (
-              <span title="Platinum" className="text-base leading-none">🏆</span>
+              <span title="Platinum" className="text-base leading-none">🔥</span>
             )}
             <div className="ml-auto">
               <EditableStage value={detail.stage} availableStages={availableStages} onSave={(v, reason) => onFieldSave("stage", v, reason)} />

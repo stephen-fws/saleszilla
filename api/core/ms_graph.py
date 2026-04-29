@@ -7,6 +7,7 @@ Microsoft Graph API utilities:
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
@@ -42,18 +43,68 @@ GRAPH_PEOPLE_URL = "https://graph.microsoft.com/v1.0/me/people"
 
 # ── Markdown -> HTML ─────────────────────────────────────────────────────────
 
+# Inline markdown patterns we still need to handle when the body comes in
+# wrapped in HTML (e.g. TipTap-edited drafts). Block-level constructs like
+# headings and lists are NOT handled here — they'd risk mangling HTML
+# structure. If agents start emitting block markdown that survives into
+# HTML bodies, the right fix is to convert markdown→HTML before TipTap
+# loads the draft, not to do block-level parsing at send time.
+
+# [text](url) — markdown link
+_MD_LINK_RE = re.compile(r'\[([^\]]+?)\]\((https?://[^\s)]+)\)')
+# `code` — inline code (avoid backticks inside `<code>` tags we'd just emit)
+_MD_CODE_RE = re.compile(r'(?<!`)`([^`\n]+?)`(?!`)')
+# **bold**
+_MD_BOLD_RE = re.compile(r'\*\*([^\s*][^*]*?[^\s*]|\S)\*\*')
+# *italic* or _italic_ — single delimiter, not part of bold
+_MD_ITALIC_STAR_RE = re.compile(r'(?<!\*)\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)')
+_MD_ITALIC_UNDERSCORE_RE = re.compile(r'(?<![A-Za-z0-9_])_(?!\s)([^_\n]+?)(?<!\s)_(?![A-Za-z0-9_])')
+# Bare http(s) URL — only when not already inside an href="..." attribute or
+# already wrapped by <a>. Conservative match avoids double-linking.
+_BARE_URL_RE = re.compile(r'(?<!href=")(?<!href=\')(?<!>)(https?://[^\s<>"\']+)')
+
+
+def _convert_inline_markdown(body: str) -> str:
+    """Convert inline markdown patterns (links, bold, italic, code, bare URLs)
+    inside an already-HTML body. Order matters: do code first (so its content
+    isn't re-parsed as bold/italic), then links (so their text isn't picked
+    up as italic), then bold (longer delimiter), then italic, then bare URLs."""
+    s = _MD_CODE_RE.sub(r'<code>\1</code>', body)
+    s = _MD_LINK_RE.sub(r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
+    s = _MD_BOLD_RE.sub(r'<strong>\1</strong>', s)
+    s = _MD_ITALIC_STAR_RE.sub(r'<em>\1</em>', s)
+    s = _MD_ITALIC_UNDERSCORE_RE.sub(r'<em>\1</em>', s)
+    s = _BARE_URL_RE.sub(r'<a href="\1" target="_blank" rel="noopener">\1</a>', s)
+    return s
+
+
 def _md_to_html(body: str) -> str:
-    """Convert markdown to HTML. Returns unchanged if already HTML."""
+    """Convert markdown to HTML before sending via Graph.
+
+    Two paths:
+      - Body looks like HTML (starts with a tag) — TipTap-edited / pre-rendered
+        drafts. Run inline markdown conversion only, so agent-emitted patterns
+        like `[link](url)` or **bold** don't survive into the recipient's
+        inbox as literal markdown.
+      - Otherwise — full-document markdown via python-markdown.
+    """
     stripped = body.lstrip()
     if stripped.startswith("<") and not stripped.startswith("<!"):
-        return body
+        return _convert_inline_markdown(body)
     return _markdown.markdown(body, extensions=["extra", "nl2br", "sane_lists"])
 
 
 # ── Authorization URL ────────────────────────────────────────────────────────
 
 def get_authorization_url(redirect_uri: str, state: str) -> str:
-    """Build the Microsoft OAuth2 authorization URL."""
+    """Build the Microsoft OAuth2 authorization URL.
+
+    No `prompt` parameter — let Microsoft pick the right interaction based on
+    its own session. First login: the user gets the consent screen + account
+    picker. Subsequent logins: silent redirect with fresh tokens. Forcing
+    `prompt=select_account` (the previous default) made the consent / picker
+    show on every login, which users complained about.
+    """
     params = {
         "client_id": config.AZURE_INTEGRATION_CLIENT_ID,
         "response_type": "code",
@@ -61,7 +112,6 @@ def get_authorization_url(redirect_uri: str, state: str) -> str:
         "response_mode": "query",
         "scope": " ".join(MAIL_SCOPES),
         "state": state,
-        "prompt": "select_account",
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
 

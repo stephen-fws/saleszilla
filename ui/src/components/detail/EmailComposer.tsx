@@ -339,6 +339,28 @@ export default function EmailComposer({
     return raw + sigHtml;
   };
   const [body, setBody] = useState(computeInitialBody);
+
+  // Late-arriving signature — the parent fetches /me/email-signature async,
+  // so it can resolve AFTER this component has mounted. If `signature` prop
+  // transitions from null/empty to a value AND the current body doesn't
+  // already include a signature delimiter, append it now. Same idempotency
+  // guard as computeInitialBody.
+  useEffect(() => {
+    if (!signature) return;
+    setBody((current) => {
+      if (
+        current.includes("-- <br/>") ||
+        current.includes("-- <br />") ||
+        current.includes("-- <br>")
+      ) {
+        return current;
+      }
+      const sigHtml = `<br/><br/>-- <br/>${signature.replace(/\n/g, "<br/>")}`;
+      return current + sigHtml;
+    });
+    // Only rerun when signature itself changes, not on body edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
   // Seed manual attachments from the loaded draft so reopening a saved draft
   // restores the files the user had attached. Drafts created from agent
   // content (no persisted attachments) start empty.
@@ -595,9 +617,19 @@ export default function EmailComposer({
         </div>
       </div>
 
-      {/* Body — signature is part of the editable content, inserted at mount */}
+      {/* Body — signature is part of the editable content, inserted at mount.
+          The key includes whether a signature is present so that a late-
+          arriving signature (parent fetched it async after this composer
+          mounted) forces a RichEditor remount with the updated body — TipTap
+          only reads `content` once on init, so without this the editor would
+          keep showing the pre-signature body. */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <RichEditor initialValue={body} onChange={setBody} placeholder="Write your email…" />
+        <RichEditor
+          key={signature ? "with-signature" : "no-signature"}
+          initialValue={body}
+          onChange={setBody}
+          placeholder="Write your email…"
+        />
       </div>
 
       {/* Attachments — agent-generated draft attachments render first, then manual */}
