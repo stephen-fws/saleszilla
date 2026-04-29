@@ -36,10 +36,15 @@ function shortDate(iso: string | null): string {
   const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
-  if (isToday) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return `Today, ${time}`;
   const isThisYear = d.getFullYear() === now.getFullYear();
-  if (isThisYear) return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  if (isThisYear) {
+    const datePart = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return `${datePart}, ${time}`;
+  }
+  const datePart = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return `${datePart}, ${time}`;
 }
 
 function fullDate(iso: string | null): string {
