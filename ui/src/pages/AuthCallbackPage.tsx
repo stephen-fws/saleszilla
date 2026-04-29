@@ -51,8 +51,20 @@ export default function AuthCallbackPage() {
         login(meRes.data);
 
         navigate("/", { replace: true });
-      } catch {
-        setError("Failed to process authentication response.");
+      } catch (err) {
+        // Surface the actual error so users / ops can diagnose. Previously
+        // this was a silent generic message that hid (e.g.) a /auth/me 500
+        // due to a Pydantic validation error on a malformed Users row.
+        // eslint-disable-next-line no-console
+        console.error("[auth callback] Failed to process response:", err);
+        const detail =
+          // axios error
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (err as any)?.response?.data?.message ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (err as any)?.message ||
+          "Unknown error";
+        setError(`Failed to process authentication response: ${detail}`);
       }
     };
 
