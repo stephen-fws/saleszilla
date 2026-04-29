@@ -58,7 +58,9 @@ def list_accounts(
         if industries:
             stmt = stmt.where(Account.industry.in_(industries))
 
-        stmt = stmt.order_by(Account.account_name)
+        # Newest accounts first — recently created tend to be the ones
+        # users want to action on, so they should sit at the top of Panel 2.
+        stmt = stmt.order_by(Account.created_time.desc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
 
         accounts_orm = session.execute(stmt).scalars().all()
