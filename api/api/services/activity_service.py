@@ -12,14 +12,15 @@ from core.schemas import ActivityItem
 # Friendly labels for AI workflow categories — kept here so the timeline copy
 # is consistent across every trigger site. Add a key when a new category lands.
 _AGENT_CATEGORY_LABELS: dict[str, str] = {
-    "newEnquiry":       "First Response Email draft",
-    "followUp":         "Follow-up draft",
-    "followUpInactive": "Inactive follow-up draft",
-    "reply":            "Reply draft",
-    "meeting_brief":    "Meeting brief",
-    "news":             "News check",
-    "stage_update":     "Stage update",
-    "todo_reconcile":   "Todo reconcile",
+    "newEnquiry":               "First Response Email draft",
+    "followUp":                 "Follow-up draft",
+    "followUpInactive":         "Inactive follow-up draft",
+    "reply":                    "Reply draft",
+    "meeting_brief":            "Meeting brief",
+    "news":                     "News check",
+    "stage_update":             "Stage update",
+    "todo_reconcile":           "Todo reconcile",
+    "research_solution":        "Research & Solution refresh",
 }
 
 def _resolve_potential_uuid(session, potential_id_or_number: str) -> str | None:

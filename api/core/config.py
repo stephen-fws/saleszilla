@@ -98,6 +98,10 @@ AGENTFLOW_GRAPH_STAGE_UPDATE: str = _graphs.get("stage_update", "")
 AGENTFLOW_GRAPH_TODO_RECONCILE: str = _graphs.get("todo_reconcile", "")
 AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE: str = _graphs.get("follow_up_inactive", "")
 AGENTFLOW_GRAPH_NEWS: str = _graphs.get("news", "")
+# Dedicated graph for the "Run Agent" buttons in the Research / Solution
+# tabs. Chains research agents → solution agent and skips FRE / stage_update
+# / attachment so a re-run doesn't recreate FRE drafts or queue items.
+AGENTFLOW_GRAPH_RESEARCH_SOLUTION: str = _graphs.get("research_solution", "")
 
 # ── Twilio (calling) ─────────────────────────────────────────────────────────
 # Configured via a single TWILIO_CONFIG env var holding JSON, e.g.:

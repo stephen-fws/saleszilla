@@ -654,27 +654,53 @@ def init_agents_for_potential(
     # Always fire the agentflow trigger — independent of whether config rows exist
     potential_data = _load_potential_data(potential_id)
     logger.info("Loaded potential data: %s", potential_data)
+
+    # Route to the dedicated rerun graph when the caller scoped the request
+    # to research / solution_brief only (Research / Solution tab "Run Agents"
+    # buttons). That graph chains research → solution and skips FRE drafting /
+    # stage update / attachment, so a re-run doesn't recreate the FRE or
+    # queue items.
+    _RERUN_TAB_TYPES = {"research", "solution_brief"}
+    is_rerun = (
+        tab_types is not None
+        and len(tab_types) > 0
+        and set(tab_types).issubset(_RERUN_TAB_TYPES)
+        and bool(config.AGENTFLOW_GRAPH_RESEARCH_SOLUTION)
+    )
+    if is_rerun:
+        graph_id = config.AGENTFLOW_GRAPH_RESEARCH_SOLUTION
+        category_label = "research_solution"
+    else:
+        graph_id = config.AGENTFLOW_GRAPH_NEW_POTENTIAL
+        category_label = "newEnquiry"
+
     _trigger_agentflow(
         potential_id,
         potential_data,
-        graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL,
-        category="newEnquiry",
+        graph_id=graph_id,
+        category=category_label,
     )
 
     # DB insights are keyed on potential_number (7-digit business key), not UUID
     pn = potential_data.get("potential_number") or _resolve_potential_number(potential_id)
 
-    # Pending insight rows for the agents the FRE graph will fire:
-    #   - newEnquiry agents (FRE draft, research, solution, attachments…)
-    #   - stage_update (a.k.a. stage analyzer) — also runs as part of this graph
-    # Other categories (followUp, meeting_brief, etc.) are NOT seeded here.
-    configs = [
-        *list_active_configs(trigger_category="newEnquiry"),
-        *list_active_configs(trigger_category="stage_update"),
-    ]
-    if tab_types:
-        wanted = {t for t in tab_types if t}
-        configs = [c for c in configs if c.tab_type in wanted]
+    # Pending insight rows. For full new-potential flow we seed both
+    # newEnquiry + stage_update configs. For a rerun we always seed BOTH
+    # research and solution_brief agents regardless of which tab the user
+    # clicked from — solution depends on research, so they run as a pair.
+    if is_rerun:
+        configs = [
+            c for c in list_active_configs(trigger_category="newEnquiry")
+            if c.tab_type in {"research", "solution_brief"}
+        ]
+    else:
+        configs = [
+            *list_active_configs(trigger_category="newEnquiry"),
+            *list_active_configs(trigger_category="stage_update"),
+        ]
+        if tab_types:
+            wanted = {t for t in tab_types if t}
+            configs = [c for c in configs if c.tab_type in wanted]
     if not configs:
         return
 
@@ -737,11 +763,20 @@ def trigger_single_agent(potential_id: str, agent_id: str, triggered_by: str = "
         triggered_by=triggered_by,
     )
 
+    # Same routing rule as init_agents_for_potential: research / solution
+    # single-agent reruns go through the dedicated rerun graph.
+    if cfg.tab_type in {"research", "solution_brief"} and config.AGENTFLOW_GRAPH_RESEARCH_SOLUTION:
+        graph_id = config.AGENTFLOW_GRAPH_RESEARCH_SOLUTION
+        category = "research_solution"
+    else:
+        graph_id = config.AGENTFLOW_GRAPH_NEW_POTENTIAL
+        category = cfg.trigger_category or "newEnquiry"
+
     _trigger_agentflow(
         potential_id,
         potential_data,
-        graph_id=config.AGENTFLOW_GRAPH_NEW_POTENTIAL,
-        category=cfg.trigger_category or "newEnquiry",
+        graph_id=graph_id,
+        category=category,
     )
 
     # Return the pending row
