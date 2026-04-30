@@ -561,6 +561,7 @@ def _trigger_inactive_fu_agentflow(potential_id: str, potential_number: str, cur
     url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
     payload = {
         "graph_id": config.AGENTFLOW_GRAPH_FOLLOW_UP_INACTIVE,
+        "priority": 10,
         "entity": {
             "entity_type": "sales_lead",
             "external_id": potential_number,
