@@ -78,6 +78,7 @@ class PotentialItem(BaseModel):
     deal_size: Optional[str] = None
     deal_type: Optional[str] = None
     created_time: Optional[datetime] = None
+    inquired_on: Optional[datetime] = None
     company: Optional[CompanySummary] = None
     contact: Optional[ContactSummary] = None
 

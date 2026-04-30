@@ -120,6 +120,7 @@ class Potential(Base):
     hot_potential: Mapped[str | None] = mapped_column("Hot_Potential", String(16), nullable=True)
     not_an_inquiry_reason: Mapped[str | None] = mapped_column("Not_an_Inquiry_Reas", UnicodeText, nullable=True)
     disqualify_reason: Mapped[str | None] = mapped_column("Reason to Disqualify", UnicodeText, nullable=True)
+    inquired_on: Mapped[datetime | None] = mapped_column("Inquired On", DateTime, nullable=True)
     created_time: Mapped[datetime | None] = mapped_column("Created Time", DateTime, nullable=True)
     modified_time: Mapped[datetime | None] = mapped_column("Modified Time", DateTime, nullable=True)
 

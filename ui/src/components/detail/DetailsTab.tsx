@@ -677,6 +677,10 @@ export default function DetailsTab({
                 options={leadSources}
                 onSave={(v) => onFieldSave("lead_source", v)}
               />
+              <Field
+                label="Inquired On"
+                value={detail.inquiredOn ? formatDateTime(detail.inquiredOn) : "—"}
+              />
               {detail.createdAt && (
                 <Field label="Created" value={formatDateTime(detail.createdAt)} />
               )}

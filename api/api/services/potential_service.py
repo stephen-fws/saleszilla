@@ -185,6 +185,7 @@ def list_potentials(
                 deal_size=p.deal_size,
                 deal_type=p.type,
                 created_time=p.created_time,
+                inquired_on=p.inquired_on,
                 company=CompanySummary(
                     id=a.account_id, name=a.account_name, industry=a.industry
                 ) if a else None,
@@ -245,6 +246,7 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
             deal_size=p.deal_size,
             deal_type=p.type,
             created_time=p.created_time,
+            inquired_on=p.inquired_on,
             company=CompanySummary(
                 id=a.account_id, name=a.account_name, industry=a.industry
             ) if a else None,

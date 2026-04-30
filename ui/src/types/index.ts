@@ -319,6 +319,7 @@ export interface PotentialDetail {
   dealType: string | null;
   dealSize: string | null;
   createdAt: string | null;
+  inquiredOn: string | null;
   contact: {
     id: string;
     name: string | null;
