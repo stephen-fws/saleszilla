@@ -146,6 +146,9 @@ class CXUserToken(Base):
     working_hours_start: Mapped[str | None] = mapped_column("WorkingHoursStart", String(5), nullable=True)  # "09:00"
     working_hours_end: Mapped[str | None] = mapped_column("WorkingHoursEnd", String(5), nullable=True)      # "18:00"
     timezone: Mapped[str | None] = mapped_column("Timezone", String(64), nullable=True)                      # IANA, e.g. "Asia/Kolkata"
+    # Personal Twilio number (E.164, e.g. "+14155551234") used as caller ID when
+    # the user makes outbound calls. Falls back to TWILIO_CALLING_NUMBER if NULL.
+    twilio_number: Mapped[str | None] = mapped_column("TwilioNumber", String(32), nullable=True)
     # Superadmin flag — when True, the user can impersonate any other user via
     # the X-Impersonate-User-Id header. Read-only when impersonating (the
     # mutation-guard middleware blocks POST/PATCH/PUT/DELETE in that mode).

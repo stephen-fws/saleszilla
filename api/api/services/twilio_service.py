@@ -56,18 +56,20 @@ def generate_access_token(user_id: str) -> str:
 
 # ── TwiML generation ─────────────────────────────────────────────────────────
 
-def build_outbound_twiml(to_number: str) -> str:
+def build_outbound_twiml(to_number: str, caller_id: str | None = None) -> str:
     """Build TwiML XML that Twilio executes when the browser SDK connects.
 
-    Dials the target number from our Twilio number, records the full call
-    (dual-channel for transcript quality), and subscribes to status events
-    on the CHILD leg (Twilio→destination). The child leg's `answered` event
-    is what authoritatively tells us when the callee picked up — the parent
-    leg's status fires too early (when the browser SDK accepts).
+    Dials the target number from `caller_id` (the user's personal Twilio
+    number, when configured) or the org default `TWILIO_CALLING_NUMBER`,
+    records the full call (dual-channel for transcript quality), and
+    subscribes to status events on the CHILD leg (Twilio→destination).
+    The child leg's `answered` event is what authoritatively tells us when
+    the callee picked up — the parent leg's status fires too early (when
+    the browser SDK accepts).
     """
     response = VoiceResponse()
     dial = response.dial(
-        caller_id=config.TWILIO_CALLING_NUMBER,
+        caller_id=caller_id or config.TWILIO_CALLING_NUMBER,
         record="record-from-answer-dual",
         recording_status_callback=f"{config.BASE_URL}/twilio/recording-status",
         recording_status_callback_method="POST",
@@ -225,8 +227,13 @@ def create_call_log(
                 call_id, potential_id, twilio_call_sid, status,
             )
 
-    # Log activity for timeline + save notes — only on the FINAL save (not the early "in-progress" creation)
-    if status != "in-progress":
+    # Log activity for timeline + save notes — only on the FINAL save.
+    # The initial create at call-start sends a non-terminal status ("initiated"
+    # / "in-progress" depending on flow); we must skip the log entry then,
+    # otherwise two timeline rows get written (one without notes from the
+    # start, one with notes from save & close).
+    _TERMINAL_CALL_STATUSES = {"completed", "failed", "busy", "no-answer", "canceled"}
+    if status in _TERMINAL_CALL_STATUSES:
         dur_min = duration // 60
         dur_sec = duration % 60
         dur_label = f"{dur_min}:{dur_sec:02d}" if dur_min > 0 else f"{dur_sec}s"

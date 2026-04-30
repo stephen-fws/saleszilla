@@ -13,7 +13,7 @@ import {
   Mic, MicOff, AlertCircle, CheckCircle, PhoneCall,
 } from "lucide-react";
 import { Device, Call } from "@twilio/voice-sdk";
-import { getTwilioToken, getContactsForCall, createCallLog, getTwilioCallStatus } from "@/lib/api";
+import { getTwilioToken, getContactsForCall, createCallLog, getTwilioCallStatus, getUserSettings } from "@/lib/api";
 import type { CallState, ContactForCall } from "@/types";
 
 interface CallDialogProps {
@@ -48,6 +48,13 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Calling-from numbers — user's personal Twilio number (if configured) +
+  // the org default. The dropdown lets them choose; the selected number is
+  // sent as a custom param on device.connect() and read by /twilio/voice
+  // to set the <Dial callerId>.
+  const [fromOptions, setFromOptions] = useState<{ value: string; label: string }[]>([]);
+  const [selectedFrom, setSelectedFrom] = useState<string>("");
+
   const deviceRef = useRef<Device | null>(null);
   const callRef = useRef<Call | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -80,6 +87,25 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
     // need to re-run if they later change in a stale render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [potentialId]);
+
+  // Load the user's calling-from options (personal Twilio number + org default).
+  useEffect(() => {
+    let cancelled = false;
+    getUserSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const opts: { value: string; label: string }[] = [];
+        if (s.twilioNumber) opts.push({ value: s.twilioNumber, label: `${s.twilioNumber} (Yours)` });
+        if (s.twilioDefaultNumber && s.twilioDefaultNumber !== s.twilioNumber) {
+          opts.push({ value: s.twilioDefaultNumber, label: `${s.twilioDefaultNumber} (Org default)` });
+        }
+        setFromOptions(opts);
+        // Default = user's number if set, else org default.
+        setSelectedFrom(opts[0]?.value ?? "");
+      })
+      .catch(() => { /* non-fatal — fall through to backend default */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const c = contacts.find((c) => c.contactId === selectedContactId);
@@ -137,7 +163,11 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
       deviceRef.current = device;
       await device.register();
       setCallState("connecting");
-      const call = await device.connect({ params: { To: phoneNumber.trim() } });
+      // FromNumber is read by /twilio/voice and validated server-side
+      // against the user's saved twilio_number AND the org default.
+      const connectParams: Record<string, string> = { To: phoneNumber.trim() };
+      if (selectedFrom) connectParams.FromNumber = selectedFrom;
+      const call = await device.connect({ params: connectParams });
       callRef.current = call;
       // Twilio Voice SDK v2 — `call.parameters` is a Map, not a plain object.
       // It's also EMPTY immediately after device.connect() resolves; the
@@ -307,6 +337,26 @@ export default function CallDialog({ potentialId, potentialName, initialContactI
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+            {fromOptions.length > 0 && (
+              <div>
+                <label className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider mb-1 block">Calling From</label>
+                {fromOptions.length === 1 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-mono text-slate-700">
+                    {fromOptions[0].label}
+                  </div>
+                ) : (
+                  <select
+                    value={selectedFrom}
+                    onChange={(e) => setSelectedFrom(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  >
+                    {fromOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
             <div>

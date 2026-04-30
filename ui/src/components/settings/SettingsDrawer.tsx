@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Save, Loader2, CheckCircle2, AlertCircle, Clock, Globe2, MailCheck } from "lucide-react";
+import { X, Save, Loader2, CheckCircle2, AlertCircle, Clock, Globe2, MailCheck, Phone } from "lucide-react";
 import { getUserSettings, updateUserSettings } from "@/lib/api";
 import { COMMON_TIMEZONES } from "@/types";
 import type { UserSettings } from "@/types";
@@ -14,7 +14,11 @@ const DEFAULT_SETTINGS: UserSettings = {
   workingHoursStart: "09:00",
   workingHoursEnd: "18:00",
   timezone: "Asia/Kolkata",
+  twilioNumber: null,
+  twilioDefaultNumber: null,
 };
+
+const E164_RE = /^\+[1-9]\d{1,14}$/;
 
 export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -36,6 +40,8 @@ export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps)
           workingHoursStart: s.workingHoursStart ?? DEFAULT_SETTINGS.workingHoursStart,
           workingHoursEnd: s.workingHoursEnd ?? DEFAULT_SETTINGS.workingHoursEnd,
           timezone: s.timezone ?? DEFAULT_SETTINGS.timezone,
+          twilioNumber: s.twilioNumber ?? null,
+          twilioDefaultNumber: s.twilioDefaultNumber ?? null,
         };
         setSettings(normalized);
         setInitial(normalized);
@@ -48,31 +54,47 @@ export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps)
     settings.emailSignature !== initial.emailSignature ||
     settings.workingHoursStart !== initial.workingHoursStart ||
     settings.workingHoursEnd !== initial.workingHoursEnd ||
-    settings.timezone !== initial.timezone;
+    settings.timezone !== initial.timezone ||
+    (settings.twilioNumber ?? "") !== (initial.twilioNumber ?? "");
 
   const hoursInvalid =
     settings.workingHoursStart &&
     settings.workingHoursEnd &&
     settings.workingHoursStart >= settings.workingHoursEnd;
 
+  // Empty is allowed (clears the field). Non-empty must be E.164. Trim
+  // first — pasted values often carry whitespace/zero-width chars that
+  // would silently fail the regex without this.
+  const trimmedTwilio = (settings.twilioNumber ?? "").trim();
+  const twilioInvalid = !!trimmedTwilio && !E164_RE.test(trimmedTwilio);
+
   async function handleSave() {
-    if (!dirty || hoursInvalid) return;
+    if (!dirty || hoursInvalid || twilioInvalid) return;
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateUserSettings(settings);
+      // Send empty string when the user cleared the field — backend wipes the
+      // column and the app falls back to the org default.
+      const payload: Partial<UserSettings> = { ...settings, twilioNumber: trimmedTwilio };
+      // Empty string explicitly clears the column server-side.
+      if (!payload.twilioNumber) payload.twilioNumber = "";
+      const updated = await updateUserSettings(payload);
       const normalized: UserSettings = {
         emailSignature: updated.emailSignature ?? "",
         workingHoursStart: updated.workingHoursStart ?? DEFAULT_SETTINGS.workingHoursStart,
         workingHoursEnd: updated.workingHoursEnd ?? DEFAULT_SETTINGS.workingHoursEnd,
         timezone: updated.timezone ?? DEFAULT_SETTINGS.timezone,
+        twilioNumber: updated.twilioNumber ?? null,
+        twilioDefaultNumber: updated.twilioDefaultNumber ?? null,
       };
       setSettings(normalized);
       setInitial(normalized);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      setError((err as Error).message || "Failed to save settings");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = (err as any)?.response?.data?.message || (err as Error).message || "Failed to save settings";
+      setError(detail);
     } finally {
       setSaving(false);
     }
@@ -161,6 +183,39 @@ export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps)
                 </select>
               </section>
 
+              {/* Twilio (calling) number */}
+              <section>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Phone className="h-3.5 w-3.5 text-slate-400" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Calling Number</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Your personal Twilio number used as caller ID for outbound calls.
+                  Leave empty to use the org default
+                  {settings.twilioDefaultNumber ? (
+                    <> (<span className="font-mono">{settings.twilioDefaultNumber}</span>)</>
+                  ) : null}.
+                  Must be in E.164 format (e.g. <span className="font-mono">+14155551234</span>) and provisioned on the org's Twilio account.
+                </p>
+                <input
+                  type="tel"
+                  value={settings.twilioNumber ?? ""}
+                  onChange={(e) => {
+                    setSettings((s) => ({ ...s, twilioNumber: e.target.value || null }));
+                    // Clear any stale server-side error so the user gets
+                    // immediate feedback that their edit is being accepted.
+                    if (error) setError(null);
+                  }}
+                  placeholder={settings.twilioDefaultNumber ?? "+14155551234"}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 ${
+                    twilioInvalid ? "border-red-300" : "border-slate-200"
+                  }`}
+                />
+                {twilioInvalid && (
+                  <p className="mt-1.5 text-[11px] text-red-600">Must be E.164 (start with + and country code).</p>
+                )}
+              </section>
+
               {/* Email signature */}
               <section>
                 <div className="flex items-center gap-1.5 mb-2">
@@ -210,7 +265,7 @@ export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps)
             </button>
             <button
               onClick={handleSave}
-              disabled={!dirty || saving || !!hoursInvalid}
+              disabled={!dirty || saving || !!hoursInvalid || twilioInvalid}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}

@@ -1545,6 +1545,8 @@ export async function getUserSettings(): Promise<import("@/types").UserSettings>
     workingHoursStart: r.working_hours_start ?? null,
     workingHoursEnd: r.working_hours_end ?? null,
     timezone: r.timezone ?? null,
+    twilioNumber: r.twilio_number ?? null,
+    twilioDefaultNumber: r.twilio_default_number ?? null,
   };
 }
 
@@ -1554,6 +1556,7 @@ export async function updateUserSettings(data: Partial<import("@/types").UserSet
     working_hours_start: data.workingHoursStart,
     working_hours_end: data.workingHoursEnd,
     timezone: data.timezone,
+    twilio_number: data.twilioNumber,
   });
   const r = res.data.data ?? {};
   return {
@@ -1561,5 +1564,7 @@ export async function updateUserSettings(data: Partial<import("@/types").UserSet
     workingHoursStart: r.working_hours_start ?? null,
     workingHoursEnd: r.working_hours_end ?? null,
     timezone: r.timezone ?? null,
+    twilioNumber: r.twilio_number ?? null,
+    twilioDefaultNumber: r.twilio_default_number ?? null,
   };
 }

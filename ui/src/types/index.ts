@@ -466,6 +466,8 @@ export interface UserSettings {
   workingHoursStart: string | null;   // "09:00"
   workingHoursEnd: string | null;     // "18:00"
   timezone: string | null;            // IANA, e.g. "Asia/Kolkata"
+  twilioNumber: string | null;        // personal Twilio number, E.164
+  twilioDefaultNumber: string | null; // org default (read-only echo)
 }
 
 export const COMMON_TIMEZONES: { value: string; label: string }[] = [

@@ -608,6 +608,10 @@ class UserSettingsResponse(BaseModel):
     working_hours_start: Optional[str] = None   # "09:00"
     working_hours_end: Optional[str] = None     # "18:00"
     timezone: Optional[str] = None              # IANA, e.g. "Asia/Kolkata"
+    twilio_number: Optional[str] = None         # personal caller ID, E.164
+    # Org-level default — read-only echo so the UI can render the dropdown
+    # without a second request. Comes from TWILIO_CALLING_NUMBER env.
+    twilio_default_number: Optional[str] = None
 
 
 class UserSettingsUpdateRequest(BaseModel):
@@ -615,6 +619,7 @@ class UserSettingsUpdateRequest(BaseModel):
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
     timezone: Optional[str] = None
+    twilio_number: Optional[str] = None
 
 
 # ═════════════════════════════════════════════════════════════════════════════

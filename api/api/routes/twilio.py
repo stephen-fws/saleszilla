@@ -5,9 +5,12 @@ import logging
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import select
 
+import core.config as config
 from core.auth import get_current_active_user
-from core.models import User
+from core.database import get_session
+from core.models import CXUserToken, User
 from core.schemas import ResponseModel
 from api.services.twilio_service import (
     build_outbound_twiml,
@@ -92,17 +95,49 @@ async def twilio_voice_webhook(request: Request):
     """Twilio calls this when the browser SDK initiates a call.
 
     Returns TwiML that dials the target number with recording enabled.
+    Caller ID resolution:
+      1. Frontend may send a `FromNumber` custom param via device.connect()
+         to indicate which number the user picked from the dropdown.
+      2. We validate it against the user's saved twilio_number AND the org
+         default — anything else is rejected (security: don't trust the
+         client to spoof caller IDs).
+      3. If no valid pick, fall back to the user's saved number, then the
+         org default.
     """
     form = await request.form()
     to_number = form.get("To", "")
-    logger.info("Twilio voice webhook: To=%s", to_number)
+    from_param = str(form.get("FromNumber", "")).strip()
+    # Twilio sends `From=client:<identity>` for browser-SDK-initiated calls.
+    from_field = str(form.get("From", "")).strip()
+    identity = from_field[len("client:"):] if from_field.startswith("client:") else ""
+    logger.info("Twilio voice webhook: To=%s FromNumber=%s identity=%s", to_number, from_param, identity)
 
     if not to_number:
         twiml = "<Response><Say>No phone number provided.</Say></Response>"
-    else:
-        twiml = build_outbound_twiml(str(to_number))
+        return Response(content=twiml, media_type="application/xml")
 
-    logger.info("Twilio voice TwiML response: %s", twiml)
+    # Resolve caller ID against the user's settings.
+    user_twilio_number: str | None = None
+    if identity:
+        with get_session() as session:
+            row = session.execute(
+                select(CXUserToken).where(
+                    CXUserToken.user_id == identity,
+                    CXUserToken.is_active == True,
+                ).limit(1)
+            ).scalar_one_or_none()
+            user_twilio_number = row.twilio_number if row else None
+
+    allowed = {n for n in (user_twilio_number, config.TWILIO_CALLING_NUMBER) if n}
+    if from_param and from_param in allowed:
+        caller_id = from_param
+    elif user_twilio_number:
+        caller_id = user_twilio_number
+    else:
+        caller_id = None  # build_outbound_twiml falls back to org default
+
+    twiml = build_outbound_twiml(str(to_number), caller_id=caller_id)
+    logger.info("Twilio voice TwiML response (caller_id=%s): %s", caller_id, twiml)
     return Response(content=twiml, media_type="application/xml")
 
 
