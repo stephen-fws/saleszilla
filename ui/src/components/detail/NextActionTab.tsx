@@ -476,14 +476,18 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
   // Agent still running
   if (hasPending) {
     const pendingResult = results.find((r) => r.status === "pending" || r.status === "running");
-    const pendingCategory = pendingResult?.triggerCategory;
+    const pendingCategory = categoryHint ?? pendingResult?.triggerCategory;
     const pendingLabel = pendingCategory === "followUp" ? "Preparing Follow-Up Draft"
+      : pendingCategory === "followUpInactive" ? "Preparing Re-engagement Draft"
       : pendingCategory === "reply" ? "Preparing Reply Draft"
       : pendingCategory === "meeting_brief" ? "Preparing Meeting Brief"
+      : pendingCategory === "news" ? "Preparing News-based Outreach"
       : "Preparing First Response Email";
     const pendingDesc = pendingCategory === "followUp" ? "The AI agent is drafting a follow-up email based on the prior conversation."
+      : pendingCategory === "followUpInactive" ? "The AI agent is drafting a re-engagement email — this potential has been inactive for a while."
       : pendingCategory === "reply" ? "The AI agent is drafting a reply based on the client's message."
       : pendingCategory === "meeting_brief" ? "The AI agent is preparing talking points and research for your upcoming meeting."
+      : pendingCategory === "news" ? "The AI agent is checking for recent news about this account and drafting an outreach email."
       : "The AI agent is researching the potential and drafting a First Response Email. This typically takes 20–40 seconds.";
 
     return (
@@ -699,9 +703,14 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
   }
 
   if (previewDraft) {
-    const category = completedResult?.triggerCategory;
+    // Prefer the folder context (categoryHint) over the insight's trigger
+    // category — it's what the user actually opened, so the header should
+    // match the folder lens, not whichever cfg row joined first.
+    const category = categoryHint ?? completedResult?.triggerCategory;
     const draftLabel = category === "followUp" ? "Follow-Up Draft"
+      : category === "followUpInactive" ? "Re-engagement Draft"
       : category === "reply" ? "Reply Draft"
+      : category === "news" ? "News Outreach Draft"
       : "First Response Draft";
 
     return (

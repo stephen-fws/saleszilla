@@ -32,7 +32,15 @@ def list_folders(user_id: str | None = None) -> list[FolderItem]:
         )
 
         if user_id:
-            stmt = stmt.where(CXQueueItem.assigned_to_user_id == user_id)
+            # Scope by current Potential owner (not the stale
+            # CXQueueItem.assigned_to_user_id) so counts shift to the new owner
+            # immediately when CRM admin transfers ownership. Mirrors
+            # list_queue_items.
+            stmt = (
+                stmt
+                .join(Potential, CXQueueItem.potential_id == Potential.potential_number)
+                .where(Potential.potential_owner_id == user_id)
+            )
 
         stmt = stmt.group_by(CXQueueItem.folder_type)
         rows = {r[0]: r[1] for r in session.execute(stmt).all()}
@@ -134,9 +142,19 @@ def list_queue_items(
         # All folders: join with Potential/Account/Contact to render
         # identical cards to the Potentials list view.
         # CXQueueItem.potential_id stores 7-digit potential_number.
+        # Use INNER JOIN on Potential when scoping to a user — we filter by
+        # the Potential's CURRENT owner (not CXQueueItem.assigned_to_user_id,
+        # which is set at creation and goes stale when CRM admin transfers
+        # ownership). Without this, the original owner keeps seeing transferred
+        # potentials in their folder and 403s on click.
+        is_user_scoped = bool(user_id)
+        join_fn = (lambda s, t, c: s.join(t, c)) if is_user_scoped else (lambda s, t, c: s.outerjoin(t, c))
         stmt = (
             select(CXQueueItem, Potential, Account, Contact)
-            .outerjoin(Potential, CXQueueItem.potential_id == Potential.potential_number)
+        )
+        stmt = join_fn(stmt, Potential, CXQueueItem.potential_id == Potential.potential_number)
+        stmt = (
+            stmt
             .outerjoin(Account, Potential.account_id == Account.account_id)
             .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
             .where(
@@ -147,7 +165,7 @@ def list_queue_items(
             .order_by(CXQueueItem.created_time.desc())
         )
         if user_id:
-            stmt = stmt.where(CXQueueItem.assigned_to_user_id == user_id)
+            stmt = stmt.where(Potential.potential_owner_id == user_id)
 
         rows = session.execute(stmt).all()
         result = []
