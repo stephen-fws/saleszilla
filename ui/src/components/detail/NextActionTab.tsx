@@ -702,6 +702,31 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
     );
   }
 
+  // FRE agent occasionally classifies inbound as not a real lead and emits
+  // just "Not an enquiry" / "Not an inquiry" as its content — render a
+  // friendly static message instead of treating that string as an email body.
+  const isNotAnInquiry = (() => {
+    const raw = completedResult?.content?.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!raw) return false;
+    return raw === "not an enquiry" || raw === "not an enquiry."
+      || raw === "not an inquiry" || raw === "not an inquiry.";
+  })();
+
+  if (isNotAnInquiry) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
+        <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+          <AlertCircle className="h-7 w-7 text-slate-500" />
+        </div>
+        <p className="text-sm font-semibold text-slate-700 mb-1">Not a sales inquiry</p>
+        <p className="text-xs text-slate-500 max-w-sm">
+          The AI determined this isn't a real lead — no first response email is needed.
+          You can Skip it from the queue card.
+        </p>
+      </div>
+    );
+  }
+
   if (previewDraft) {
     // Prefer the folder context (categoryHint) over the insight's trigger
     // category — it's what the user actually opened, so the header should
