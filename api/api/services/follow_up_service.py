@@ -748,18 +748,6 @@ def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
                 logger.info("inactive_fu scan: skipping %d already-processed potentials", len(already_processed))
             candidates = [c for c in candidates if c["potential_number"] not in already_processed]
 
-    # Per-run cap — keeps the daily/weekly load on agentflow predictable.
-    # Excess potentials remain eligible for the next run (idempotency check
-    # passes for them since no insight got created).
-    INACTIVE_FU_PER_RUN_CAP = 10
-    total_eligible = len(candidates)
-    if total_eligible > INACTIVE_FU_PER_RUN_CAP:
-        logger.info(
-            "inactive_fu scan: capping %d eligible candidates to %d for this run",
-            total_eligible, INACTIVE_FU_PER_RUN_CAP,
-        )
-        candidates = candidates[:INACTIVE_FU_PER_RUN_CAP]
-
     now = datetime.now(tzutil.utc)
     triggered = skipped = 0
     for s in candidates:
