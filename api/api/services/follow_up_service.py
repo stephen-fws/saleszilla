@@ -527,27 +527,23 @@ def trigger_todo_reconcile(potential_number: str) -> dict:
     return {"ok": True, "agents_created": len(tr_configs), "existing_count": len(existing_agent_todos)}
 
 
-# ── Follow-up Inactive (weekly scan) ─────────────────────────────────────────
+# ── Follow-up Inactive (daily scan) ──────────────────────────────────────────
 
 def compute_inactive_scan_window(today_date: date | None = None) -> tuple[datetime, datetime]:
-    """Window = the 7 calendar days ending 60 days before last week's Sunday.
+    """Window = exactly the calendar day 60 days before yesterday.
 
-    Anchoring on end-of-last-week (rather than today) means running the scan
-    on any day Mon-Sun resolves to the same anchor — the current week is
-    always ignored. Day-based math (60 days, not "2 months") guarantees
-    each weekly run produces strict 7-day, non-overlapping slices.
+    Daily cadence + 1-day window means each potential's `last_email_at` falls
+    in exactly one daily run, so we never re-trigger the same potential.
+    Anchoring on yesterday (not today) skips today's still-syncing emails.
 
     Returns (start, end_exclusive) as naive datetimes at midnight to match
     the DB's naive timestamp columns.
     """
     today = today_date or date.today()
-    # weekday(): Mon=0 ... Sun=6. Days back to land on previous Sunday:
-    # Mon→1, Tue→2, ..., Sat→6, Sun→7 (the Sun of last week, not today).
-    last_week_end = today - timedelta(days=today.weekday() + 1)
-    end_date = last_week_end - timedelta(days=60)
-    start_date = end_date - timedelta(days=7)
-    start = datetime.combine(start_date, time(0, 0))
-    end = datetime.combine(end_date, time(0, 0))  # exclusive upper bound
+    yesterday = today - timedelta(days=1)
+    target_day = yesterday - timedelta(days=60)
+    start = datetime.combine(target_day, time(0, 0))
+    end = start + timedelta(days=1)  # exclusive upper bound
     return start, end
 
 
@@ -667,14 +663,16 @@ def _fire_inactive_for_potential(snapshot: dict, now: datetime) -> None:
 
 
 def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
-    """Weekly scan — picks Sleeping / Contact-Later potentials whose LAST
-    email exchange (sent OR received, from VW_CRM_Sales_Sync_Emails) falls
-    in the 7-day inactivity slice ending 60 days before last Sunday.
+    """Daily scan — picks Sleeping / Contact-Later potentials whose LAST
+    email exchange (sent OR received, from VW_CRM_Sales_Sync_Emails) lands
+    on the calendar day exactly 60 days before yesterday.
+
+    1-day window + daily cadence = each potential's last_email_at falls in
+    exactly one run, ever; no re-trigger.
 
     Skip-if-unactioned: potentials that already have a `followUpInactive`
-    insight in pending / running / completed are silently ignored, so a
-    manual replay or scheduler retry inside the same week doesn't
-    double-trigger.
+    insight in pending / running / completed are silently ignored, so manual
+    replays or scheduler retries on the same day don't double-trigger.
 
     anchor_date: optional override for testing. When provided, the window is
     computed as if "today" were that date.

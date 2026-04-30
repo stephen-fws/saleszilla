@@ -123,16 +123,17 @@ def post_inactive_scan(
     anchor_date: str | None = None,
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> ResponseModel[dict]:
-    """Weekly scan for the inactive follow-up flow.
+    """Daily scan for the inactive follow-up flow.
 
-    Scheduled every Wednesday via Cloud Scheduler; also callable manually any
-    day. Finds Sleeping / Contact Later potentials modified in the 7-day window
-    ending 3 months before the most recent Wednesday, and triggers the inactive
-    follow-up graph for each. Anchoring on the current week's Wednesday means a
-    Thursday make-up run produces the same window as the Wednesday run would.
+    Scheduled daily via Cloud Scheduler; also callable manually any day.
+    Finds Sleeping / Contact Later potentials whose last email (sent OR
+    received, in VW_CRM_Sales_Sync_Emails) lands on the calendar day
+    exactly 60 days before yesterday, and triggers the inactive follow-up
+    graph for each. 1-day window means each potential is picked up at most
+    once.
 
     anchor_date (optional, YYYY-MM-DD) — overrides "today" for the window
-    calculation. Useful for back-filling missed weeks or testing historical
+    calculation. Useful for back-filling missed days or testing historical
     windows.
     """
     _require_webhook_key(x_api_key)
