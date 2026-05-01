@@ -995,15 +995,6 @@ def run_news_scan(cutoff_days: int = 2, potential_number: str | None = None) -> 
         logger.info("news scan: skipping %d already-pending/completed potentials", len(busy_pns))
     snapshots = [s for s in snapshots if s["potential_number"] not in busy_pns]
 
-    # Soft-launch cap (auto mode only) — keeps daily volume in check.
-    # Manual mode never trips the cap (only one potential anyway).
-    NEWS_PER_RUN_CAP = 5
-    if not is_manual:
-        total_matched = len(snapshots)
-        if total_matched > NEWS_PER_RUN_CAP:
-            logger.info("news scan: capping %d candidates to %d for this run", total_matched, NEWS_PER_RUN_CAP)
-            snapshots = snapshots[:NEWS_PER_RUN_CAP]
-
     logger.info("news scan: matched=%d (Inquired On >= %s)", len(snapshots), inquired_cutoff.date())
     now = datetime.now(tzutil.utc)
     triggered = skipped = 0
