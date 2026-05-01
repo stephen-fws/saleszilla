@@ -22,12 +22,20 @@ interface PotentialsListProps {
   availableStages?: string[];
   onStageChange?: (dealId: string, stage: string, reason?: string) => Promise<void>;
   currentUserName?: string | null;
+  // Active sort key — when set to a non-date sort (e.g. company-az, value-desc),
+  // the list is rendered flat without month grouping so the chosen ordering
+  // is preserved end-to-end.
+  sortBy?: string;
   // Pagination — total is the server-side count across all pages.
   page?: number;
   pageSize?: number;
   total?: number;
   onPageChange?: (page: number) => void;
 }
+
+// Sort keys whose semantics ARE date-based; for these we keep month grouping.
+// Anything else (alphabetical, value, stage, …) renders as a flat list.
+const DATE_GROUPED_SORTS = new Set(["created-desc", "created-asc"]);
 
 export default function PotentialsList({
   deals,
@@ -42,11 +50,13 @@ export default function PotentialsList({
   availableStages: _availableStages,
   onStageChange: _onStageChange,
   currentUserName,
+  sortBy,
   page = 1,
   pageSize = 50,
   total = 0,
   onPageChange,
 }: PotentialsListProps) {
+  const useDateGrouping = !sortBy || DATE_GROUPED_SORTS.has(sortBy);
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
@@ -109,11 +119,16 @@ export default function PotentialsList({
           </div>
         ) : (
           <div>
-            {groupByDateBucket(deals, (d) => d.createdAt).map((group) => (
-              <div key={group.label}>
-                <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm px-3 py-1.5 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-                  {group.label}
-                </div>
+            {(useDateGrouping
+              ? groupByDateBucket(deals, (d) => d.createdAt)
+              : [{ label: "", items: deals }]
+            ).map((group) => (
+              <div key={group.label || "all"}>
+                {useDateGrouping && group.label && (
+                  <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm px-3 py-1.5 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                    {group.label}
+                  </div>
+                )}
                 <div className="divide-y divide-slate-100">
                   {group.items.map((deal) => {
               const isSelected = deal.id === selectedDealId;

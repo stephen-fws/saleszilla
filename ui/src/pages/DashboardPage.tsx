@@ -978,6 +978,7 @@ export default function DashboardPage() {
               availableStages={filterOptions.stages}
               onStageChange={handleStageChange}
               currentUserName={includeTeam ? (user?.name ?? null) : null}
+              sortBy={potentialFilters.sortBy}
               page={potentialsPage}
               pageSize={POTENTIALS_PAGE_SIZE}
               total={potentialsTotal}
