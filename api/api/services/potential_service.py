@@ -388,6 +388,68 @@ def update_potential(potential_id: str, data: dict, user_id: str | None = None) 
     return get_potential_detail(potential_id)
 
 
+def reassign_potential(
+    potential_id: str,
+    new_owner_user_id: str,
+    by_user_id: str | None = None,
+) -> PotentialDetailResponse | None:
+    """Transfer ownership of a potential to another user.
+
+    Side effects:
+      - Updates Potentials.[Potential Owner Id] / [Potential Owner Name].
+      - Logs a CXActivity timeline entry: "Owner changed from X to Y".
+
+    Pending Next Action drafts are NOT cleared — they stay in place and the
+    new owner can edit/send them. Signature & tone may need a quick edit
+    in the composer.
+
+    Returns None when the potential or target user doesn't exist.
+    """
+    from datetime import datetime as dt, timezone as _tz
+
+    now = dt.now(_tz.utc)
+    with get_session() as session:
+        potential = session.get(Potential, potential_id)
+        if not potential:
+            return None
+        new_owner = session.get(User, new_owner_user_id)
+        if not new_owner:
+            return None
+
+        old_owner_id = potential.potential_owner_id
+        old_owner_name = potential.potential_owner_name or "—"
+        new_owner_name = new_owner.name or new_owner.email or new_owner_user_id
+
+        if old_owner_id == new_owner_user_id:
+            # No-op, return current state.
+            return get_potential_detail(potential_id)
+
+        potential.potential_owner_id = new_owner_user_id
+        potential.potential_owner_name = new_owner_name
+        potential.modified_time = now
+        session.add(potential)
+        session.flush()
+
+    # Note: pending Next Action drafts are intentionally left in place.
+    # Drafts are plain DB rows and the new owner can edit/send them as-is
+    # (only the signature, tone, and prior-thread context may feel slightly
+    # off for the new owner — all editable in the composer).
+
+    # Timeline
+    try:
+        from api.services.activity_service import log_activity
+        log_activity(
+            potential_id=potential_id,
+            activity_type="owner_changed",
+            description=f"Owner changed from {old_owner_name} to {new_owner_name}",
+            user_id=by_user_id,
+        )
+    except Exception:
+        logger.exception("reassign_potential: failed to log activity for %s", potential_id)
+
+    return get_potential_detail(potential_id)
+
+
 def create_potential(data: CreatePotentialRequest, user: User) -> PotentialDetailResponse:
     """Create potential, resolving account/contact by ID or creating new ones.
 

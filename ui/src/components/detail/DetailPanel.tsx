@@ -11,10 +11,12 @@ import {
   MoreVertical,
   FileText,
   ExternalLink,
+  UserCheck,
 } from "lucide-react";
 import type { DetailTab, PotentialDetail } from "@/types";
 import { getPotentialDetail, updatePotential, getAllAgentResults, getAiHighlight } from "@/lib/api";
 import type { UpdatePotentialPayload } from "@/lib/api";
+import ReassignDialog from "./ReassignDialog";
 import { reasonFieldForStage } from "@/lib/utils";
 import { confirmDiscardIfDirty } from "@/lib/composerDirty";
 import TabBar from "./TabBar";
@@ -114,6 +116,7 @@ export default function DetailPanel({
   const [aiHighlight, setAiHighlight] = useState<string | null>(null);
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
   const [supportCategory, setSupportCategory] = useState<string | undefined>(undefined);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
@@ -363,6 +366,13 @@ export default function DetailPanel({
                       </a>
                     )}
                     <button
+                      onClick={() => { setMoreMenuOpen(false); setReassignOpen(true); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <UserCheck className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="flex-1 text-left">Reassign Potential</span>
+                    </button>
+                    <button
                       onClick={() => { setMoreMenuOpen(false); setSupportCategory(undefined); setSupportOpen(true); }}
                       className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
                     >
@@ -457,6 +467,24 @@ export default function DetailPanel({
           dealId={dealId}
           detail={detail}
           defaultCategory={supportCategory}
+        />
+      )}
+
+      {/* Reassign potential modal */}
+      {reassignOpen && dealId && detail && (
+        <ReassignDialog
+          potentialId={dealId}
+          potentialName={detail.title ?? detail.company?.name ?? null}
+          currentOwnerId={detail.ownerId}
+          currentOwnerName={detail.ownerName}
+          onClose={(reassigned) => {
+            setReassignOpen(false);
+            if (reassigned) {
+              // Refresh detail + queue/folder counts since the new owner now
+              // owns the potential (it may disappear from this user's lists).
+              onEmailSent?.();
+            }
+          }}
         />
       )}
 

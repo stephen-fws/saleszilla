@@ -1,12 +1,13 @@
 """Potential listing and detail endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
+from pydantic import BaseModel
 
 from core.auth import get_current_active_user
 from core.exceptions import BotApiException
 from core.models import User
 from core.schemas import CreatePotentialRequest, PotentialDetailResponse, PotentialListResponse, ResponseModel, UpdatePotentialRequest
-from api.services.potential_service import create_potential, get_potential_detail, list_potentials, update_potential
+from api.services.potential_service import create_potential, get_potential_detail, list_potentials, reassign_potential, update_potential
 from api.services.access_control import require_potential_owner
 
 router = APIRouter(prefix="/potentials", tags=["potentials"])
@@ -78,4 +79,26 @@ def patch_potential(
     result = update_potential(potential_id, data.model_dump(exclude_none=True), user_id=user.user_id)
     if not result:
         raise BotApiException(404, "ERR_NOT_FOUND", "Potential not found.")
+    return ResponseModel(data=result)
+
+
+class ReassignOwnerRequest(BaseModel):
+    new_owner_user_id: str
+
+
+@router.patch("/{potential_id}/owner")
+def patch_potential_owner(
+    potential_id: str,
+    data: ReassignOwnerRequest = Body(),
+    user: User = Depends(get_current_active_user),
+) -> ResponseModel[PotentialDetailResponse]:
+    """Reassign a potential to another user. Open to anyone (any
+    authenticated user can reassign any potential they can see).
+    The reassign cancels any pending next-action draft on the old owner so
+    the new owner gets a fresh AI cycle.
+    """
+    require_potential_owner(user.user_id, potential_id)
+    result = reassign_potential(potential_id, data.new_owner_user_id, by_user_id=user.user_id)
+    if not result:
+        raise BotApiException(404, "ERR_NOT_FOUND", "Potential or target user not found.")
     return ResponseModel(data=result)

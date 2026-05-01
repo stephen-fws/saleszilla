@@ -67,6 +67,17 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
   }));
 }
 
+// Non-admin user list — feeds pickers like the Reassign Potential dropdown.
+export async function listUsers(): Promise<AdminUser[]> {
+  const res = await protectedApi.get("/users");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (res.data.data ?? []).map((u: any): AdminUser => ({
+    userId: u.user_id,
+    name: u.name ?? "",
+    email: u.email ?? "",
+  }));
+}
+
 // ── Folders & Queue ─────────────────────────────────────────────────────────
 
 export async function getFolders(): Promise<{ folders: Folder[] }> {
@@ -299,6 +310,10 @@ export async function updatePotential(id: string, payload: UpdatePotentialPayloa
       description: d.company_description ?? null,
     } : null,
   };
+}
+
+export async function reassignPotential(id: string, newOwnerUserId: string): Promise<void> {
+  await protectedApi.patch(`/potentials/${id}/owner`, { new_owner_user_id: newOwnerUserId });
 }
 
 // ── Search accounts / contacts for new potential modal ───────────────────────

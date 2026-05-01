@@ -40,3 +40,20 @@ def list_users_for_impersonation(
         )
         for u in rows
     ])
+
+
+@router.get("/users")
+def list_users_for_picker(
+    _user: User = Depends(get_current_active_user),
+) -> ResponseModel[list[AdminUserItem]]:
+    """All users — feeds non-admin pickers (e.g. the Reassign Potential
+    dropdown). Same shape as /admin/users but no superadmin gate."""
+    rows = list_all_users()
+    return ResponseModel(data=[
+        AdminUserItem(
+            user_id=u.user_id,
+            name=u.name or "",
+            email=u.email or "",
+        )
+        for u in rows
+    ])
