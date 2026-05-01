@@ -113,6 +113,32 @@ function parseFREDraft(rawContent: string): { subject: string; body: string; raw
 }
 
 /**
+ * Friendly "X minutes ago · Apr 30, 09:14" string used under the draft
+ * preview header so the rep instantly knows how fresh the draft is.
+ */
+function formatPreparedAt(iso: string | null): string {
+  if (!iso) return "";
+  const ts = iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  const diffMs = Date.now() - d.getTime();
+  const min = Math.floor(diffMs / 60000);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  let rel: string;
+  if (min < 1) rel = "just now";
+  else if (min < 60) rel = `${min} minute${min === 1 ? "" : "s"} ago`;
+  else if (hr < 24) rel = `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  else if (day < 7) rel = `${day} day${day === 1 ? "" : "s"} ago`;
+  else rel = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const abs = d.toLocaleString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+  return `Prepared ${rel} · ${abs}`;
+}
+
+/**
  * Wrap bare http(s) URLs in the rendered email body with <a> tags so they
  * appear clickable in the Panel-3 preview, before the user opens the composer.
  * Splits on existing <a>…</a> blocks first so URLs that TipTap already linked
@@ -743,13 +769,20 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
         <div className="px-4 py-4 space-y-4">
           {/* Draft preview card */}
           <div className="rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Mail className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-xs font-semibold text-slate-600">{draftLabel} — Ready to Send</span>
-                {savedDraft && (
-                  <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
-                    Saved
+            <div className="flex items-start justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-xs font-semibold text-slate-600">{draftLabel} — Ready to Send</span>
+                  {savedDraft && (
+                    <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
+                      Saved
+                    </span>
+                  )}
+                </div>
+                {completedResult?.completedAt && (
+                  <span className="text-[11px] font-medium text-slate-700">
+                    {formatPreparedAt(completedResult.completedAt)}
                   </span>
                 )}
               </div>
