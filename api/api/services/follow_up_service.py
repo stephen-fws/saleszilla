@@ -332,14 +332,11 @@ def trigger_reply_agent(event: InboundEvent) -> dict:
                     qi.updated_time = now
                     session.add(qi)
 
-    # Trigger agentflow — fire-and-forget
+    # Trigger agentflow — fire-and-forget. The agent reads the email thread
+    # directly from VW_CRM_Sales_Sync_Emails during execution, so we don't
+    # need to ship it in the payload.
     if config.AGENTFLOW_GRAPH_REPLY:
         potential_data = _load_potential_data(potential_uuid)
-        email_thread = _load_email_thread(
-            potential_id=potential_uuid,
-            potential_number=event.potential_number,
-            trigger_message_id=event.internet_message_id,
-        )
         url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
         attributes = {
             "customer_name": potential_data.get("customer_name", ""),
@@ -358,7 +355,6 @@ def trigger_reply_agent(event: InboundEvent) -> dict:
             "category": "reply",
             "client_email": event.from_email or "",
             "client_message_id": event.internet_message_id or "",
-            "email_thread": email_thread,
         }
         payload = {
             "graph_id": config.AGENTFLOW_GRAPH_REPLY,
@@ -775,7 +771,12 @@ def run_inactive_followup_scan(anchor_date: date | None = None) -> dict:
 # ── News (daily Diamond/Platinum scan) ───────────────────────────────────────
 
 
-def _trigger_news_agentflow(potential_id: str, potential_number: str, category: str) -> None:
+def _trigger_news_agentflow(
+    potential_id: str,
+    potential_number: str,
+    category: str,
+    cutoff_days: int = 2,
+) -> None:
     """Fire the news graph for one potential. Fire-and-forget.
 
     The graph orchestrates A1 (news-check) → A2 (email body). A1's callback
@@ -784,16 +785,17 @@ def _trigger_news_agentflow(potential_id: str, potential_number: str, category: 
     with the email body that becomes the Next Action draft.
 
     cutoff_date is passed under input_data so the agent's "news from the last
-    2 days (after {cutoff_date})" prompt has a deterministic server-controlled
-    boundary (= run-date − 2 days). Avoids any ambiguity about which clock
-    agentflow would otherwise use.
+    N days (after {cutoff_date})" prompt has a deterministic server-controlled
+    boundary (= run-date − cutoff_days). Default 2 for steady-state daily
+    runs; widen to ~14 on the first-ever run so existing news from the prior
+    fortnight gets surfaced.
     """
     if not config.AGENTFLOW_GRAPH_NEWS:
         logger.warning("AGENTFLOW_GRAPH_NEWS not configured — skipped for %s", potential_number)
         return
     potential_data = _load_potential_data(potential_id)
     today = date.today()
-    cutoff_date = today - timedelta(days=2)
+    cutoff_date = today - timedelta(days=max(1, cutoff_days))
     url = f"{config.AGENTFLOW_BASE_URL}/external/execute"
     payload = {
         "graph_id": config.AGENTFLOW_GRAPH_NEWS,
@@ -837,7 +839,7 @@ def _trigger_news_agentflow(potential_id: str, potential_number: str, category: 
 
 
 
-def _fire_news_for_potential(snapshot: dict, now: datetime) -> None:
+def _fire_news_for_potential(snapshot: dict, now: datetime, cutoff_days: int = 2) -> None:
     """Per-potential work: upsert pending insight rows + queue item + fire graph."""
     pn = snapshot["potential_number"]
     if not pn:
@@ -901,24 +903,33 @@ def _fire_news_for_potential(snapshot: dict, now: datetime) -> None:
         potential_id=snapshot["potential_id"],
         potential_number=pn,
         category=snapshot["category"],
+        cutoff_days=cutoff_days,
     )
 
 
-def run_news_scan() -> dict:
-    """Daily scan: fire the news graph for every active Diamond or Platinum
-    potential, skipping any where a recent news insight is still in-flight or
-    waiting on the user.
+def run_news_scan(cutoff_days: int = 2) -> dict:
+    """Daily scan: fire the news graph for every active Diamond / Platinum
+    potential whose Inquired On is within the last 60 days.
 
     Stages excluded: Closed / Lost / Disqualified / Not an Inquiry / Low Value —
     no point fetching news on dead deals. Sleeping and Contact Later stay in —
     news is often what reactivates a parked Diamond deal.
 
-    Skip rule (prevents the 2-day agent overlap from wiping a pending draft):
-      Skip if ANY news insight exists with status IN ('pending','running','completed')
-      — i.e., still working OR user hasn't actioned it yet.
-      Fire if status is 'actioned'/'cancelled'/'error', or no news insight exists.
+    Slot model (one news insight per potential, refreshed each run):
+      Whether the row is pending / completed / skipped / actioned, the daily
+      run resets it back to pending and re-runs A1/A2. Prior content is
+      snapshotted to CXAgentDraftHistory so the audit trail survives. This
+      means reps see a fresh news card whenever the world's news rolls
+      forward — and at most one card per potential at any time.
     """
-    EXCLUDED_STAGES = ("Closed", "Lost", "Disqualified", "Not an Inquiry", "Low Value")
+    # Excluded stages — terminal / not-a-real-lead only. "Low Value" is
+    # intentionally NOT excluded: for a Diamond/Platinum potential, client
+    # engagement matters more than the value tag.
+    EXCLUDED_STAGES = ("Closed", "Lost", "Disqualified", "Not an Inquiry")
+    # Inquired On freshness gate — beyond ~60 days an inbound deal is
+    # usually decided one way or the other; news outreach has the most
+    # signal while the deal is still active.
+    inquired_cutoff = datetime.now(tzutil.utc) - timedelta(days=60)
 
     with get_session() as session:
         # Diamond = potential2close == 1, Platinum = hot_potential == 'true'.
@@ -930,6 +941,8 @@ def run_news_scan() -> dict:
             .where(
                 (Potential.potential2close == 1) | (Potential.hot_potential.ilike("true")),
                 Potential.stage.notin_(EXCLUDED_STAGES),
+                Potential.inquired_on.is_not(None),
+                Potential.inquired_on >= inquired_cutoff,
             )
         ).all()
 
@@ -948,36 +961,26 @@ def run_news_scan() -> dict:
                 "account_id": a.account_id if a else None,
             })
 
-        # Pre-filter: pull potentials that already have an in-flight / unactioned
-        # news insight so we skip them this cycle.
-        pns = [s["potential_number"] for s in snapshots if s["potential_number"]]
-        busy_pns: set[str] = set()
-        if pns:
-            busy_rows = session.execute(
-                select(CXAgentInsight.potential_id)
-                .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
-                .where(
-                    CXAgentInsight.potential_id.in_(pns),
-                    CXAgentInsight.is_active == True,
-                    CXAgentInsight.status.in_(("pending", "running", "completed")),
-                    CXAgentTypeConfig.trigger_category == "news",
-                )
-            ).all()
-            busy_pns = {r[0] for r in busy_rows}
+    # Soft-launch cap — keeps daily volume to a few drafts per run while we
+    # validate signal quality. Excess potentials are processed on subsequent
+    # runs (the slot-refresh model means missing today's run isn't fatal).
+    NEWS_PER_RUN_CAP = 5
+    total_matched = len(snapshots)
+    if total_matched > NEWS_PER_RUN_CAP:
+        logger.info("news scan: capping %d candidates to %d for this run", total_matched, NEWS_PER_RUN_CAP)
+        snapshots = snapshots[:NEWS_PER_RUN_CAP]
 
-    logger.info("news scan: matched=%d busy=%d", len(snapshots), len(busy_pns))
+    logger.info("news scan: matched=%d (Inquired On >= %s)", len(snapshots), inquired_cutoff.date())
     now = datetime.now(tzutil.utc)
-    triggered = skipped = already_pending = 0
+    triggered = skipped = 0
+    already_pending = 0  # kept in the response for back-compat; always 0 now
     for s in snapshots:
         pn = s["potential_number"]
         if not pn:
             skipped += 1
             continue
-        if pn in busy_pns:
-            already_pending += 1
-            continue
         try:
-            _fire_news_for_potential(s, now)
+            _fire_news_for_potential(s, now, cutoff_days=cutoff_days)
             triggered += 1
         except Exception:
             logger.exception("news scan: failed for potential=%s", pn)
@@ -1304,7 +1307,10 @@ def _create_fu_insight_rows(session, potential_number: str, now: datetime) -> in
     return len(configs_to_fire)
 
 
-def _trigger_followup_agentflow(potential_data: dict, day_offset: int, email_thread: list[dict], trigger_message_id: str | None) -> None:
+def _trigger_followup_agentflow(potential_data: dict, day_offset: int, trigger_message_id: str | None) -> None:
+    """Fire the follow-up graph. The agent queries VW_CRM_Sales_Sync_Emails
+    directly during execution (using `trigger_message_id` as the thread
+    anchor), so we don't ship the thread in the payload."""
     if not config.AGENTFLOW_GRAPH_FOLLOW_UP:
         logger.warning("AGENTFLOW_GRAPH_FOLLOW_UP not configured — follow-up trigger skipped")
         return
@@ -1328,7 +1334,6 @@ def _trigger_followup_agentflow(potential_data: dict, day_offset: int, email_thr
         "category": "follow_up",
         "day_offset": day_offset,
         "trigger_message_id": trigger_message_id or "",
-        "email_thread": email_thread,
     }
 
     payload = {
@@ -1467,15 +1472,9 @@ def _fire_one(schedule_row: CXFollowUpSchedule) -> str:
 
     # Agentflow call happens AFTER DB commit — fire-and-forget, webhook will update the insight
     potential_data = _load_potential_data(schedule_row.potential_id)
-    email_thread = _load_email_thread(
-        potential_id=schedule_row.potential_id,
-        potential_number=schedule_row.potential_number,
-        trigger_message_id=schedule_row.trigger_message_id,
-    )
     _trigger_followup_agentflow(
         potential_data=potential_data,
         day_offset=schedule_row.day_offset,
-        email_thread=email_thread,
         trigger_message_id=schedule_row.trigger_message_id,
     )
     return "fired"

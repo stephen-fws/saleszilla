@@ -150,12 +150,18 @@ def post_inactive_scan(
 
 @router.post("/internal/news/scan")
 def post_news_scan(
+    cutoff_days: int = 2,
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> ResponseModel[dict]:
     """Daily scan for the news flow. Fires the AGENTFLOW_GRAPH_NEWS graph for
-    every active Diamond/Platinum potential. Graph orchestrates A1 (check) →
-    A2 (email body); empty callback = no news this cycle, queue item cancelled."""
+    every active Diamond/Platinum potential whose `Inquired On` is within the
+    last 60 days. Graph orchestrates A1 (check) → A2 (email body); empty
+    callback = no news this cycle, queue item cancelled.
+
+    `cutoff_days` (default 2) controls the agent's news-search window:
+    `cutoff_date = today - cutoff_days`. Steady-state Cloud Scheduler should
+    leave it at 2; widen to ~14 for a one-off first-launch backfill."""
     _require_webhook_key(x_api_key)
-    result = run_news_scan()
+    result = run_news_scan(cutoff_days=cutoff_days)
     logger.info("news scan: %s", result)
     return ResponseModel(data=result)
