@@ -907,20 +907,21 @@ def _fire_news_for_potential(snapshot: dict, now: datetime, cutoff_days: int = 2
     )
 
 
-def run_news_scan(cutoff_days: int = 2) -> dict:
-    """Daily scan: fire the news graph for every active Diamond / Platinum
-    potential whose Inquired On is within the last 60 days.
+def run_news_scan(cutoff_days: int = 2, potential_number: str | None = None) -> dict:
+    """News scan.
 
-    Stages excluded: Closed / Lost / Disqualified / Not an Inquiry / Low Value —
-    no point fetching news on dead deals. Sleeping and Contact Later stay in —
-    news is often what reactivates a parked Diamond deal.
+    Default mode (no `potential_number`): daily scan over every active
+    Diamond / Platinum potential whose Inquired On is within the last 60 days.
 
-    Slot model (one news insight per potential, refreshed each run):
-      Whether the row is pending / completed / skipped / actioned, the daily
-      run resets it back to pending and re-runs A1/A2. Prior content is
-      snapshotted to CXAgentDraftHistory so the audit trail survives. This
-      means reps see a fresh news card whenever the world's news rolls
-      forward — and at most one card per potential at any time.
+    Manual mode (`potential_number` set): force-trigger the news graph for
+    that one potential, bypassing the stage / Diamond-Platinum / Inquired-On
+    / idempotency / cap filters. Useful for testing or when a rep wants
+    to refresh news for a specific deal on demand.
+
+    Slot model (one news insight per potential):
+      Skip-if-unactioned — once a draft exists in pending/running/completed
+      state, the daily scan won't re-fire until the rep actions it. Manual
+      mode (potential_number) ignores this and re-fires anyway.
     """
     # Excluded stages — terminal / not-a-real-lead only. "Low Value" is
     # intentionally NOT excluded: for a Diamond/Platinum potential, client
@@ -930,21 +931,31 @@ def run_news_scan(cutoff_days: int = 2) -> dict:
     # usually decided one way or the other; news outreach has the most
     # signal while the deal is still active.
     inquired_cutoff = datetime.now(tzutil.utc) - timedelta(days=60)
+    is_manual = bool(potential_number)
 
     with get_session() as session:
-        # Diamond = potential2close == 1, Platinum = hot_potential == 'true'.
-        # `Hot_Potential` is a string column (Zoho legacy), so compare as lowercase.
-        rows = session.execute(
-            select(Potential, Account, Contact)
-            .outerjoin(Account, Potential.account_id == Account.account_id)
-            .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
-            .where(
-                (Potential.potential2close == 1) | (Potential.hot_potential.ilike("true")),
-                Potential.stage.notin_(EXCLUDED_STAGES),
-                Potential.inquired_on.is_not(None),
-                Potential.inquired_on >= inquired_cutoff,
-            )
-        ).all()
+        if is_manual:
+            # Force-trigger for one specific potential — no eligibility filter.
+            rows = session.execute(
+                select(Potential, Account, Contact)
+                .outerjoin(Account, Potential.account_id == Account.account_id)
+                .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+                .where(Potential.potential_number == potential_number)
+            ).all()
+        else:
+            # Diamond = potential2close == 1, Platinum = hot_potential == 'true'.
+            # `Hot_Potential` is a string column (Zoho legacy), so compare as lowercase.
+            rows = session.execute(
+                select(Potential, Account, Contact)
+                .outerjoin(Account, Potential.account_id == Account.account_id)
+                .outerjoin(Contact, Potential.contact_id == Contact.contact_id)
+                .where(
+                    (Potential.potential2close == 1) | (Potential.hot_potential.ilike("true")),
+                    Potential.stage.notin_(EXCLUDED_STAGES),
+                    Potential.inquired_on.is_not(None),
+                    Potential.inquired_on >= inquired_cutoff,
+                )
+            ).all()
 
         snapshots = []
         for p, a, c in rows:
@@ -961,19 +972,42 @@ def run_news_scan(cutoff_days: int = 2) -> dict:
                 "account_id": a.account_id if a else None,
             })
 
-    # Soft-launch cap — keeps daily volume to a few drafts per run while we
-    # validate signal quality. Excess potentials are processed on subsequent
-    # runs (the slot-refresh model means missing today's run isn't fatal).
+        # Skip-if-unactioned (auto mode only): if a news insight is still
+        # pending/running OR completed-but-rep-hasn't-acted, don't re-trigger.
+        # Manual mode bypasses this on purpose — explicit force-trigger.
+        busy_pns: set[str] = set()
+        if not is_manual:
+            pns = [s["potential_number"] for s in snapshots if s["potential_number"]]
+            if pns:
+                busy_rows = session.execute(
+                    select(CXAgentInsight.potential_id)
+                    .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+                    .where(
+                        CXAgentInsight.potential_id.in_(pns),
+                        CXAgentInsight.is_active == True,
+                        CXAgentInsight.status.in_(("pending", "running", "completed")),
+                        CXAgentTypeConfig.trigger_category == "news",
+                    )
+                ).all()
+                busy_pns = {r[0] for r in busy_rows}
+
+    if busy_pns:
+        logger.info("news scan: skipping %d already-pending/completed potentials", len(busy_pns))
+    snapshots = [s for s in snapshots if s["potential_number"] not in busy_pns]
+
+    # Soft-launch cap (auto mode only) — keeps daily volume in check.
+    # Manual mode never trips the cap (only one potential anyway).
     NEWS_PER_RUN_CAP = 5
-    total_matched = len(snapshots)
-    if total_matched > NEWS_PER_RUN_CAP:
-        logger.info("news scan: capping %d candidates to %d for this run", total_matched, NEWS_PER_RUN_CAP)
-        snapshots = snapshots[:NEWS_PER_RUN_CAP]
+    if not is_manual:
+        total_matched = len(snapshots)
+        if total_matched > NEWS_PER_RUN_CAP:
+            logger.info("news scan: capping %d candidates to %d for this run", total_matched, NEWS_PER_RUN_CAP)
+            snapshots = snapshots[:NEWS_PER_RUN_CAP]
 
     logger.info("news scan: matched=%d (Inquired On >= %s)", len(snapshots), inquired_cutoff.date())
     now = datetime.now(tzutil.utc)
     triggered = skipped = 0
-    already_pending = 0  # kept in the response for back-compat; always 0 now
+    already_pending = len(busy_pns)
     for s in snapshots:
         pn = s["potential_number"]
         if not pn:
