@@ -952,7 +952,7 @@ export default function DashboardPage() {
                 onSelectItem={handleQueueItemSelect}
                 folderType={currentFolderType}
                 loading={loadingQueue}
-                onResolveItem={viewingAs ? undefined : handleResolveQueueItem}
+                onResolveItem={handleResolveQueueItem}
               />
             )
           ) : viewMode === "accounts" ? (

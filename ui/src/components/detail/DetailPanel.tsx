@@ -105,11 +105,13 @@ export default function DetailPanel({
   // item under the manager's identity.
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
   const ownerMatch = !!(detail?.ownerId && currentUserId && detail.ownerId === currentUserId);
-  // While a superadmin is impersonating, force read-only across the panel
-  // — backend rejects mutations regardless, but disabling the UI keeps the
-  // experience honest.
+  // Demo mode — when superadmin is "viewing as" another user, the panel
+  // renders all the write affordances (Open in Composer, etc.) so the
+  // superadmin can showcase the tool. Final mutations are gated at the
+  // submit-button level (e.g., the EmailComposer hides Send / Save Draft)
+  // and the backend mutation guard still rejects any sneaky API call.
   const impersonating = useImpersonationStore((s) => !!s.viewingAs);
-  const isOwner = ownerMatch && !impersonating;
+  const isOwner = ownerMatch || impersonating;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentsRunning, setAgentsRunning] = useState(false);
