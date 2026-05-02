@@ -129,7 +129,7 @@ function ToolBtn({
   );
 }
 
-function RichEditor({
+export function RichEditor({
   initialValue,
   onChange,
   placeholder,

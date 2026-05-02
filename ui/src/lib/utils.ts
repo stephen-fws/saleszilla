@@ -117,6 +117,28 @@ export function formatDateTime(date: string | null | undefined): string {
 }
 
 /**
+ * Render a DB datetime string AS-IS — no timezone conversion. Used for legacy
+ * Potential columns (`Inquired On`, `Created Time`, `Modified Time`) where the
+ * stored value isn't normalised to UTC; treating it as UTC and converting to
+ * local would shift it incorrectly. Matches dateBucket's parsing convention so
+ * Panel 2 and Panel 3 agree on what day a row belongs to.
+ */
+export function formatNaiveDateTime(date: string | null | undefined): string {
+  if (!date) return "";
+  // Strip any trailing Z / offset so Date() parses as local time.
+  const stripped = date.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");
+  const d = new Date(stripped);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
  * Outlook-style date bucket for a given date — "Today", "Yesterday",
  * "This Week", "Last Week", "This Month", "Last Month", or a "MMM YYYY" label.
  */

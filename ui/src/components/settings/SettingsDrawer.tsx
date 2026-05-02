@@ -3,6 +3,7 @@ import { X, Save, Loader2, CheckCircle2, AlertCircle, Clock, Globe2, MailCheck, 
 import { getUserSettings, updateUserSettings } from "@/lib/api";
 import { COMMON_TIMEZONES } from "@/types";
 import type { UserSettings } from "@/types";
+import { RichEditor } from "@/components/detail/EmailComposer";
 
 interface SettingsDrawerProps {
   isOpen: boolean;
@@ -223,15 +224,19 @@ export default function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps)
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Email Signature</h3>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
-                  Appended to emails you send through Salezilla. Plain text or simple HTML.
+                  Appended to emails you send through Salezilla. Use the toolbar to add bold/italic, lists, and links (e.g. your company website).
                 </p>
-                <textarea
-                  value={settings.emailSignature ?? ""}
-                  onChange={(e) => setSettings((s) => ({ ...s, emailSignature: e.target.value }))}
-                  placeholder="Best regards,&#10;Your Name&#10;Sales Team · Flatworld Solutions"
-                  rows={6}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-y font-mono text-xs"
-                />
+                {/* Keyed on the loaded initial value so the editor remounts
+                    with the saved HTML when the drawer opens — TipTap only
+                    reads `content` once on mount. */}
+                <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                  <RichEditor
+                    key={`sig-${initial.emailSignature ?? ""}`}
+                    initialValue={settings.emailSignature ?? ""}
+                    onChange={(html) => setSettings((s) => ({ ...s, emailSignature: html }))}
+                    placeholder="Best regards,&#10;Your Name&#10;Sales Team · Flatworld Solutions"
+                  />
+                </div>
               </section>
             </>
           )}
