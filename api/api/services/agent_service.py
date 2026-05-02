@@ -429,11 +429,16 @@ def _trigger_agentflow(
     graph_id: str,
     extra_attrs: dict | None = None,
     category: str | None = None,
+    input_data: dict | None = None,
 ) -> None:
     """POST to agentflow /external/execute to kick off a graph. Fire-and-forget.
 
     `category` is the trigger_category (newEnquiry / followUp / meeting_brief
     / etc.) — used purely to write a friendly timeline entry.
+
+    `input_data` lands at the payload root so structured arrays/objects (e.g.
+    meeting_details for the meeting brief graph) survive without JSON-in-string
+    encoding inside entity.attributes.
     """
     if not graph_id:
         logger.warning("Skipping agentflow trigger: no graph_id provided (potential=%s)", potential_id)
@@ -464,7 +469,7 @@ def _trigger_agentflow(
     if extra_attrs:
         attributes.update(extra_attrs)
 
-    payload = {
+    payload: dict = {
         "graph_id": graph_id,
         "entity": {
             "entity_type": "sales_lead",
@@ -474,6 +479,8 @@ def _trigger_agentflow(
         "callback_connection": config.AGENTFLOW_CALLBACK_CONNECTION,
         "callback_mode": "per_agent",
     }
+    if input_data:
+        payload["input_data"] = input_data
     logger.info("Triggering agentflow: POST %s | payload=%s", url, payload)
     try:
         resp = requests.post(url, json=payload, headers={"X-Api-Key": config.AGENTFLOW_API_KEY}, timeout=10)
@@ -1010,15 +1017,17 @@ def fire_meeting_brief(
                     is_active=True,
                 ))
 
-    # Trigger agentflow graph
+    # Trigger agentflow graph. Meeting context goes to root-level
+    # `input_data.meeting_details` so the structured object survives without
+    # JSON-in-string encoding inside entity.attributes — the agent reads it
+    # directly. `category` no longer leaks into entity.attributes.
     potential_data = _load_potential_data(potential_id)
-    extra_attrs = {"meeting_info": meeting_info, "category": "meeting_brief"}
     logger.info("fire_meeting_brief: potential=%s ms_event_id=%s agents=%d", potential_number, ms_event_id, len(configs_to_fire))
     _trigger_agentflow(
         potential_id,
         potential_data,
         graph_id=config.AGENTFLOW_GRAPH_MEETING_BRIEF,
-        extra_attrs=extra_attrs,
+        input_data={"meeting_details": meeting_info},
         category="meeting_brief",
     )
 
