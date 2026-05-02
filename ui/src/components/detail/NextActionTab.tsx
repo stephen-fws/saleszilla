@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, X, CalendarClock, Users, MapPin, Video, ExternalLink, Paperclip } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { marked } from "marked";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
 import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo, listDraftAttachments, openDraftAttachment, removeDraftAttachment } from "@/lib/api";
 import type { MeetingInfo } from "@/lib/api";
@@ -98,16 +99,11 @@ function parseFREDraft(rawContent: string): { subject: string; body: string; raw
 
   const body = lines.slice(bodyStart).join("\n").trim();
 
-  // Convert markdown body to simple HTML for the TipTap editor.
-  // Every \n becomes a <br> so the rendered output preserves the EXACT number
-  // of line breaks the agent emitted — two \n = two visible line breaks, etc.
-  const escaped = body
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\n/g, "<br>");
-  const htmlBody = `<p>${escaped}</p>`;
+  // Convert the markdown body to HTML for the TipTap editor. `marked` (GFM)
+  // handles bold/italic, lists, headings, links, blockquotes, code blocks,
+  // tables — anything the agent might emit. `breaks: true` turns single \n
+  // into <br> so soft wraps from the agent survive into the composer.
+  const htmlBody = marked.parse(body, { breaks: true, gfm: true }) as string;
 
   return { subject, body: htmlBody, rawBody: body };
 }
@@ -346,19 +342,16 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
   useEffect(() => {
     if (completedResult?.content) {
       if (!isFRE) {
-        // FU / Reply — entire agent output is the body, subject from prior thread
+        // FU / Reply — entire agent output is the body, subject from prior thread.
+        // marked() handles full GFM so the composer receives proper HTML
+        // (lists, headers, links, …) instead of raw markdown text.
         const rawContent = completedResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const escaped = rawContent
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-          .replace(/\n/g, "<br>");
+        const htmlBody = marked.parse(rawContent, { breaks: true, gfm: true }) as string;
         const threadSubject = priorThread?.subject || completedResult.agentName || "Follow Up";
         const subject = threadSubject.startsWith("RE:") || threadSubject.startsWith("Re:")
           ? threadSubject
           : `RE: ${threadSubject}`;
-        setDraftFromAgent({ subject, body: `<p>${escaped}</p>`, rawBody: rawContent });
+        setDraftFromAgent({ subject, body: htmlBody, rawBody: rawContent });
       } else {
         // FRE — extract subject from first line
         setDraftFromAgent(parseFREDraft(completedResult.content));
