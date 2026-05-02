@@ -8,8 +8,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, Bot, AlertCircle, Mail, CheckCircle2, Clock, Headphones, X, CalendarClock, Users, MapPin, Video, ExternalLink, Paperclip } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { marked } from "marked";
 import MarkdownBlock from "@/components/chat/MarkdownBlock";
 import { getAgentResults, getEmailDrafts, deleteEmailDraft, getEmailSignature, getReplyContext, getEmailThreads, resolveNextAction, getMeetingInfo, listDraftAttachments, openDraftAttachment, removeDraftAttachment } from "@/lib/api";
@@ -99,12 +97,7 @@ function parseFREDraft(rawContent: string): { subject: string; body: string; raw
 
   const body = lines.slice(bodyStart).join("\n").trim();
 
-  // Convert the markdown body to HTML for the TipTap editor. `marked` (GFM)
-  // handles bold/italic, lists, headings, links, blockquotes, code blocks,
-  // tables — anything the agent might emit. `breaks: true` turns single \n
-  // into <br> so soft wraps from the agent survive into the composer.
-  const htmlBody = marked.parse(body, { breaks: true, gfm: true }) as string;
-
+  const htmlBody = renderAgentBody(body);
   return { subject, body: htmlBody, rawBody: body };
 }
 
@@ -132,6 +125,66 @@ function formatPreparedAt(iso: string | null): string {
     hour: "2-digit", minute: "2-digit",
   });
   return `Prepared ${rel} · ${abs}`;
+}
+
+// Block-level markdown the agent might emit. When present, we hand the
+// whole body to `marked` for full GFM rendering (lists, tables, headers,
+// blockquotes, code). When absent, we use a simpler line-break-preserving
+// converter so plain prose emails don't get re-paragraphed and visually
+// stretched by TipTap's default <p> margins.
+const _BLOCK_MD_RE = /^\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|\|.+\||```)/m;
+
+/**
+ * Autolink bare http(s) URLs and bare email addresses in an HTML string,
+ * skipping any that already sit inside an existing <a>…</a> tag.
+ */
+function autolinkUrlsAndEmails(html: string): string {
+  if (!html) return html;
+  const parts = html.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi);
+  const urlRe = /(https?:\/\/[^\s<>"')]+)/g;
+  const emailRe = /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // already inside <a>
+      let out = part.replace(
+        urlRe,
+        '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline underline-offset-2 hover:text-blue-700">$1</a>',
+      );
+      out = out.replace(
+        emailRe,
+        '<a href="mailto:$1" class="text-blue-600 underline underline-offset-2 hover:text-blue-700">$1</a>',
+      );
+      return out;
+    })
+    .join("");
+}
+
+/**
+ * Convert a raw markdown email body to HTML for both the preview and TipTap.
+ *  • Detects block-level markdown (lists, tables, headers, blockquotes, code).
+ *    If present → full GFM via `marked` (breaks:true keeps soft wraps).
+ *    Else → simple escape + bold/italic + \n→<br> in a single <p> so
+ *    plain prose preserves the agent's exact line-break shape.
+ *  • Always autolinks bare URLs and email addresses (mailto:) at the end.
+ */
+function renderAgentBody(raw: string): string {
+  if (!raw) return "";
+  const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let html: string;
+  if (_BLOCK_MD_RE.test(text)) {
+    html = marked.parse(text, { breaks: true, gfm: true }) as string;
+  } else {
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\n/g, "<br>");
+    html = `<p>${escaped}</p>`;
+  }
+  return autolinkUrlsAndEmails(html);
 }
 
 /**
@@ -343,10 +396,8 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
     if (completedResult?.content) {
       if (!isFRE) {
         // FU / Reply — entire agent output is the body, subject from prior thread.
-        // marked() handles full GFM so the composer receives proper HTML
-        // (lists, headers, links, …) instead of raw markdown text.
         const rawContent = completedResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const htmlBody = marked.parse(rawContent, { breaks: true, gfm: true }) as string;
+        const htmlBody = renderAgentBody(rawContent);
         const threadSubject = priorThread?.subject || completedResult.agentName || "Follow Up";
         const subject = threadSubject.startsWith("RE:") || threadSubject.startsWith("Re:")
           ? threadSubject
@@ -841,27 +892,14 @@ export default function NextActionTab({ dealId, detail, categoryHint, readOnly =
                 </div>
               )}
               <div className="border-t border-slate-100 pt-3">
-                {previewDraft.rawBody !== null ? (
-                  <div className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none prose-a:text-blue-600 prose-a:underline">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2 hover:text-blue-700">
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {previewDraft.rawBody}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <div
-                    className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: linkifyEmailBody(previewDraft.body) }}
-                  />
-                )}
+                {/* Preview and composer both render the SAME HTML produced
+                    by renderAgentBody — full GFM when the agent emits
+                    block-level markdown (lists, tables, headers, …),
+                    line-break-preserving prose otherwise. */}
+                <div
+                  className="text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: autolinkUrlsAndEmails(previewDraft.body) }}
+                />
               </div>
             </div>
           </div>
