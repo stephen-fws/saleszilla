@@ -53,12 +53,15 @@ import { useImpersonationStore } from "@/store/impersonationStore";
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
 function EmailInput({
-  label, value, onChange, placeholder,
+  label, value, onChange, placeholder, onRemove,
 }: {
   label: string;
   value: string[];
   onChange: (v: string[]) => void;
   placeholder?: string;
+  // Optional — renders an X on the right that clears the row and dismisses
+  // it. Used for CC / BCC so the user can hide them after a misclick.
+  onRemove?: () => void;
 }) {
   const [input, setInput] = useState("");
 
@@ -100,6 +103,16 @@ function EmailInput({
           className="flex-1 min-w-[120px] text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none bg-transparent py-0.5"
         />
       </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => { onChange([]); setInput(""); onRemove(); }}
+          title={`Remove ${label}`}
+          className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 shrink-0 mt-0.5"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -575,34 +588,55 @@ export default function EmailComposer({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 bg-slate-50 shrink-0">
-        <span className="text-sm font-semibold text-slate-800">
-          {initialDraft?.replyToThreadId ? "Reply" : "New Email"}
-        </span>
-        <div className="flex items-center gap-1">
-          {!isDemoMode && (
-            <button
-              onClick={handleSaveDraft}
-              disabled={saving}
-              title="Save draft"
-              className={`p-1.5 rounded transition-colors ${saved ? "text-emerald-500" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"}`}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-            </button>
-          )}
-          <button onClick={onClose} title="Close" className="p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-            <X className="h-4 w-4" />
+      {/* Header — Subject input lives inline with the Save Draft + Close
+          icons so we don't burn a separate row on it. Compact py keeps the
+          rich-text area roomy on small laptop screens. */}
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-slate-200 bg-slate-50 shrink-0">
+        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 pl-1">Subject</span>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          placeholder="Subject line"
+          className="flex-1 min-w-0 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none bg-transparent"
+        />
+        {!isDemoMode && (
+          <button
+            onClick={handleSaveDraft}
+            disabled={saving}
+            title="Save draft"
+            className={`p-1 rounded transition-colors shrink-0 ${saved ? "text-emerald-500" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"}`}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           </button>
-        </div>
+        )}
+        <button onClick={onClose} title="Close" className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Recipients */}
       <div className="shrink-0 border-b border-slate-200">
         <EmailInput label="To" value={to} onChange={setTo} placeholder={`${contactName ?? "recipient"}@example.com`} />
 
-        {showCc && <EmailInput label="CC" value={cc} onChange={setCc} placeholder="cc@example.com" />}
-        {showBcc && <EmailInput label="BCC" value={bcc} onChange={setBcc} placeholder="bcc@example.com" />}
+        {showCc && (
+          <EmailInput
+            label="CC"
+            value={cc}
+            onChange={setCc}
+            placeholder="cc@example.com"
+            onRemove={() => setShowCc(false)}
+          />
+        )}
+        {showBcc && (
+          <EmailInput
+            label="BCC"
+            value={bcc}
+            onChange={setBcc}
+            placeholder="bcc@example.com"
+            onRemove={() => setShowBcc(false)}
+          />
+        )}
 
         <div className="flex items-center gap-2 px-3 py-1">
           {!showCc && (
@@ -613,17 +647,6 @@ export default function EmailComposer({
           )}
         </div>
 
-        {/* Subject */}
-        <div className="flex items-center gap-2 px-3 py-1.5 border-t border-slate-100">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider w-12 shrink-0">Subject</span>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject line"
-            className="flex-1 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none bg-transparent"
-          />
-        </div>
       </div>
 
       {/* Body — signature is part of the editable content, inserted at mount.
