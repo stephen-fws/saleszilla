@@ -16,6 +16,20 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Global text-brightness bump — UI was reading too light. Each muted slate
+ * shade is remapped to the next-darker step so body copy is more readable
+ * without retouching every component. Tweak the right-hand side here if
+ * it now goes too dark.
+ *
+ * slate-300 → slate-400, slate-400 → slate-500, slate-500 → slate-700,
+ * slate-600 → slate-800. text-slate-700/800/900 left alone (already strong).
+ */
+.text-slate-300 { color: #94a3b8 !important; }   /* was slate-300 → slate-400 */
+.text-slate-400 { color: #64748b !important; }   /* was slate-400 → slate-500 */
+.text-slate-500 { color: #334155 !important; }   /* was slate-500 → slate-700 */
+.text-slate-600 { color: #1e293b !important; }   /* was slate-600 → slate-800 */
+
 #root {
   min-height: 100dvh;
 }

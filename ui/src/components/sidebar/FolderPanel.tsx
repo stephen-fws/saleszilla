@@ -153,14 +153,8 @@ export default function FolderPanel({
     <div className="flex h-full flex-col bg-white">
       {/* Header */}
       <div className="flex h-14 items-center justify-between border-b border-slate-200 px-3">
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500">
-            <span className="text-white text-xs font-bold">SZ</span>
-          </div>
-          <span className="text-sm font-bold text-slate-900">
-            <span className="text-emerald-600">Sale</span>
-            <span className="text-amber-500">zilla</span>
-          </span>
+        <div className="flex items-center gap-2">
+          <img src="/sales-den-logo.png" alt="Sales Den" className="h-7 w-auto" />
         </div>
         <span className="text-xs text-slate-400">({displayCount})</span>
       </div>

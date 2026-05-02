@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, ArrowLeft, ShieldCheck, Loader2, KeyRound, Check } from "lucide-react";
+import { Mail, ArrowLeft, Loader2, KeyRound, Check } from "lucide-react";
 import { sendOTP, verifyOTP, getMe } from "@/lib/api";
 import { tokenStore } from "@/lib/tokenStore";
 import { useAuthStore } from "@/store/authStore";
@@ -109,13 +109,11 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/30 mb-4">
-            <ShieldCheck className="w-7 h-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            <span className="text-emerald-600">Sale</span>
-            <span className="text-amber-500">zilla</span>
-          </h1>
+          <img
+            src="/sales-den-logo.png"
+            alt="Sales Den"
+            className="h-14 w-auto mx-auto mb-3"
+          />
           <p className="text-sm text-slate-500 mt-1">AI-powered Sales CRM</p>
         </div>
 
