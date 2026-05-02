@@ -3,7 +3,7 @@ import { Building2, User, Briefcase, Mail, Globe, Loader2, Pencil } from "lucide
 import type { PotentialDetail } from "@/types";
 import { LEAD_SOURCES as DEFAULT_LEAD_SOURCES, DEAL_TYPES as DEFAULT_DEAL_TYPES } from "@/types";
 import type { UpdatePotentialPayload } from "@/lib/api";
-import { reasonFieldForStage, reasonOptionsForStage, formatDateTime, formatNaiveDateTime } from "@/lib/utils";
+import { reasonFieldForStage, reasonOptionsForStage, formatNaiveDateTime } from "@/lib/utils";
 
 
 // Uniform stage badge — was previously a per-stage color map. Switched to a
