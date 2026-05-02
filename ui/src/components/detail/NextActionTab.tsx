@@ -187,27 +187,6 @@ function renderAgentBody(raw: string): string {
   return autolinkUrlsAndEmails(html);
 }
 
-/**
- * Wrap bare http(s) URLs in the rendered email body with <a> tags so they
- * appear clickable in the Panel-3 preview, before the user opens the composer.
- * Splits on existing <a>…</a> blocks first so URLs that TipTap already linked
- * (saved drafts) don't get double-wrapped.
- */
-function linkifyEmailBody(html: string): string {
-  if (!html) return html;
-  const parts = html.split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi);
-  const urlRe = /(https?:\/\/[^\s<>"')]+)/g;
-  return parts
-    .map((part, i) => {
-      if (i % 2 === 1) return part; // already inside an anchor
-      return part.replace(
-        urlRe,
-        '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline underline-offset-2 hover:text-blue-700">$1</a>',
-      );
-    })
-    .join("");
-}
-
 interface MeetingBriefData {
   oneLiner: string | null;
   agenda: string | null;
