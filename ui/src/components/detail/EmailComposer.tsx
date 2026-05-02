@@ -48,6 +48,7 @@ import { createEmailDraft, updateEmailDraft, sendEmail, removeDraftAttachment, o
 import { validateAttachmentFile, MAX_ATTACHMENT_TOTAL_BYTES, formatBytes } from "@/lib/attachments";
 import { splitEmailList } from "@/lib/utils";
 import { composerDirty } from "@/lib/composerDirty";
+import { useImpersonationStore } from "@/store/impersonationStore";
 
 // ── Tag input for To/CC/BCC ───────────────────────────────────────────────────
 
@@ -312,6 +313,12 @@ export default function EmailComposer({
   initialDraftAttachments = [],
   onClose, onSent, onDraftSaved, onDiscarded,
 }: EmailComposerProps) {
+  // Demo mode — when superadmin is "viewing as" another user, hide all
+  // mutation buttons (Send, Save Draft) so they can showcase the composer
+  // without acting on the impersonated user's behalf. Backend mutation
+  // guard is the authoritative block; this is purely a UX nicety.
+  const isDemoMode = useImpersonationStore((s) => Boolean(s.viewingAs));
+
   // id=0 is the "not yet persisted" sentinel from agent-generated drafts
   const [draftId, setDraftId] = useState<number | null>(
     initialDraft?.id ? initialDraft.id : null
@@ -574,14 +581,16 @@ export default function EmailComposer({
           {initialDraft?.replyToThreadId ? "Reply" : "New Email"}
         </span>
         <div className="flex items-center gap-1">
-          <button
-            onClick={handleSaveDraft}
-            disabled={saving}
-            title="Save draft"
-            className={`p-1.5 rounded transition-colors ${saved ? "text-emerald-500" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"}`}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          </button>
+          {!isDemoMode && (
+            <button
+              onClick={handleSaveDraft}
+              disabled={saving}
+              title="Save draft"
+              className={`p-1.5 rounded transition-colors ${saved ? "text-emerald-500" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"}`}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            </button>
+          )}
           <button onClick={onClose} title="Close" className="p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
             <X className="h-4 w-4" />
           </button>
@@ -663,26 +672,34 @@ export default function EmailComposer({
 
       {/* Footer */}
       <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-t border-slate-200 bg-slate-50">
-        <button
-          onClick={handleSend}
-          disabled={sending || !to.length}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-        >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          {sending ? "Sending…" : "Send"}
-        </button>
-        <button
-          onClick={handleSaveDraft}
-          disabled={saving || sending}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-            saved
-              ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-          }`}
-        >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-          {saving ? "Saving…" : saved ? "Saved" : "Save Draft"}
-        </button>
+        {isDemoMode ? (
+          <span className="text-[11px] italic text-slate-500 px-1">
+            Read-only — switch back to your own account to send.
+          </span>
+        ) : (
+          <>
+            <button
+              onClick={handleSend}
+              disabled={sending || !to.length}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              {sending ? "Sending…" : "Send"}
+            </button>
+            <button
+              onClick={handleSaveDraft}
+              disabled={saving || sending}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                saved
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+              {saving ? "Saving…" : saved ? "Saved" : "Save Draft"}
+            </button>
+          </>
+        )}
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
         <button
           type="button"

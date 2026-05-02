@@ -1,6 +1,7 @@
 import { Briefcase, Building2, Check, X } from "lucide-react";
 import type { QueueItem } from "@/types";
 import { groupByDateBucket } from "@/lib/utils";
+import { useImpersonationStore } from "@/store/impersonationStore";
 
 const STAGE_BADGE = "bg-slate-100 text-slate-700";
 
@@ -18,23 +19,36 @@ interface QueuePanelProps {
 function ItemActions({
   itemId,
   onResolve,
+  demoMode,
 }: {
   itemId: string;
   onResolve: (id: string, action: "done" | "skip") => void;
+  demoMode: boolean;
 }) {
+  // In demo mode (superadmin viewing as another user), the icons render
+  // exactly the same so the demo looks alive, but clicks are intercepted
+  // and the resolve never fires. Backend mutation guard would also block
+  // any sneaky direct API call.
+  const handle = (e: React.MouseEvent, action: "done" | "skip") => {
+    e.stopPropagation();
+    if (demoMode) return;
+    onResolve(itemId, action);
+  };
+  const cursorCls = demoMode ? "cursor-not-allowed" : "";
+  const titleSuffix = demoMode ? " (read-only — switch back to your own account)" : "";
   return (
     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
       <button
-        onClick={(e) => { e.stopPropagation(); onResolve(itemId, "done"); }}
-        title="Mark done — I acted on this"
-        className="rounded-md p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+        onClick={(e) => handle(e, "done")}
+        title={"Mark done — I acted on this" + titleSuffix}
+        className={`rounded-md p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors ${cursorCls}`}
       >
         <Check className="h-3.5 w-3.5" />
       </button>
       <button
-        onClick={(e) => { e.stopPropagation(); onResolve(itemId, "skip"); }}
-        title="Skip — not needed"
-        className="rounded-md p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+        onClick={(e) => handle(e, "skip")}
+        title={"Skip — not needed" + titleSuffix}
+        className={`rounded-md p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors ${cursorCls}`}
       >
         <X className="h-3.5 w-3.5" />
       </button>
@@ -53,6 +67,7 @@ export default function QueuePanel({
   // Actions are hidden for "emails-sent" — the user already acted on the potential
   // (sent the email) when it moved into this folder.
   const showActions = folderType !== "emails-sent";
+  const demoMode = Boolean(useImpersonationStore((s) => s.viewingAs));
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -127,7 +142,7 @@ export default function QueuePanel({
                           {item.title}
                         </span>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {showActions && onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} />}
+                          {showActions && onResolveItem && <ItemActions itemId={item.id} onResolve={onResolveItem} demoMode={demoMode} />}
                           {formattedValue && (
                             <span className="text-xs font-semibold text-emerald-600">{formattedValue}</span>
                           )}
