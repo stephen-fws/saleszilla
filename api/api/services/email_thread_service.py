@@ -48,6 +48,12 @@ _COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
 _MSO_BLOCK_RE = re.compile(r"<!--\s*\[if[\s\S]*?<!\s*\[endif\]\s*-->", re.IGNORECASE)
 _INLINE_HANDLER_RE = re.compile(r'\s+on[a-z]+\s*=\s*"[^"]*"|\s+on[a-z]+\s*=\s*\'[^\']*\'', re.IGNORECASE)
 _MSO_STYLE_DECL_RE = re.compile(r"mso-[a-z-]+\s*:[^;\"']+;?", re.IGNORECASE)
+# Inline `cid:` images (Outlook signature images, etc.). The image binary
+# lives as an attachment in the original Outlook message — sync table
+# doesn't carry it, so the browser can't resolve `cid:foo@bar` and shows a
+# broken-image icon. Strip the <img> tag entirely; the rest of the
+# signature (text, links) still renders.
+_CID_IMG_RE = re.compile(r"<img\b[^>]*\bsrc\s*=\s*[\"']cid:[^\"']+[\"'][^>]*>", re.IGNORECASE)
 
 
 def _sanitize_email_html(html: str | None) -> str:
@@ -62,6 +68,7 @@ def _sanitize_email_html(html: str | None) -> str:
     out = _SCRIPT_STYLE_RE.sub("", out)         # <script>/<style> blocks
     out = _INLINE_HANDLER_RE.sub("", out)       # onclick=… etc.
     out = _MSO_STYLE_DECL_RE.sub("", out)       # mso-* CSS declarations
+    out = _CID_IMG_RE.sub("", out)              # broken cid: signature images
     # If after stripping the visible-text length is tiny, treat as broken/empty.
     text_only = re.sub(r"<[^>]+>", "", out).strip()
     if len(text_only) < 20:
@@ -242,7 +249,8 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
         sync_rows = session.execute(text("""
             SELECT
                 id, [From], [To], CC, [Subject], UniqueBody,
-                SentTime, ReceivedTime, internetMessageID, [Description]
+                SentTime, ReceivedTime, internetMessageID, [Description],
+                Outlook_ConversationId
             FROM VW_CRM_Sales_Sync_Emails
             WHERE PotentialNumber = :pn
             ORDER BY COALESCE(SentTime, ReceivedTime) ASC
@@ -297,17 +305,41 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
                 reply_to_message_id=messages[-1].internet_message_id if messages else None,
             ))
 
-    # Phase 4b: Remaining sync emails → flat local pool.
-    # Body source priority (no MS-Graph access here):
-    #   1. Cleaned `Description` HTML — captures the full formatted thread
-    #      Outlook saw at sync time. Renders properly without MS token.
-    #   2. Plain `UniqueBody` formatted with paragraph heuristics — Shape #1
-    #      legacy rows that have no Description.
+    # Phase 4b: Remaining sync rows → render using Description (preferred)
+    # or UniqueBody (Shape #1 fallback).
+    #
+    # When multiple rows in this potential share the same Outlook_ConversationId,
+    # they're snapshots of the SAME thread at different points in time and each
+    # row's Description already contains the full thread up to that message.
+    # Rendering all of them = duplicated content. So per ConversationId group
+    # we keep only the LATEST row's Description and drop the rest.
+    #
+    # Rows without Outlook_ConversationId (Shape #1 legacy) are rendered
+    # individually using UniqueBody — they pre-date conversation tracking.
+    grouped_by_conv: dict[str, tuple] = {}        # latest row per conv_id
+    ungrouped_rows: list[tuple] = []              # no conv_id → render individually
+
     for row in sync_rows:
         (row_id, from_addr, to_addr, cc, subject, body,
-         sent_time, received_time, internet_msg_id, description) = row
+         sent_time, received_time, internet_msg_id, description, conv_id) = row
         if internet_msg_id and internet_msg_id in seen_msg_ids:
             continue
+        if conv_id:
+            existing = grouped_by_conv.get(conv_id)
+            if existing is None:
+                grouped_by_conv[conv_id] = row
+            else:
+                # Keep whichever row has the more recent timestamp
+                ex_ts = existing[6] or existing[7] or ""
+                this_ts = sent_time or received_time or ""
+                if str(this_ts) > str(ex_ts):
+                    grouped_by_conv[conv_id] = row
+        else:
+            ungrouped_rows.append(row)
+
+    def _emit_row(row: tuple) -> None:
+        (row_id, from_addr, to_addr, cc, subject, body,
+         sent_time, received_time, internet_msg_id, description, _conv_id) = row
         if internet_msg_id:
             seen_msg_ids.add(internet_msg_id)
         direction = "sent" if (from_addr and from_addr.lower() in sales_emails) else "received"
@@ -326,6 +358,11 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
             thread_id=None,
         )
         local_messages.append((_clean_subject(subject or ""), msg))
+
+    for row in grouped_by_conv.values():
+        _emit_row(row)
+    for row in ungrouped_rows:
+        _emit_row(row)
 
     # ── Phase 5: Group local messages by cleaned subject ──────────────────────
     local_messages.sort(key=lambda x: x[1].sent_time or x[1].received_time or "")
