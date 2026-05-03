@@ -39,6 +39,50 @@ def _clean_subject(subject: str) -> str:
     return s or "(no subject)"
 
 
+# Description from the sync table is the full email thread in HTML — but it's
+# Outlook-flavoured: bloated with mso-* conditionals, <script>/<style> tags,
+# and inline event handlers. Strip the junk so the frontend can render it
+# inside `dangerouslySetInnerHTML` safely.
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>[\s\S]*?</\1>", re.IGNORECASE)
+_COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
+_MSO_BLOCK_RE = re.compile(r"<!--\s*\[if[\s\S]*?<!\s*\[endif\]\s*-->", re.IGNORECASE)
+_INLINE_HANDLER_RE = re.compile(r'\s+on[a-z]+\s*=\s*"[^"]*"|\s+on[a-z]+\s*=\s*\'[^\']*\'', re.IGNORECASE)
+_MSO_STYLE_DECL_RE = re.compile(r"mso-[a-z-]+\s*:[^;\"']+;?", re.IGNORECASE)
+
+
+def _sanitize_email_html(html: str | None) -> str:
+    """Clean Outlook-flavoured HTML before rendering. Returns empty string when
+    the input is None/empty/effectively-empty after stripping (lets callers
+    fall back to UniqueBody)."""
+    if not html:
+        return ""
+    out = html
+    out = _MSO_BLOCK_RE.sub("", out)            # <!--[if mso]>…<![endif]-->
+    out = _COMMENT_RE.sub("", out)              # other HTML comments
+    out = _SCRIPT_STYLE_RE.sub("", out)         # <script>/<style> blocks
+    out = _INLINE_HANDLER_RE.sub("", out)       # onclick=… etc.
+    out = _MSO_STYLE_DECL_RE.sub("", out)       # mso-* CSS declarations
+    # If after stripping the visible-text length is tiny, treat as broken/empty.
+    text_only = re.sub(r"<[^>]+>", "", out).strip()
+    if len(text_only) < 20:
+        return ""
+    return out
+
+
+def _format_plain_body(text: str | None) -> str:
+    """Convert plain `UniqueBody` into readable HTML — split on blank lines
+    into <p> blocks and convert single \n into <br>. Prevents the legacy
+    'one massive paragraph' rendering for Shape #1 / fallback emails."""
+    if not text:
+        return ""
+    escaped = (text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;"))
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", escaped) if b.strip()]
+    return "".join(f"<p>{b.replace(chr(10), '<br>')}</p>" for b in blocks)
+
+
 def _load_sales_emails() -> set[str]:
     with get_session() as session:
         user_rows = session.execute(select(User.email).where(User.is_active == True)).all()
@@ -198,7 +242,7 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
         sync_rows = session.execute(text("""
             SELECT
                 id, [From], [To], CC, [Subject], UniqueBody,
-                SentTime, ReceivedTime, internetMessageID
+                SentTime, ReceivedTime, internetMessageID, [Description]
             FROM VW_CRM_Sales_Sync_Emails
             WHERE PotentialNumber = :pn
             ORDER BY COALESCE(SentTime, ReceivedTime) ASC
@@ -253,22 +297,28 @@ def get_email_threads(potential_id: str, potential_number: str) -> EmailThreadsR
                 reply_to_message_id=messages[-1].internet_message_id if messages else None,
             ))
 
-    # Phase 4b: Remaining sync emails → flat local pool
+    # Phase 4b: Remaining sync emails → flat local pool.
+    # Body source priority (no MS-Graph access here):
+    #   1. Cleaned `Description` HTML — captures the full formatted thread
+    #      Outlook saw at sync time. Renders properly without MS token.
+    #   2. Plain `UniqueBody` formatted with paragraph heuristics — Shape #1
+    #      legacy rows that have no Description.
     for row in sync_rows:
         (row_id, from_addr, to_addr, cc, subject, body,
-         sent_time, received_time, internet_msg_id) = row
+         sent_time, received_time, internet_msg_id, description) = row
         if internet_msg_id and internet_msg_id in seen_msg_ids:
             continue
         if internet_msg_id:
             seen_msg_ids.add(internet_msg_id)
         direction = "sent" if (from_addr and from_addr.lower() in sales_emails) else "received"
+        rendered_body = _sanitize_email_html(description) or _format_plain_body(body)
         msg = EmailMessage(
             id=row_id,
             from_email=from_addr or "",
             to_email=to_addr or "",
             cc=cc,
             subject=subject or "",
-            body=body,
+            body=rendered_body,
             direction=direction,
             sent_time=sent_time,
             received_time=received_time,
