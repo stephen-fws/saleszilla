@@ -34,6 +34,7 @@ const ACTIVITY_CONFIG: Record<string, ActivityConfig> = {
   email_sent:        { icon: Mail,           iconBg: "bg-sky-100",     iconColor: "text-sky-600",    label: "Email Sent" },
   call_logged:       { icon: Phone,          iconBg: "bg-green-100",   iconColor: "text-green-600",  label: "Call" },
   agent_triggered:   { icon: Bot,            iconBg: "bg-violet-100",  iconColor: "text-violet-600", label: "AI Workflow" },
+  fre_skipped_by_stage: { icon: ArrowRightLeft, iconBg: "bg-amber-100", iconColor: "text-amber-600",  label: "FRE Skipped" },
 };
 
 const DEFAULT_CONFIG: ActivityConfig = {

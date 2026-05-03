@@ -1,5 +1,6 @@
 """Queue/folder operations."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -7,6 +8,8 @@ from sqlalchemy import func, select
 from core.database import get_session
 from core.models import Account, Contact, CXQueueItem, Potential
 from core.schemas import FolderItem, QueueItemResponse
+
+logger = logging.getLogger(__name__)
 
 
 FOLDER_CONFIG = {
@@ -23,6 +26,10 @@ FOLDER_CONFIG = {
 def list_folders(user_id: str | None = None) -> list[FolderItem]:
     """Get folder list with pending item counts."""
     with get_session() as session:
+        # Lazy-cleanup so the New Inquiries badge count is honest even when
+        # the dashboard polls before the user clicks into the folder.
+        _expire_new_inquiries_off_open(session)
+
         stmt = select(
             CXQueueItem.folder_type,
             func.count(CXQueueItem.id).label("cnt"),
@@ -129,6 +136,82 @@ def _expire_meeting_briefs(session) -> None:
                 ins.updated_time = now
 
 
+def _expire_new_inquiries_off_open(session) -> None:
+    """Auto-close New Inquiries queue items whose underlying potential is no
+    longer in stage 'Open'. Catches the case where the stage was changed
+    outside Salezilla (e.g. a sales rep edits it directly in the legacy CRM
+    and the change syncs into our DB) — our `stage_update` agent's
+    auto-close path doesn't fire then, so we clean up lazily on read.
+
+    Side effects mirror `_close_fre_after_stage_change` in agent_service:
+      • close the QI
+      • retire pending newEnquiry next_action insights for that potential
+      • log a timeline entry per potential (only when something was closed)
+    """
+    from core.models import CXAgentInsight, CXAgentTypeConfig, CXActivity
+    now = datetime.utcnow()
+
+    # Pending New Inquiries QIs joined to their Potential — pull stage so we
+    # can identify the stale ones in one round-trip.
+    rows = session.execute(
+        select(CXQueueItem, Potential)
+        .join(Potential, CXQueueItem.potential_id == Potential.potential_number)
+        .where(
+            CXQueueItem.folder_type == "new-inquiries",
+            CXQueueItem.status == "pending",
+            CXQueueItem.is_active == True,
+            Potential.stage != "Open",
+        )
+    ).all()
+    if not rows:
+        return
+
+    stale_pns = {qi.potential_id for qi, _ in rows}
+    stale_potential_uuids = {p.potential_id for _, p in rows}
+
+    # Close the QIs
+    for qi, _ in rows:
+        qi.status = "completed"
+        qi.updated_time = now
+        session.add(qi)
+
+    # Retire pending newEnquiry next_action insights
+    fre_rows = session.execute(
+        select(CXAgentInsight)
+        .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+        .where(
+            CXAgentInsight.potential_id.in_(stale_pns),
+            CXAgentInsight.is_active == True,
+            CXAgentInsight.status.in_(("pending", "running", "completed")),
+            CXAgentTypeConfig.tab_type == "next_action",
+            CXAgentTypeConfig.trigger_category == "newEnquiry",
+        )
+    ).scalars().all()
+    for r in fre_rows:
+        r.status = "actioned"
+        r.updated_time = now
+        session.add(r)
+
+    # Timeline entry per potential
+    for _, p in rows:
+        session.add(CXActivity(
+            potential_id=p.potential_id,
+            contact_id=p.contact_id,
+            account_id=p.account_id,
+            activity_type="fre_skipped_by_stage",
+            description=f"First Response Email skipped — stage moved to \"{p.stage}\"",
+            performed_by_user_id=None,
+            created_time=now,
+            updated_time=now,
+            is_active=True,
+        ))
+
+    logger.info(
+        "new-inquiries lazy-expire: closed %d QIs, retired %d FRE insights, %d potentials",
+        len(rows), len(fre_rows), len(stale_potential_uuids),
+    )
+
+
 def list_queue_items(
     folder_type: str,
     user_id: str | None = None,
@@ -138,6 +221,11 @@ def list_queue_items(
         # Auto-expire old meeting briefs before listing
         if folder_type == "meeting-briefs":
             _expire_meeting_briefs(session)
+        # Lazy-cleanup New Inquiries whose Potential.Stage drifted off "Open"
+        # (e.g. via legacy-CRM sync). Keeps the folder honest even when the
+        # stage_update agent's auto-close path didn't fire.
+        if folder_type == "new-inquiries":
+            _expire_new_inquiries_off_open(session)
 
         # All folders: join with Potential/Account/Contact to render
         # identical cards to the Potentials list view.

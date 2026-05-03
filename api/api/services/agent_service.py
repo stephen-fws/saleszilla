@@ -179,6 +179,73 @@ def _handle_news_check_result(potential_number: str, content: str, now) -> None:
     logger.info("news_check: A2 cancelled + queue item closed for potential=%s", potential_number)
 
 
+def _close_fre_after_stage_change(session, potential, new_stage: str, now) -> None:
+    """When the stage analyser flips a potential off "Open", retire the
+    First Response Email flow on it:
+      - Mark every pending/running/completed `newEnquiry` next_action insight
+        as `actioned` (FRE no longer relevant).
+      - Close the matching `new-inquiries` queue item.
+      - Log a timeline entry so the rep can trace where the FRE went.
+    """
+    from core.models import CXQueueItem, CXActivity as _CXActivity
+
+    pn = potential.potential_number
+    if not pn:
+        return
+
+    # 1) Retire pending FRE next_action insights for this potential
+    fre_rows = session.execute(
+        select(CXAgentInsight)
+        .join(CXAgentTypeConfig, CXAgentInsight.agent_id == CXAgentTypeConfig.agent_id)
+        .where(
+            CXAgentInsight.potential_id == pn,
+            CXAgentInsight.is_active == True,
+            CXAgentInsight.status.in_(("pending", "running", "completed")),
+            CXAgentTypeConfig.tab_type == "next_action",
+            CXAgentTypeConfig.trigger_category == "newEnquiry",
+        )
+    ).scalars().all()
+    naive_now = now.replace(tzinfo=None) if now.tzinfo else now
+    for r in fre_rows:
+        r.status = "actioned"
+        r.updated_time = naive_now
+        session.add(r)
+
+    # 2) Close the New Inquiries queue card
+    qi = session.execute(
+        select(CXQueueItem).where(
+            CXQueueItem.potential_id == pn,
+            CXQueueItem.folder_type == "new-inquiries",
+            CXQueueItem.status == "pending",
+            CXQueueItem.is_active == True,
+        )
+    ).scalar_one_or_none()
+    if qi:
+        qi.status = "completed"
+        qi.updated_time = naive_now
+        session.add(qi)
+
+    # 3) Timeline entry — only when something was actually closed, otherwise
+    #    we'd spam the timeline on every stage change for older potentials
+    #    that never had an FRE in flight.
+    if fre_rows or qi:
+        session.add(_CXActivity(
+            potential_id=potential.potential_id,
+            contact_id=potential.contact_id,
+            account_id=potential.account_id,
+            activity_type="fre_skipped_by_stage",
+            description=f"First Response Email skipped — stage moved to \"{new_stage}\"",
+            performed_by_user_id=None,
+            created_time=naive_now,
+            updated_time=naive_now,
+            is_active=True,
+        ))
+        logger.info(
+            "stage_update: closed FRE flow for potential=%s (stage=%s, insights=%d, qi=%s)",
+            pn, new_stage, len(fre_rows), bool(qi),
+        )
+
+
 def _apply_stage_update(session, potential_number: str, content: str, now) -> None:
     """Parse the stage_update agent's JSON output and auto-update the Potential."""
     import json as _json
@@ -253,6 +320,13 @@ def _apply_stage_update(session, potential_number: str, content: str, now) -> No
             is_active=True,
         ))
         logger.info("stage_update: potential=%s %s", potential_number, "; ".join(changes))
+
+        # Auto-close FRE flow when the stage analyser moves the potential
+        # off "Open" — the deal isn't a fresh inbound any more, so the
+        # First Response Email draft (and its New Inquiries queue card)
+        # are no longer relevant.
+        if new_stage != "Open" and new_stage != old_stage:
+            _close_fre_after_stage_change(session, potential, new_stage, now)
     else:
         logger.info("stage_update: no change for potential=%s (stage=%s, prob=%s)",
                      potential_number, new_stage, new_probability)

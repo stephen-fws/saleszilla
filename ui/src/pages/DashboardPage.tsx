@@ -372,6 +372,11 @@ export default function DashboardPage() {
         setSelectedQueueItemId(null);
         const data = await getQueue(selectedFolderId!);
         setQueueItems(data.items ?? []);
+        // Backend may have lazily expired stale items during the queue
+        // fetch (e.g. New Inquiries whose Potential.Stage drifted off
+        // "Open" via legacy-CRM sync). Refresh folder counts so the
+        // sidebar badge matches the rendered list.
+        refreshFolders();
       } catch {
         setError("Failed to load queue items");
         setQueueItems([]);
@@ -380,7 +385,25 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, [selectedFolderId, viewMode]);
+  }, [selectedFolderId, viewMode, refreshFolders]);
+
+  // Background poll while on a queue folder — picks up cards/counts that
+  // disappeared due to backend lazy-expiry (e.g. legacy-CRM sync flipped a
+  // potential's stage off "Open"). Silent: no loading spinner, just
+  // updates state if the data actually changed.
+  useEffect(() => {
+    if (!selectedFolderId || viewMode !== "queue") return;
+    const POLL_MS = 60_000;
+    const tick = async () => {
+      try {
+        const data = await getQueue(selectedFolderId!);
+        setQueueItems(data.items ?? []);
+        refreshFolders();
+      } catch { /* silent — next tick will retry */ }
+    };
+    const id = setInterval(tick, POLL_MS);
+    return () => clearInterval(id);
+  }, [selectedFolderId, viewMode, refreshFolders]);
 
   // Fetch potentials. Resets to page 1 whenever filters / team-toggle change
   // — see the dedicated reset effect below.
