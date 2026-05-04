@@ -34,9 +34,12 @@ def get_team_user_ids(manager_user_id: str) -> list[str]:
         if not manager or not manager.email:
             return []
 
-        # Load all active users once and build in-memory graph: BFS down the tree.
+        # Load all users once and build in-memory graph: BFS down the tree.
+        # IsActive filter intentionally dropped — Zoho-imported user rows have
+        # inconsistent IsActive values, and excluding them silently drops
+        # legitimate reportees from a manager's team subtree.
         rows = session.execute(
-            select(User.user_id, User.email, User.reporting_to).where(User.is_active == True)
+            select(User.user_id, User.email, User.reporting_to)
         ).all()
 
         uid_to_email: dict[str, str] = {}

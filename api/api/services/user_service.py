@@ -25,15 +25,30 @@ def load_user_by_id(user_id: str) -> User | None:
 
 
 def load_user_by_email(email: str) -> User | None:
-    """Load an active user by email (case-insensitive)."""
+    """Load a user by email. Tolerates duplicate rows in the source `users`
+    table (legacy CRM imports occasionally produce them) — we deterministically
+    pick the active one if there is one, else the first match. Logs a
+    warning when a dupe is detected so the data can be cleaned up.
+    """
     with get_session() as session:
-        stmt = select(User).where(
-            User.email == email.strip(),
-            User.is_active == True,
+        # Prefer active rows over inactive when picking the winner. SQL Server
+        # treats BIT TRUE as 1, so `is_active DESC` puts active rows first.
+        stmt = (
+            select(User)
+            .where(User.email == email.strip())
+            .order_by(User.is_active.desc(), User.user_id)
         )
-        user = session.execute(stmt).scalar_one_or_none()
-        if user:
-            session.expunge(user)
+        rows = session.execute(stmt).scalars().all()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "load_user_by_email: %d duplicate rows for email=%s — picked user_id=%s. Clean up the source table.",
+                len(rows), email, rows[0].user_id,
+            )
+        user = rows[0]
+        session.expunge(user)
         return user
 
 

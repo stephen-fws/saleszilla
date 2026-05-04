@@ -1037,7 +1037,7 @@ def list_owners(name_like: str | None = None) -> dict[str, Any]:
     and resolves the manager's display name when that email matches another user.
     """
     with get_session() as session:
-        stmt = select(User).where(User.is_active == True)
+        stmt = select(User)
         # Restrict to the caller's own user + their reporting subtree
         scope = get_scope()
         if scope is not None:

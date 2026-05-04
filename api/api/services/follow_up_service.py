@@ -1028,7 +1028,7 @@ def _has_client_reply_since(potential_number: str, since: datetime) -> bool:
     with get_session() as session:
         # Sales user emails (from Users + CX_UserTokens)
         sales_emails_rows = session.execute(
-            select(User.email).where(User.is_active == True)
+            select(User.email)
         ).all()
         ms_email_rows = session.execute(
             select(CXUserToken.ms_email).where(
@@ -1057,7 +1057,7 @@ def _load_email_thread_from_view(potential_number: str, limit: int = 20) -> list
     """Fallback — fetch the last N emails for this potential from the sync view."""
     with get_session() as session:
         sales_emails_rows = session.execute(
-            select(User.email).where(User.is_active == True)
+            select(User.email)
         ).all()
         ms_email_rows = session.execute(
             select(CXUserToken.ms_email).where(

@@ -92,7 +92,7 @@ def _format_plain_body(text: str | None) -> str:
 
 def _load_sales_emails() -> set[str]:
     with get_session() as session:
-        user_rows = session.execute(select(User.email).where(User.is_active == True)).all()
+        user_rows = session.execute(select(User.email)).all()
         ms_rows = session.execute(
             select(CXUserToken.ms_email).where(CXUserToken.is_active == True, CXUserToken.ms_email.is_not(None))
         ).all()
