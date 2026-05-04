@@ -1255,6 +1255,135 @@ SUPPORT_EMAIL_TO=email1@domain.com,email2@domain.com
 
 ---
 
+## May 2026 Updates
+
+### Per-User Twilio Number
+- Added `CX_UserTokens.TwilioNumber` (E.164, NULL = use org default `TWILIO_CALLING_NUMBER`).
+- `/me/settings` GET/PATCH now read/write `twilio_number` and echo `twilio_default_number` (org-level) so the UI can render the dropdown without a second request. PATCH validates E.164 + calls Twilio API to confirm the number is provisioned on the org account.
+- `CallDialog` shows a "Calling From" dropdown with the user's number + org default. Default selection = user's number when set.
+- Frontend passes the chosen number as a custom `FromNumber` param on `device.connect({params: {…}})`. The `/twilio/voice` webhook validates `FromNumber` against `{user.twilio_number, org_default}` (rejects spoofs) and uses it as `<Dial callerId>`. Falls back to `TWILIO_CALLING_NUMBER` when no `FromNumber` is sent.
+
+### Reassign Potential
+- `PATCH /potentials/{id}/owner` (body `{new_owner_user_id}`). `require_potential_owner` only — anyone who can see the potential can reassign it (no superadmin gate). Updates `Potential Owner Id` + `Potential Owner Name`, logs `owner_changed` activity. **Pending Next Action drafts are intentionally preserved** (they're plain DB rows; new owner edits/sends from their own composer — signature/tone may need a tweak).
+- `GET /users` (no admin gate) — feeds the picker dropdown. Returns `{user_id, name, email}[]`.
+- UI: ⋮ menu in Panel 3 header gets "Reassign Potential" → `ReassignDialog` two-step modal (pick user → confirm with warning panel). On success, `onEmailSent?.()` triggers full dashboard refresh (folders, lists, detail).
+- After reassign, `list_queue_items` and `list_folders` already filter by **current** `Potential.potential_owner_id` (not the stale `CXQueueItem.assigned_to_user_id`), so the QI moves to the new owner's folder instantly without any cascade write.
+
+### Demo Mode (Impersonation UX)
+Backend mutation guard remains the source-of-truth block on `POST/PATCH/PUT/DELETE` during impersonation. Frontend was previously hiding all write affordances; now it renders them but gates only the final-submit actions so superadmins can demo the tool live.
+
+Surfaces gated:
+- `EmailComposer.tsx` — Send + Save Draft buttons hidden when `useImpersonationStore().viewingAs` is set; replaced with read-only note "Read-only — switch back to your own account to send." Composer body, recipients, attachments, toolbar all stay editable.
+- `QueuePanel.tsx` — Done (✓) and Skip (✕) icons render normally on hover, but the click handler short-circuits when `demoMode` is true. Tooltip explains.
+- `DetailPanel.tsx` — `isOwner = ownerMatch || impersonating` (was `ownerMatch && !impersonating`), so "Open in Composer" appears in demo mode. Composer's own demo-mode gate handles the send block.
+- `DashboardPage.tsx` — drops the conditional `viewingAs ? undefined : handleResolveQueueItem` and always passes the handler so icons render; the gate happens inside `QueuePanel`.
+
+Other write surfaces (notes, todos, files, reassign, calls, field edits) intentionally NOT gated for demo — backend rejection is the safety net there.
+
+### Stage Analyzer Auto-Close FRE
+When the `stage_update` agent flips a potential off `Open`, the FRE flow is retired automatically:
+- All pending/running/completed `newEnquiry` `next_action` insights → `actioned`.
+- Pending `new-inquiries` queue item → `completed`.
+- New `fre_skipped_by_stage` activity row: *"First Response Email skipped — stage moved to "Pre Qualified""* (amber icon in Timeline tab; activity_type registered there).
+- Helper: `_close_fre_after_stage_change(session, potential, new_stage, now)` in `agent_service.py`, called from `_apply_stage_update`.
+
+### Lazy New-Inquiries Cleanup (Legacy CRM Sync Drift)
+External stage changes (rep edits stage in legacy CRM → sync table flips `Potentials.Stage`) don't fire our `stage_update` agent, so the auto-close above doesn't run. Lazy cleanup at queue-read time mirrors `_expire_meeting_briefs`:
+- `_expire_new_inquiries_off_open(session)` in `queue_service.py` — finds every pending `new-inquiries` QI whose `Potential.Stage != 'Open'`, closes them, retires the matching `newEnquiry` next-action insights, logs `fre_skipped_by_stage`.
+- Called from BOTH `list_folders()` (so badge counts are honest from the first dashboard poll) AND `list_queue_items('new-inquiries')` (defense in depth).
+- Frontend: `DashboardPage.tsx` polls the open queue folder every 60s (silent — no spinner) and refreshes folder counts. Catches drift while the rep is sitting on the folder.
+
+### Inactive Follow-Up — Daily, 1-Day Window
+- Cadence changed from weekly Wednesday to **daily**. Each run targets exactly the calendar day **60 days before yesterday** (1-day window). `compute_inactive_scan_window(today)` returns `[target_day, target_day + 1d)`.
+- Each potential's `last_email_at` falls in exactly one daily run, ever — no overlap, no re-trigger by design.
+- Candidate query: `Stage IN ('Sleeping', 'Contact Later')` AND `MAX(SentTime, ReceivedTime) FROM VW_CRM_Sales_Sync_Emails` falls in the 1-day window.
+- Idempotency check unchanged (skip-if `followUpInactive` insight in `pending`/`running`/`completed`). Per-run cap **removed**.
+- Cloud Scheduler should hit `POST /internal/followups/inactive-scan` daily.
+
+### News Scan — Inquired On 60-day Window + Manual Trigger
+- Eligibility added: `Inquired On IS NOT NULL AND >= today − 60 days`. Stage filter loosened — `Low Value` is no longer excluded (engagement matters more than value tag for D/P).
+- Skip-if-unactioned is back: any `news` insight in `pending`/`running`/`completed` skips re-trigger until the rep skips/sends.
+- New params on `POST /internal/news/scan`:
+  - `cutoff_days=<int>` (default 2). Steady-state scheduler leaves at 2; widen to 14 for first-launch backfill.
+  - `potential_number=<7-digit>` — manual mode. Force-trigger a single potential, bypassing eligibility filters, idempotency, AND per-run cap. Used for testing / on-demand refresh.
+- Per-run cap **removed**.
+
+### Email Threads — Description Fallback + cid: Stripping
+Email rendering priority chain now (per row/thread):
+1. **MS Graph live** — needs MS token + an anchor (`internetMessageId` / `conversationId`).
+2. **Cleaned `Description` HTML** — when token missing OR no anchor. Captures the formatted thread Outlook saw at sync time.
+3. **Plain `UniqueBody`** with paragraph heuristics — Shape #1 legacy rows that have neither.
+
+Sanitiser (`_sanitize_email_html` in `email_thread_service.py`) strips: `<script>`/`<style>`, HTML comments, MSO conditional blocks, inline event handlers, `mso-*` CSS declarations, **inline `cid:` images** (Outlook signature images that browsers can't resolve). Returns `""` when the post-strip visible-text length is < 20 chars (treated as broken/empty → falls through to UniqueBody).
+
+`_format_plain_body` in same file converts `UniqueBody` plain text → paragraph-split HTML (`\n\n` → `<p>`, `\n` → `<br>`, escape).
+
+**Description redundancy fix**: when multiple sync rows share the same `Outlook_ConversationId` (each carries a snapshot of the full thread up to its message), only the **latest row's Description** is rendered — older rows in the same group are dropped. Rows without `Outlook_ConversationId` (Shape #1) render individually.
+
+SQL widened to also pull `[Description]` and `Outlook_ConversationId` from `VW_CRM_Sales_Sync_Emails`.
+
+### Rich-Text Email Signature
+- `EmailComposer.tsx` exports its TipTap-based `RichEditor` component.
+- `SettingsDrawer.tsx` uses `RichEditor` for the Email Signature field instead of the plain textarea — reps can add **hyperlinks** (company website, calendar booking link), bold/italic/underline, lists, blockquotes.
+- DB column unchanged (`CX_UserTokens.EmailSignature` is `UnicodeText` — already accepts HTML). Existing plain-text signatures still render fine.
+
+### `Inquired On` Column
+- New `Potentials.[Inquired On]` (DateTime) — when the prospect actually filled the form, separate from `Created Time` (CRM row creation).
+- Mapped in `Potential.inquired_on`, `PotentialItem.inquired_on`, `PotentialDetail.inquiredOn`.
+- Rendered in DetailsTab Deal section above Created — shown unconditionally with `—` placeholder when null.
+- News scan freshness gate uses this column (60-day window).
+- Renders via `formatNaiveDateTime` (no UTC conversion) since the DB stores the value naive in legacy timezone — matches Panel 2's `dateBucket` parsing so a deal Panel 2 puts under "Yesterday" doesn't show "Today" in the detail tab.
+
+### Composer & Markdown Rendering Improvements
+- Composer header is compact: dropped the "New Email" / "Reply" label, moved **Subject input inline** with the Save Draft + Close icons. Reclaimed ~36 px for the rich-text body.
+- CC and BCC rows now have a small `×` button to clear & dismiss the row (was one-way before).
+- `NextActionTab` uses a smart renderer (`renderAgentBody`):
+  - If agent's content has block-level markdown (`# heading`, `- bullet`, `1. item`, `> quote`, `|table|`, ` ``` `) → full GFM via `marked` (handles lists, tables, headers).
+  - Else → simple escape + bold/italic + `\n→<br>` + autolink, preserving the agent's exact line-break shape.
+  - Always autolinks bare URLs and **email addresses** (mailto:) on the final HTML.
+- Preview and composer use the SAME HTML pipeline — what you see is what you'll send.
+- Lightweight `.prose` CSS in `index.css` styles lists/headings/blockquotes/tables/code without pulling in `@tailwindcss/typography`.
+
+### Research / Solution Re-run Graph
+- New consolidated graph `AGENTFLOW_GRAPH_RESEARCH_SOLUTION` (config key `research_solution`).
+- `init_agents_for_potential(potential_id, tab_types=["research", "solution_brief"])` routes to this graph instead of the full new-potential graph. Avoids re-firing FRE / stage_update / attachment when the rep just wants research+solution refresh.
+- Always seeds BOTH research and solution_brief insight rows regardless of which tab the user clicked from (solution depends on research).
+- `trigger_single_agent` mirrors the rule: research/solution_brief tab_types route to the rerun graph.
+- Timeline label: `"Research & Solution refresh"`.
+
+### Per-Agent `agent_completed` Timeline Removed
+- `log_agent_completed` deleted from `activity_service.py`. Per-agent completion was too noisy — only graph triggers (`agent_triggered`) are logged now.
+- `Bot` icon used for `agent_triggered` (was Sparkles).
+- One-time cleanup script `cleanup_agent_completed_activities.sql` hard-deletes prior `agent_completed` rows.
+
+### Email Thread `email_thread` Field Removed from Graph Payloads
+- `_trigger_followup_agentflow` and the inline reply trigger no longer ship `email_thread` in `entity.attributes`. Agents query `VW_CRM_Sales_Sync_Emails` directly using `trigger_message_id` / `client_message_id` as the anchor.
+- `_load_email_thread*` helpers still exist but are unused (dead code).
+
+### Meeting Brief Payload Restructure
+- `category` and `meeting_info` removed from `entity.attributes`.
+- `meeting_info` now under root-level `input_data.meeting_details` (matches news/todo_reconcile pattern). Extended `_trigger_agentflow` with optional `input_data` param.
+
+### Sanitised Description for Customer Requirements
+- New `_sanitize_description(value)` helper in `agent_service.py` — strips HTML tags, collapses whitespace, caps at 8000 chars with `…[truncated]` suffix.
+- Applied in **both** copies of `_load_potential_data` (agent_service + follow_up_service) so every graph trigger gets the cleaned `description` as `customer_requirements`.
+- All seven graph triggers (newEnquiry, meeting_brief, follow_up, reply, follow_up_inactive, stage_update, todo_reconcile, news) now ship the same standard attribute set: `customer_name`, `contact_email`, `contact_phone`, `company_name`, `company_website`, `customer_country`, `form_url`, `service`, `sub_service`, `lead_source`, `customer_requirements`, `entity_owner_email`, `potential_id`.
+
+### Misc UI Polish
+- Logo: replaced "SZ"/"Salezilla" wordmark with `sales-den-logo.png` (in `ui/public/`) — used in FolderPanel header and LoginPage.
+- Global font-brightness bump (CSS overrides in `index.css`): `text-slate-300/400/500/600` each shifted one shade darker for better readability.
+- Potentials filter sidebar: new **Category filter** (Diamond 💎 / Platinum 🔥) below Created date filter. Wired through `PotentialFilters.categories` → backend `categories` query param.
+- Potentials list: `sortBy` prop drives whether to date-group (only `created-desc`/`created-asc`) or render flat (alphabetical, value, stage, etc.). Fixes the "alphabetical sort still grouped by month" bug.
+- Queue cards + Potential cards: monospace `#XXXXXXX` chip showing potential_number next to stage badge.
+- `select-text` + click-handler short-circuit on `window.getSelection().toString()` — drag-select to copy text on cards no longer triggers navigation.
+- Cursor on queue cards: arrow (was hand) — matches the Potentials list `<button>` default.
+- Email draft preview header shows "Prepared 2 hours ago · May 4, 2026, 09:14 AM" (`formatPreparedAt`).
+- "Open in Composer" + composer toolbar: full markdown support (headers, lists, tables, blockquotes, code) via `marked` with `breaks: true` when block-level markdown is present; falls back to simple line-break-preserving converter for plain prose.
+- "Not an enquiry" / "Not an inquiry" agent output (after HTML strip + lowercase) → renders the static "Not a sales inquiry" panel instead of the email preview.
+- Reply / Follow-Up / News / Inactive draft labels: each gets its own "<x> Draft" header copy and "Preparing <x> Draft" running-state copy. Folder context (`categoryHint`) drives the label, not the insight's `triggerCategory` (more reliable when the underlying join is ambiguous).
+
+---
+
 ## What Is NOT Yet Built
 
 - Mobile responsive polish (basic breakpoints exist, overlay panels not done)
