@@ -684,6 +684,35 @@ export default function DetailsTab({
               {detail.createdAt && (
                 <Field label="Created" value={formatNaiveDateTime(detail.createdAt)} />
               )}
+              {(detail.buyerIntentScore != null || detail.buyerIntentLevel || detail.buyerIntentJustification) && (
+                <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2.5 mt-1">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Buyer Intent</span>
+                    {detail.buyerIntentLevel && (
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          /high/i.test(detail.buyerIntentLevel)   ? "bg-emerald-100 text-emerald-700" :
+                          /medium|mid/i.test(detail.buyerIntentLevel) ? "bg-amber-100  text-amber-700"  :
+                          /low/i.test(detail.buyerIntentLevel)    ? "bg-slate-200 text-slate-700"  :
+                                                                    "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {detail.buyerIntentLevel}
+                      </span>
+                    )}
+                    {detail.buyerIntentScore != null && (
+                      <span className="text-xs font-mono text-slate-600">
+                        Score: <span className="font-semibold text-slate-800">{detail.buyerIntentScore}</span>
+                      </span>
+                    )}
+                  </div>
+                  {detail.buyerIntentJustification && (
+                    <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">
+                      {detail.buyerIntentJustification}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="col-span-2 mt-1">
                 <EditableField
                   label="Next Step"

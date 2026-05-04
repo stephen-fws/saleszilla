@@ -220,6 +220,9 @@ export async function getPotentialDetail(id: string): Promise<PotentialDetail> {
     dealSize: p.deal_size ?? null,
     createdAt: p.created_time ?? null,
     inquiredOn: p.inquired_on ?? null,
+    buyerIntentScore: p.buyer_intent_score ?? null,
+    buyerIntentLevel: p.buyer_intent_level ?? null,
+    buyerIntentJustification: p.buyer_intent_justification ?? null,
     contact: p.contact
       ? {
           id: p.contact.id ?? "",
@@ -291,6 +294,9 @@ export async function updatePotential(id: string, payload: UpdatePotentialPayloa
     dealSize: p.deal_size ?? null,
     createdAt: p.created_time ?? null,
     inquiredOn: p.inquired_on ?? null,
+    buyerIntentScore: p.buyer_intent_score ?? null,
+    buyerIntentLevel: p.buyer_intent_level ?? null,
+    buyerIntentJustification: p.buyer_intent_justification ?? null,
     contact: p.contact ? {
       id: p.contact.id ?? "",
       name: p.contact.name ?? null,
@@ -413,6 +419,9 @@ export async function createPotential(payload: CreatePotentialPayload): Promise<
     dealSize: p.deal_size ?? null,
     createdAt: p.created_time ?? null,
     inquiredOn: p.inquired_on ?? null,
+    buyerIntentScore: p.buyer_intent_score ?? null,
+    buyerIntentLevel: p.buyer_intent_level ?? null,
+    buyerIntentJustification: p.buyer_intent_justification ?? null,
     contact: p.contact ? {
       id: p.contact.id ?? "",
       name: p.contact.name ?? null,

@@ -320,6 +320,9 @@ export interface PotentialDetail {
   dealSize: string | null;
   createdAt: string | null;
   inquiredOn: string | null;
+  buyerIntentScore: number | null;
+  buyerIntentLevel: string | null;
+  buyerIntentJustification: string | null;
   contact: {
     id: string;
     name: string | null;

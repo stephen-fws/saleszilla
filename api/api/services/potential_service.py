@@ -215,18 +215,21 @@ def list_potentials(
 
 def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
     """Get full potential detail with account and contact."""
+    from core.models import PotentialAttribute
     with get_session() as session:
-        stmt = select(Potential, Account, Contact).outerjoin(
+        stmt = select(Potential, Account, Contact, PotentialAttribute).outerjoin(
             Account, Potential.account_id == Account.account_id
         ).outerjoin(
             Contact, Potential.contact_id == Contact.contact_id
+        ).outerjoin(
+            PotentialAttribute, PotentialAttribute.potential_number == Potential.potential_number
         ).where(Potential.potential_id == potential_id)
 
         row = session.execute(stmt).first()
         if not row:
             return None
 
-        p, a, c = row
+        p, a, c, attrs = row
 
         potential_item = PotentialItem(
             id=p.potential_id,
@@ -247,6 +250,9 @@ def get_potential_detail(potential_id: str) -> PotentialDetailResponse | None:
             deal_type=p.type,
             created_time=p.created_time,
             inquired_on=p.inquired_on,
+            buyer_intent_score=attrs.buyer_intent_score if attrs else None,
+            buyer_intent_level=attrs.buyer_intent_level if attrs else None,
+            buyer_intent_justification=attrs.buyer_intent_justification if attrs else None,
             company=CompanySummary(
                 id=a.account_id, name=a.account_name, industry=a.industry
             ) if a else None,

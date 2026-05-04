@@ -125,6 +125,20 @@ class Potential(Base):
     modified_time: Mapped[datetime | None] = mapped_column("Modified Time", DateTime, nullable=True)
 
 
+class PotentialAttribute(Base):
+    """Read-only — buyer-intent enrichment per potential, keyed on
+    `PotentialNumber` (the 7-digit business id, not the UUID)."""
+
+    __tablename__ = "Potentials_Attributes"
+
+    # The view uses PotentialNumber as its natural key — declare PK here so
+    # SQLAlchemy is happy. There's no separate id column.
+    potential_number: Mapped[str] = mapped_column("PotentialNumber", String(32), primary_key=True)
+    buyer_intent_score: Mapped[float | None] = mapped_column("Buyer_Intent_Score", nullable=True)
+    buyer_intent_level: Mapped[str | None] = mapped_column("Buyer_Intent_Level", String(32), nullable=True)
+    buyer_intent_justification: Mapped[str | None] = mapped_column("Buyer_Intent_Justification", UnicodeText, nullable=True)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # READ-WRITE — CX_ extension tables
 # ═════════════════════════════════════════════════════════════════════════════

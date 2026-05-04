@@ -79,6 +79,10 @@ class PotentialItem(BaseModel):
     deal_type: Optional[str] = None
     created_time: Optional[datetime] = None
     inquired_on: Optional[datetime] = None
+    # Buyer intent — sourced from Potentials_Attributes (joined on PotentialNumber)
+    buyer_intent_score: Optional[float] = None
+    buyer_intent_level: Optional[str] = None
+    buyer_intent_justification: Optional[str] = None
     company: Optional[CompanySummary] = None
     contact: Optional[ContactSummary] = None
 
